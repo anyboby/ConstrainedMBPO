@@ -3,6 +3,7 @@
 import numpy as np
 import gym
 from gym import spaces, wrappers
+import safety_gym
 
 from .softlearning_env import SoftlearningEnv
 from softlearning.environments.gym import register_environments
@@ -64,6 +65,8 @@ class GymAdapter(SoftlearningEnv):
             assert (domain is not None and task is not None), (domain, task)
             env_id = f"{domain}-{task}"
             env = gym.envs.make(env_id, **kwargs)
+            #env_id = f""
+            #env = gym.make("Safexp-PointGoal1-v0")
         else:
             assert domain is None and task is None, (domain, task)
 

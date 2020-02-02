@@ -11,6 +11,19 @@ import gym
 CUSTOM_GYM_ENVIRONMENTS_PATH = __package__
 MUJOCO_ENVIRONMENTS_PATH = f'{CUSTOM_GYM_ENVIRONMENTS_PATH}.mujoco'
 
+from gym.envs.registration import register
+
+
+####### @anyboby custom for safety-gym #######
+SAFETY_GYM_ENVIRONMENT_SPECS = (
+    {
+        'id': 'Safexp-PointGoal-v0',
+        'entry_point': (f'safety_gym.envs.mujoco:Engine'),
+    },
+)
+
+##############################################
+
 MUJOCO_ENVIRONMENT_SPECS = (
     {
         'id': 'Swimmer-Parameterizable-v3',
@@ -82,6 +95,11 @@ MULTIWORLD_ENVIRONMENT_SPECS = (
     },
 )
 
+SAFETY_GYM_ENVIRONMENTS = tuple(
+    environment_spec['id']
+    for environment_spec in SAFETY_GYM_ENVIRONMENT_SPECS)
+
+
 MUJOCO_ENVIRONMENTS = tuple(
     environment_spec['id']
     for environment_spec in MUJOCO_ENVIRONMENT_SPECS)
@@ -97,6 +115,7 @@ MULTIWORLD_ENVIRONMENTS = tuple(
     for environment_spec in MULTIWORLD_ENVIRONMENT_SPECS)
 
 GYM_ENVIRONMENTS = (
+    *SAFETY_GYM_ENVIRONMENTS,
     *MUJOCO_ENVIRONMENTS,
     *GENERAL_ENVIRONMENTS,
     *MULTIWORLD_ENVIRONMENTS,
@@ -113,6 +132,18 @@ def register_mujoco_environments():
         for environment_spec in  MUJOCO_ENVIRONMENT_SPECS)
 
     return gym_ids
+
+def register_safety_environments():
+    """Register softlearning safety environments."""
+    for safety_environment in SAFETY_GYM_ENVIRONMENT_SPECS:
+        gym.register(**safety_environment)
+
+    gym_ids = tuple(
+        environment_spec['id']
+        for environment_spec in  SAFETY_GYM_ENVIRONMENT_SPECS)
+
+    return gym_ids
+
 
 
 def register_general_environments():
@@ -140,11 +171,13 @@ def register_multiworld_environments():
 
 
 def register_environments():
+    registered_safety_environments = register_safety_environments()
     registered_mujoco_environments = register_mujoco_environments()
     registered_general_environments = register_general_environments()
     registered_multiworld_environments = register_multiworld_environments()
 
     return (
+        *registered_safety_environments,
         *registered_mujoco_environments,
         *registered_general_environments,
         *registered_multiworld_environments,

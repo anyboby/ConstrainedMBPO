@@ -16,7 +16,7 @@ from softlearning.samplers.utils import get_sampler_from_variant
 from softlearning.value_functions.utils import get_Q_function_from_variant
 
 from softlearning.misc.utils import set_seed, initialize_tf_variables
-from examples.instrument import run_example_local
+from examples.instrument import run_example_local, run_example_debug
 
 import mbpo.static
 
@@ -229,6 +229,7 @@ def main(argv=None):
     """
     # __package__ should be `development.main`
     run_example_local(__package__, argv)
+    #run_example_debug(__package__, argv)
 
 
 if __name__ == '__main__':

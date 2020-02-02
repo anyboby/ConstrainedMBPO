@@ -1,8 +1,8 @@
 params = {
     'type': 'MBPO',
-    'universe': 'gym',
-    'domain': 'HalfCheetah',
-    'task': 'v2',
+    'universe': "gym",
+    'domain': "Safexp-PointGoal",
+    'task': "v0",
 
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
@@ -11,7 +11,7 @@ params = {
         'epoch_length': 1000,
         'train_every_n_steps': 1,
         'n_train_repeat': 40,
-        'eval_render_mode': "human",
+        'eval_render_mode': 'human',
         'eval_n_episodes': 1,
         'eval_deterministic': True,
 
@@ -26,8 +26,9 @@ params = {
         'num_networks': 7,
         'num_elites': 5,
         'real_ratio': 0.05,
-        'target_entropy': -3,
+        'target_entropy': -1,
         'max_model_t': None,
-        'rollout_schedule': [20, 150, 1, 1],
+        'rollout_schedule': [20, 150, 1, 15],
     }
 }
+

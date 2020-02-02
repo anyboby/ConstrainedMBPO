@@ -390,7 +390,6 @@ class MBPO(RLAlgorithm):
             
             next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
             steps_added.append(len(obs))
-
             samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
             self._model_pool.add_samples(samples)
 
