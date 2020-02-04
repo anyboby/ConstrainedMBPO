@@ -1,7 +1,7 @@
 params = {
     'type': 'MBPO',
     'universe': "gym",
-    'domain': "Safexp-PointGoal",
+    'domain': "Safexp-PointGoal2",
     'task': "v0",
 
     'log_dir': '~/ray_mbpo/',
@@ -11,7 +11,7 @@ params = {
         'epoch_length': 1000,
         'train_every_n_steps': 1,
         'n_train_repeat': 40,
-        'eval_render_mode': 'human',
+        #'eval_render_mode': 'human',
         'eval_n_episodes': 1,
         'eval_deterministic': True,
 

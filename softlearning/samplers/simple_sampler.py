@@ -46,6 +46,8 @@ class SimpleSampler(BaseSampler):
         ])[0]
 
         next_observation, reward, terminal, info = self.env.step(action)
+        # just for testing
+        # self.env.render()
         self._path_length += 1
         self._path_return += reward
         self._total_samples += 1

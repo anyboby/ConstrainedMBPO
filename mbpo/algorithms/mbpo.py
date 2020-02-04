@@ -220,7 +220,6 @@ class MBPO(RLAlgorithm):
                     print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
                         self._epoch, self._model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
                     )
-
                     model_train_metrics = self._train_model(batch_size=256, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
@@ -235,6 +234,7 @@ class MBPO(RLAlgorithm):
                     # self._visualize_model(self._evaluation_environment, self._total_timestep)
                     self._training_progress.resume()
 
+                ##### śampling from the real world ! #####
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
@@ -388,6 +388,7 @@ class MBPO(RLAlgorithm):
         for i in range(self._rollout_length):
             act = self._policy.actions_np(obs)
             
+            ##### here we're dreaming in the agents model #####
             next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
             steps_added.append(len(obs))
             samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}

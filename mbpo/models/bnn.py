@@ -406,7 +406,6 @@ class BNN:
 
         progress.stamp()
         if timer: timer.stamp('bnn_train')
-
         self._set_state()
         if timer: timer.stamp('bnn_set_state')
 

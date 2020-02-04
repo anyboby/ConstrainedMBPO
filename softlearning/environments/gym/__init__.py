@@ -17,8 +17,9 @@ from gym.envs.registration import register
 ####### @anyboby custom for safety-gym #######
 SAFETY_GYM_ENVIRONMENT_SPECS = (
     {
-        'id': 'Safexp-PointGoal-v0',
+        'id': 'Safexp-PointGoal2-v0',
         'entry_point': (f'safety_gym.envs.mujoco:Engine'),
+        # @anyboby config missing !g
     },
 )
 
@@ -171,13 +172,14 @@ def register_multiworld_environments():
 
 
 def register_environments():
-    registered_safety_environments = register_safety_environments()
+    #not sure if necessary
+    #registered_safety_environments = register_safety_environments()
     registered_mujoco_environments = register_mujoco_environments()
     registered_general_environments = register_general_environments()
     registered_multiworld_environments = register_multiworld_environments()
 
     return (
-        *registered_safety_environments,
+        #*registered_safety_environments,
         *registered_mujoco_environments,
         *registered_general_environments,
         *registered_multiworld_environments,
