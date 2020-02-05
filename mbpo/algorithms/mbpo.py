@@ -203,7 +203,8 @@ class MBPO(RLAlgorithm):
 
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat)
             start_samples = self.sampler._total_samples
-            for i in count():
+
+            for i in count():           ### train for epoch length ###
                 samples_now = self.sampler._total_samples
                 self._timestep = samples_now - start_samples
 
@@ -224,6 +225,8 @@ class MBPO(RLAlgorithm):
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
+
+                    #### rollout model env ####
                     self._set_rollout_length()
                     self._reallocate_model_pool()
                     model_rollout_metrics = self._rollout_model(rollout_batch_size=self._rollout_batch_size, deterministic=self._deterministic)
@@ -238,6 +241,7 @@ class MBPO(RLAlgorithm):
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
+                ### n_train_repeat from config ###
                 if self.ready_to_train:
                     self._do_training_repeats(timestep=self._total_timestep)
                 gt.stamp('train')
@@ -261,6 +265,7 @@ class MBPO(RLAlgorithm):
                 gt.stamp('evaluation_metrics')
             else:
                 evaluation_metrics = {}
+
 
             self._epoch_after_hook(training_paths)
             gt.stamp('epoch_after_hook')
@@ -314,6 +319,7 @@ class MBPO(RLAlgorithm):
 
         self._training_progress.close()
 
+        ### this is where we yield the episode diagnostics to tune trial runner ###
         yield {'done': True, **diagnostics}
 
     def train(self, *args, **kwargs):

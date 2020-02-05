@@ -1,7 +1,7 @@
 params = {
     'type': 'MBPO',
     'universe': "gym",
-    'domain': "Safexp-PointGoal2",
+    'domain': "Safexp-DoggoGoal2",
     'task': "v0",
 
     'log_dir': '~/ray_mbpo/',
@@ -9,7 +9,7 @@ params = {
 
     'kwargs': {
         'epoch_length': 3000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
-        'train_every_n_steps': 50,     # Repeat training n_train_repeat times every _train_every_n_steps
+        'train_every_n_steps': 100,     # Repeat training n_train_repeat times every _train_every_n_steps
         'n_train_repeat': 10, #40,      # -> trains on current epochs training batch, every_n_steps
         'eval_render_mode': 'human',    # 
         'eval_n_episodes': 5,
