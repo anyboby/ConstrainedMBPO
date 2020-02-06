@@ -7,6 +7,8 @@ params = {
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
 
+    #'max_pool_size':int(5e5),         # haven't seen oom in pointgoal so far
+
     'kwargs': {
         'epoch_length': 3000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
         'train_every_n_steps': 50,     # Repeat training n_train_repeat times every _train_every_n_steps

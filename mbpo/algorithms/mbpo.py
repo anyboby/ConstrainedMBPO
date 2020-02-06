@@ -97,8 +97,10 @@ class MBPO(RLAlgorithm):
 
         obs_dim = np.prod(training_environment.observation_space.shape)
         act_dim = np.prod(training_environment.action_space.shape)
+        
+        #### create fake env from model 
         self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
-        self._static_fns = static_fns
+        self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.fake_env = FakeEnv(self._model, self._static_fns)
 
         self._rollout_schedule = rollout_schedule
@@ -155,6 +157,7 @@ class MBPO(RLAlgorithm):
         assert len(action_shape) == 1, action_shape
         self._action_shape = action_shape
 
+        #### create tf ops 
         self._build()
 
     def _build(self):
@@ -176,45 +179,65 @@ class MBPO(RLAlgorithm):
                 If None, then all exploration is done using policy
             pool (`PoolBase`): Sample pool to add samples to
         """
+
+        #### pool is e.g. simple_replay_pool
         training_environment = self._training_environment
         evaluation_environment = self._evaluation_environment
         policy = self._policy
         pool = self._pool
         model_metrics = {}
 
+        #### init Qs for SAC
         if not self._training_started:
             self._init_training()
 
+            #### perform some initial steps (gather samples) using initial policy
+            ######  fills pool with _n_initial_exploration_steps samples
             self._initial_exploration_hook(
                 training_environment, self._initial_exploration_policy, pool)
 
+        #### set up sampler with train env and actual policy (may be different from initial exploration policy)
+        ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
 
+        #### reset gtimer (for coverage of project development)
         gt.reset_root()
         gt.rename_root('RLAlgorithm')
         gt.set_def_unique(False)
 
+        #### not implemented, could train policy before hook
         self._training_before_hook()
 
+        #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
 
+            #### do something at beginning of epoch (in this case reset self._train_steps_this_epoch=0)
             self._epoch_before_hook()
             gt.stamp('epoch_before_hook')
 
+            #### util class Progress, e.g. for plotting a progress bar
+            #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat)
-            start_samples = self.sampler._total_samples
+            start_samples = self.sampler._total_samples                     
 
-            for i in count():           ### train for epoch length ###
+            ### train for epoch_length ###
+            for i in count():           
+
+                #### _timestep is within an epoch
                 samples_now = self.sampler._total_samples
                 self._timestep = samples_now - start_samples
 
+                #### check if you're at the end of an epoch to train
                 if (samples_now >= start_samples + self._epoch_length
                     and self.ready_to_train):
                     break
 
+                #### not implemented atm
                 self._timestep_before_hook()
                 gt.stamp('timestep_before_hook')
 
+
+                #### start model rollout hook
                 if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                     self._training_progress.pause()
                     print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
@@ -238,6 +261,7 @@ class MBPO(RLAlgorithm):
                     self._training_progress.resume()
 
                 ##### śampling from the real world ! #####
+                ##### _total_timestep % train_every_n_steps is checked inside _do_sampling
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 

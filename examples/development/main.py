@@ -39,6 +39,9 @@ class ExperimentRunner(tune.Trainable):
         tf.keras.backend.clear_session()
 
     def _build(self):
+        """
+        called by tune to build algorithm 
+        """
         variant = copy.deepcopy(self._variant)
 
         environment_params = variant['environment_params']
@@ -64,6 +67,7 @@ class ExperimentRunner(tune.Trainable):
         static_fns = mbpo.static[domain.lower()]
         ####
         
+        #### build algorithm 
         self.algorithm = get_algorithm_from_variant(
             variant=self._variant,
             training_environment=training_environment,

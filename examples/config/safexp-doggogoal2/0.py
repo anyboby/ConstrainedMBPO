@@ -7,10 +7,12 @@ params = {
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
 
+    'max_pool_size':int(6e5),           # doggo might go oom at 7.5e5
+
     'kwargs': {
         'epoch_length': 3000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
-        'train_every_n_steps': 100,     # Repeat training n_train_repeat times every _train_every_n_steps
-        'n_train_repeat': 10, #40,      # -> trains on current epochs training batch, every_n_steps
+        'train_every_n_steps': 40,      # Repeat training n_train_repeat times every _train_every_n_steps
+        'n_train_repeat': 15, #40,      # -> trains on current epochs training batch, every_n_steps
         'eval_render_mode': 'human',    # 
         'eval_n_episodes': 5,
         'eval_deterministic': True,

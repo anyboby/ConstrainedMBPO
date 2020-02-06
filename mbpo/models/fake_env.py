@@ -39,17 +39,19 @@ class FakeEnv:
         else:
             return_single = False
 
+        
         inputs = np.concatenate((obs, act), axis=-1)
-        ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)
-        ensemble_model_means[:,:,1:] += obs
-        ensemble_model_stds = np.sqrt(ensemble_model_vars)
+        ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+        ensemble_model_means[:,:,1:] += obs                                                         #### models output state change rather than state completely
+        ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
 
+        ### directly use means, if deterministic
         if deterministic:
-            ensemble_samples = ensemble_model_means
+            ensemble_samples = ensemble_model_means                     
         else:
             ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
 
-        #### choose one model from ensemble
+        #### choose one model from ensemble randomly
         num_models, batch_size, _ = ensemble_model_means.shape
         model_inds = self.model.random_inds(batch_size)
         batch_inds = np.arange(0, batch_size)
@@ -60,6 +62,7 @@ class FakeEnv:
 
         log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
+        #### retrieve r and done for new state
         rewards, next_obs = samples[:,:1], samples[:,1:]
         terminals = self.config.termination_fn(obs, act, next_obs)
 

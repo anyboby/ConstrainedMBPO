@@ -270,8 +270,15 @@ def get_variant_spec(args, env_params):
     variant_spec = get_variant_spec_base(
         universe, domain, task, args.policy, env_params.type, env_params)
 
+    if 'max_pool_size' in env_params:
+        variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.max_pool_size
+    #if env_params.kwargs['max_pool_size'] is not None:
+    #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']
+        
+
     if args.checkpoint_replay_pool is not None:
         variant_spec['run_params']['checkpoint_replay_pool'] = (
             args.checkpoint_replay_pool)
+
 
     return variant_spec
