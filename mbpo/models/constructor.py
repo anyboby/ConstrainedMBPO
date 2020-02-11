@@ -9,15 +9,26 @@ def construct_model(obs_dim=11, act_dim=3, rew_dim=1, hidden_dim=200, num_networ
 	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=obs_dim+act_dim, activation="swish", weight_decay=0.000025))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))
-	model.add(FC(obs_dim+rew_dim, weight_decay=0.0001))
-	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
+	model.add(FC(hidden_dim, input_dim=obs_dim+act_dim, activation="swish", weight_decay=0.000025))	#0.000025))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))			#0.00005))
+	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
+	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))			#@anyboby optional
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
+	model.add(FC(obs_dim+rew_dim, weight_decay=0.0001))							#0.0001
+	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.0015})
 	return model
 
 def format_samples_for_training(samples):
+	"""
+	formats samples to fit training, specifically returns: 
+
+	inputs, outputs:
+
+	inputs = np.concatenate((observations, act), axis=-1)
+	outputs = np.concatenate((rewards, delta_observations), axis=-1)
+
+	"""
 	obs = samples['observations']
 	act = samples['actions']
 	next_obs = samples['next_observations']

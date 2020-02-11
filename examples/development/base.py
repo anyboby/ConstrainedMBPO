@@ -4,7 +4,7 @@ import pdb
 
 from softlearning.misc.utils import get_git_rev, deep_update
 
-M = 256
+M = 256 #256
 REPARAMETERIZE = True
 
 NUM_COUPLING_LAYERS = 2

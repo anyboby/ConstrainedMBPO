@@ -280,8 +280,13 @@ class BNN:
 
     def reset(self):
         print('[ BNN ] Resetting model')
-        [layer.reset(self.sess) for layer in self.layers]
-
+        # Initialize all variables
+        
+        #### @anyboby debug: trying different initializer since this thing below doesn't seem to reset
+        #[layer.reset(self.sess) for layer in self.layers]
+        self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
+    
+    
     def validate(self, inputs, targets):
         inputs = np.tile(inputs[None], [self.num_nets, 1, 1])
         targets = np.tile(targets[None], [self.num_nets, 1, 1])
@@ -300,7 +305,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=5,
+              batch_size=32, max_epochs=None, max_epochs_since_update=15,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 
@@ -310,6 +315,7 @@ class BNN:
                 to the rows in inputs.
             batch_size (int): The minibatch size to be used for training.
             epochs (int): Number of epochs (full network passes that will be done.
+            max_epochs_since_update(int): how many epochs of not updating best model before terminating 
             hide_progress (bool): If True, hides the progress bar shown at the beginning of training.
 
         Returns: None
@@ -361,6 +367,7 @@ class BNN:
 
             idxs = shuffle_rows(idxs)
             if not hide_progress:
+                ### no holdout evaluation
                 if holdout_ratio < 1e-12:
                     losses = self.sess.run(
                             self.mse_loss,
@@ -371,6 +378,7 @@ class BNN:
                         )
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     progress.set_description(named_losses)
+                ### eval_runs with holdout
                 else:
                     losses = self.sess.run(
                             self.mse_loss,
@@ -391,6 +399,8 @@ class BNN:
                     named_losses = named_losses + named_holdout_losses + [['T', time.time() - t0]]
                     progress.set_description(named_losses)
 
+                    #### returns true if the best model hasn't been updated for more than 
+                    #               ._max_epochs_since_update model-bnn train epochs
                     break_train = self._save_best(epoch, holdout_losses)
 
             progress.update()

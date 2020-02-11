@@ -328,6 +328,9 @@ class RLAlgorithm(tf.contrib.checkpoint.Checkpointable):
             > self._max_train_repeat_per_timestep * self._timestep)
         if trained_enough: return
 
+
+        #### _training_batch: used to construct batches for rl_algo learning. Batch can consist of 
+        #### model-sampled data or real-env-sampled data, depending on real_ratio
         for i in range(self._n_train_repeat):
             self._do_training(
                 iteration=timestep,

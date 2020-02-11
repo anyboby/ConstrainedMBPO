@@ -1,20 +1,20 @@
 params = {
     'type': 'MBPO',
     'universe': "gym",
-    'domain': "Safexp-PointGoal2",
+    'domain': "Safexp-DoggoGoal2",
     'task': "v0",
 
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
 
-    #'max_pool_size':int(5e5),         # haven't seen oom in pointgoal so far
+    'max_pool_size':int(6e5),           # doggo might go oom at 7.5e5
 
     'kwargs': {
-        'epoch_length': 3000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
-        'train_every_n_steps': 50,     # Repeat training n_train_repeat times every _train_every_n_steps
-        'n_train_repeat': 10, #40,      # -> trains on current epochs training batch, every_n_steps
-        'eval_render_mode': 'human',    # 
-        'eval_n_episodes': 5,
+        'epoch_length': 2000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
+        'train_every_n_steps': 50,      # Repeat training n_train_repeat times every _train_every_n_steps
+        'n_train_repeat': 8, #40,       # -> trains on current epochs training batch, every_n_steps
+        'eval_render_mode': 'human',   # 
+        'eval_n_episodes': 1,
         'eval_deterministic': True,
 
         'discount': 0.99,

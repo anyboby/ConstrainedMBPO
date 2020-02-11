@@ -246,8 +246,8 @@ class MBPO(RLAlgorithm):
                     )
 
                     #### train the model with input:(obs, act), outputs: (rew, delta_obs), inputs are divided into sets with holdout_ratio
-                    self._model.reset()        #@anyboby debug
-                    model_train_metrics = self._train_model(batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
+                    #self._model.reset()
+                    model_train_metrics = self._train_model(batch_size=256, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
@@ -256,7 +256,7 @@ class MBPO(RLAlgorithm):
                     self._reallocate_model_pool()
                     model_rollout_metrics = self._rollout_model(rollout_batch_size=self._rollout_batch_size, deterministic=self._deterministic)
                     model_metrics.update(model_rollout_metrics)
-                    ###########################
+                    
 
                     gt.stamp('epoch_rollout_model')
                     # self._visualize_model(self._evaluation_environment, self._total_timestep)
@@ -459,6 +459,9 @@ class MBPO(RLAlgorithm):
 
     def _training_batch(self, batch_size=None):
         """
+        used to construct batches for rl_algo learning. Batch can consist of 
+        model-sampled data or real-env-sampled data, depending on real_ratio
+
         returns batches, either only env_batch if real_ratio=1
         or 
         a dict where each env_batch and its associated model_batch are contained

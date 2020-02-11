@@ -64,7 +64,7 @@ class SimpleSampler(BaseSampler):
         for key, value in processed_sample.items():
             self._current_path[key].append(value)
 
-        #### add to pool only full paths
+        #### add to pool only after full epoch or terminal path
         if terminal or self._path_length >= self._max_path_length:
             last_path = {
                 field_name: np.array(values)
