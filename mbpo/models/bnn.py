@@ -191,7 +191,7 @@ class BNN:
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
             self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False)
-
+            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True)
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
 
         # Initialize all variables
@@ -305,7 +305,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=15,
+              batch_size=32, max_epochs=None, max_epochs_since_update=50,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 
@@ -394,6 +394,17 @@ class BNN:
                                 self.sy_train_targ: holdout_targets
                             }
                         )
+
+                    ### just to debug, which parts of the output generate most losses ###
+                    holdout_tensor_losses = self.sess.run(
+                            self.tensor_loss,
+                            feed_dict={
+                                self.sy_train_in: holdout_inputs,
+                                self.sy_train_targ: holdout_targets
+                            }
+                        )
+                    ### just to debug, which parts of the output generate most losses ###
+
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     named_holdout_losses = [['V{}'.format(i), holdout_losses[i]] for i in range(len(holdout_losses))]
                     named_losses = named_losses + named_holdout_losses + [['T', time.time() - t0]]
@@ -402,6 +413,7 @@ class BNN:
                     #### returns true if the best model hasn't been updated for more than 
                     #               ._max_epochs_since_update model-bnn train epochs
                     break_train = self._save_best(epoch, holdout_losses)
+                    pass
 
             progress.update()
             t = time.time() - t0
@@ -570,7 +582,7 @@ class BNN:
         else:
             return mean, tf.exp(logvar)
 
-    def _compile_losses(self, inputs, targets, inc_var_loss=True):
+    def _compile_losses(self, inputs, targets, inc_var_loss=True, tensor_loss=False):
         """Helper method for compiling the loss function.
 
         The loss function is obtained from the log likelihood, assuming that the output
@@ -593,5 +605,8 @@ class BNN:
             total_losses = mse_losses + var_losses
         else:
             total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
+
+        if tensor_loss: 
+            total_losses = tf.reduce_mean(tf.square(mean - targets), axis=-2)
 
         return total_losses

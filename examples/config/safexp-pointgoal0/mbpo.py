@@ -1,7 +1,7 @@
 params = {
     'type': 'MBPO',
     'universe': "gym",
-    'domain': "Safexp-PointGoal2",
+    'domain': "Safexp-PointGoal0",
     'task': "v0",
 
     'log_dir': '~/ray_mbpo/',
@@ -27,7 +27,7 @@ params = {
                                           # 3. try finding a balance between the size of new samples per number of
                                           #  updates of the model network (with model_train_freq)
 
-        'hidden_dim':400,               # hidden layer size of model bnn
+        'hidden_dim':320,               # hidden layer size of model bnn
         'model_train_freq': 1000,       # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 5,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
         'rollout_batch_size': 30e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model

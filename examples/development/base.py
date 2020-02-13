@@ -250,6 +250,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
                 'min_pool_size': MAX_PATH_LENGTH_PER_DOMAIN.get(
                     domain, DEFAULT_MAX_PATH_LENGTH),
                 'batch_size': 256,
+                'obs_process_type': 'pointgoal2'#'default'#'pointgoal0'
             }
         },
         'run_params': {
