@@ -6,6 +6,7 @@ params = {
 
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
+    'use_mjc_state_model': False,      
 
     #'max_pool_size':int(5e5),         # haven't seen oom in pointgoal so far
 

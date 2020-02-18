@@ -4,7 +4,8 @@ from . import (
     simple_replay_pool,
     extra_policy_info_replay_pool,
     union_pool,
-    trajectory_replay_pool)
+    trajectory_replay_pool,
+    mjc_state_replay_pool)
 
 
 POOL_CLASSES = {
@@ -13,6 +14,7 @@ POOL_CLASSES = {
     'ExtraPolicyInfoReplayPool': (
         extra_policy_info_replay_pool.ExtraPolicyInfoReplayPool),
     'UnionPool': union_pool.UnionPool,
+    'MjcStateReplayPool': mjc_state_replay_pool.MjcStateReplayPool,
 }
 
 DEFAULT_REPLAY_POOL = 'SimpleReplayPool'

@@ -4,6 +4,7 @@ import os
 import math
 import pickle
 from collections import OrderedDict
+from collections import defaultdict
 from numbers import Number
 from itertools import count
 import gtimer as gt
@@ -15,9 +16,11 @@ from tensorflow.python.training import training_util
 
 from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
+from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
+from mbpo.models.perturbed_env import PerturbedEnv
 from mbpo.utils.writer import Writer
 from mbpo.utils.visualization import visualize_policy
 from mbpo.utils.logging import Progress
@@ -42,6 +45,7 @@ class MBPO(RLAlgorithm):
             self,
             training_environment,
             evaluation_environment,
+            mjc_model_environment,
             policy,
             Qs,
             pool,
@@ -69,6 +73,7 @@ class MBPO(RLAlgorithm):
             rollout_schedule=[20,100,1,1],
             hidden_dim=200,
             max_model_t=None,
+            use_mjc_state_model = False,
             **kwargs,
     ):
         """
@@ -102,6 +107,8 @@ class MBPO(RLAlgorithm):
         self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.fake_env = FakeEnv(self._model, self._static_fns)
+        self.perturbed_env = PerturbedEnv(mjc_model_environment, std_inc=0)
+        self.use_mjc_state_model = use_mjc_state_model
 
         self._rollout_schedule = rollout_schedule
         self._max_model_t = max_model_t
@@ -122,6 +129,7 @@ class MBPO(RLAlgorithm):
 
         self._training_environment = training_environment
         self._evaluation_environment = evaluation_environment
+        self._mjc_model_environment = mjc_model_environment
         self._policy = policy
 
         self._Qs = Qs
@@ -246,14 +254,14 @@ class MBPO(RLAlgorithm):
                     )
 
                     #### train the model with input:(obs, act), outputs: (rew, delta_obs), inputs are divided into sets with holdout_ratio
-                    self._model.reset()        #@anyboby debug
+                    # self._model.reset()        #@anyboby debug
                     model_train_metrics = self._train_model(batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
                     #### rollout model env ####
                     self._set_rollout_length()
-                    self._reallocate_model_pool()
+                    self._reallocate_model_pool(use_mjc_model_pool=self.use_mjc_state_model)
                     model_rollout_metrics = self._rollout_model(rollout_batch_size=self._rollout_batch_size, deterministic=self._deterministic)
                     model_metrics.update(model_rollout_metrics)
                     ###########################
@@ -380,7 +388,7 @@ class MBPO(RLAlgorithm):
             self._epoch, min_epoch, max_epoch, self._rollout_length, min_length, max_length
         ))
 
-    def _reallocate_model_pool(self):
+    def _reallocate_model_pool(self, use_mjc_model_pool=False):
         obs_space = self._pool._observation_space
         act_space = self._pool._action_space
 
@@ -393,14 +401,20 @@ class MBPO(RLAlgorithm):
             print('[ MBPO ] Initializing new model pool with size {:.2e}'.format(
                 new_pool_size
             ))
-            self._model_pool = SimpleReplayPool(obs_space, act_space, new_pool_size)
-        
+            if use_mjc_model_pool:
+                self._model_pool = MjcStateReplayPool(obs_space, act_space, new_pool_size)
+            else: 
+                self._model_pool = SimpleReplayPool(obs_space, act_space, new_pool_size)
+
         elif self._model_pool._max_size != new_pool_size:
             print('[ MBPO ] Updating model pool | {:.2e} --> {:.2e}'.format(
                 self._model_pool._max_size, new_pool_size
             ))
             samples = self._model_pool.return_all_samples()
-            new_pool = SimpleReplayPool(obs_space, act_space, new_pool_size)
+            if use_mjc_model_pool:
+                new_pool = MjcStateReplayPool(obs_space, act_space, new_pool_size)
+            else:
+                new_pool = SimpleReplayPool(obs_space, act_space, new_pool_size)
             new_pool.add_samples(samples)
             assert self._model_pool.size == new_pool.size
             self._model_pool = new_pool
@@ -421,21 +435,69 @@ class MBPO(RLAlgorithm):
         batch = self.sampler.random_batch(rollout_batch_size)
         obs = batch['observations']
         steps_added = []
-        for i in range(self._rollout_length):
-            act = self._policy.actions_np(obs)
-            
-            ##### here we're dreaming in the agents model #####
-            next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
-            steps_added.append(len(obs))
-            samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
-            self._model_pool.add_samples(samples)
 
-            nonterm_mask = ~term.squeeze(-1)
-            if nonterm_mask.sum() == 0:
-                print('[ Model Rollout ] Breaking early: {} | {} / {}'.format(i, nonterm_mask.sum(), nonterm_mask.shape))
-                break
+        if self.use_mjc_state_model:
+            sim_states = batch['sim_states']
+            ### start rollouts from collected samples 
+            for i in range(rollout_batch_size):
+                cur_obs_real = obs[i]
+                cur_sim_state = sim_states[i]
+                cur_obs, cur_sim_state = self.perturbed_env.reset(sim_state=cur_sim_state)
+                start_errorcheck = np.sum((cur_obs_real-cur_obs)**2)
+                current_path = defaultdict(list)
 
-            obs = next_obs[nonterm_mask]
+                for rollout in range(self._rollout_length):
+                    ### get action
+                    action = self._policy.actions_np([
+                        self.mjc_model_environment.convert_to_active_observation(
+                        cur_obs)[None]
+                    ])[0]
+
+                    next_obs, rew, term, info, next_sim_state = self.perturbed_env.step(action)
+
+                    processed_sample = {
+                        'observations': cur_obs,
+                        'actions': action,
+                        'rewards': [rew],
+                        'terminals': [term],
+                        'next_observations': next_obs,
+                        'infos': info,
+                        'sim_states': [cur_sim_state],
+                    }
+
+                    for key, value in processed_sample.items():
+                        current_path[key].append(value)
+                    
+                    steps_added.append(1)
+                    if term or rollout==(self._rollout_length-1):
+                        ### store samples
+                        self._model_pool.add_samples(current_path)
+
+                        current_path = defaultdict(list)
+                        cur_obs = None
+                        cur_sim_state = None
+                        break
+                    else:
+                        cur_obs = next_obs
+                        cur_sim_state = next_sim_state
+
+
+        else:
+            for i in range(self._rollout_length):
+                act = self._policy.actions_np(obs)
+                
+                ##### here we're dreaming in the agents model #####
+                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
+                steps_added.append(len(obs))
+                samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
+                self._model_pool.add_samples(samples)
+
+                nonterm_mask = ~term.squeeze(-1)
+                if nonterm_mask.sum() == 0:
+                    print('[ Model Rollout ] Breaking early: {} | {} / {}'.format(i, nonterm_mask.sum(), nonterm_mask.shape))
+                    break
+
+                obs = next_obs[nonterm_mask]
 
         mean_rollout_length = sum(steps_added) / rollout_batch_size
         rollout_stats = {'mean_rollout_length': mean_rollout_length}

@@ -274,12 +274,9 @@ def get_variant_spec(args, env_params):
     if 'max_pool_size' in env_params:
         variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.max_pool_size
 
-    if 'use_mjc_state_model' in env_params and env_params.use_mjc_state_model:
-        variant_spec['replay_pool_params']['type'] = 'MjcStateReplayPool'
-        variant_spec['sampler_params']['type'] = 'MjcStateSampler'
-        variant_spec['use_mjc_state_model'] = True
-    else:
-        variant_spec['use_mjc_state_model'] = False
+    if 'use_mjc_state_model' in env_params:
+        variant_spec['replay_pool_params']['type'] = 'MjcStateSampler'
+
 
     #if env_params.kwargs['max_pool_size'] is not None:
     #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']
