@@ -39,22 +39,6 @@ class SimpleSampler(BaseSampler):
     def sample(self):
         if self._current_observation is None:
             self._current_observation = self.env.reset()
-            # if self._obs_process_type == 'pointgoal0':
-            #     self._current_observation[0:3] = self._current_observation[0:3]     *1    
-            #     self._current_observation[19:22] = self._current_observation[19:22] *1
-            #     self._current_observation[3:19] = self._current_observation[3:19]   *1
-            #     self._current_observation[25:28] = self._current_observation[25:28] *1
-            #     self._current_observation[28:30] = self._current_observation[28:30] *1
-            #     self._current_observation = self._current_observation * 1
-            # elif self._obs_process_type == 'pointgoal2':
-            #     self._current_observation[0:3] = self._current_observation[0:3]       *0.003
-            #     self._current_observation[3:19] = self._current_observation[3:19]     *1
-            #     self._current_observation[19:22] = self._current_observation[19:22]   *0.03
-            #     self._current_observation[22:38] = self._current_observation[22:38]   *1
-            #     self._current_observation[38:41] = self._current_observation[38:41]   *1
-            #     self._current_observation[41:57] = self._current_observation[41:57]   *1
-            #     self._current_observation[57:60] = self._current_observation[57:60]   *0.5
-            #     self._current_observation = self._current_observation * 100
 
         action = self.policy.actions_np([
             self.env.convert_to_active_observation(
@@ -62,24 +46,6 @@ class SimpleSampler(BaseSampler):
         ])[0]
 
         next_observation, reward, terminal, info = self.env.step(action)
-
-        #### process obs
-        # if self._obs_process_type == 'pointgoal0':
-        #     next_observation[0:3] = next_observation[0:3]       *1
-        #     next_observation[19:22] = next_observation[19:22]   *1
-        #     next_observation[3:19] = next_observation[3:19]     *1
-        #     next_observation[25:28] = next_observation[25:28]   *1
-        #     next_observation[28:30] = next_observation[28:30]   *1
-        #     next_observation = next_observation*1
-        # elif self._obs_process_type == 'pointgoal2':
-        #     next_observation[0:3] = next_observation[0:3]       *0.003
-        #     next_observation[3:19] = next_observation[3:19]     *1
-        #     next_observation[19:22] = next_observation[19:22]   *0.03
-        #     next_observation[22:38] = next_observation[22:38]   *1
-        #     next_observation[38:41] = next_observation[38:41]   *1
-        #     next_observation[41:57] = next_observation[41:57]   *1
-        #     next_observation[57:60] = next_observation[57:60]   *0.3
-        #     next_observation = next_observation*100
 
         # just for testing
         # self.env.render()

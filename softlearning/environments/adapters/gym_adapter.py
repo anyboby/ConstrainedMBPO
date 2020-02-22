@@ -152,6 +152,10 @@ class GymAdapter(SoftlearningEnv):
     def close(self, *args, **kwargs):
         return self._env.close(*args, **kwargs)
 
+    def get_sim_state(self, *args, **kwargs):       #### @anyboby
+        assert hasattr(self._env, 'get_sim_state')
+        return self._env.get_sim_state(*args, **kwargs)
+
     def seed(self, *args, **kwargs):
         return self._env.seed(*args, **kwargs)
 

@@ -54,8 +54,6 @@ class ExperimentRunner(tune.Trainable):
             if 'evaluation' in environment_params
             else training_environment)
 
-        use_mjc_state_model = variant['use_mjc_state_model']
-
         replay_pool = self.replay_pool = (
             get_replay_pool_from_variant(variant, training_environment))
         sampler = self.sampler = get_sampler_from_variant(variant)
@@ -83,7 +81,6 @@ class ExperimentRunner(tune.Trainable):
             pool=replay_pool,
             static_fns=static_fns,
             sampler=sampler,
-            use_mjc_state_model=use_mjc_state_model,
             session=self._session)
 
         initialize_tf_variables(self._session, only_uninitialized=True)

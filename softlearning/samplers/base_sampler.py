@@ -8,13 +8,13 @@ class BaseSampler(object):
                  min_pool_size,
                  batch_size,
                  store_last_n_paths=10,
-                 obs_process_type='default'):
+                 preprocess_type='default'):
         self._max_path_length = max_path_length
         self._min_pool_size = min_pool_size
         self._batch_size = batch_size
         self._store_last_n_paths = store_last_n_paths
         self._last_n_paths = deque(maxlen=store_last_n_paths)
-        self._obs_process_type = obs_process_type
+        self._obs_process_type = preprocess_type
         self.env = None
         self.policy = None
         self.pool = None

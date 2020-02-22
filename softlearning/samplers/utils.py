@@ -40,7 +40,8 @@ def rollout(env,
             path_length,
             callback=None,
             render_mode=None,
-            break_on_terminal=True):
+            break_on_terminal=True,
+            ):
     observation_space = env.observation_space
     action_space = env.action_space
 

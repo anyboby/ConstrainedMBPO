@@ -51,7 +51,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000),
+            'n_initial_exploration_steps': int(3000), #5000
         }
     },
     'SQL': {
@@ -250,7 +250,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
                 'min_pool_size': MAX_PATH_LENGTH_PER_DOMAIN.get(
                     domain, DEFAULT_MAX_PATH_LENGTH),
                 'batch_size': 256,
-                'obs_process_type': 'pointgoal2'#'default'#'pointgoal0'
+                'preprocess_type': 'Safexp-PointGoal2'#'default'#'pointgoal0'
             }
         },
         'run_params': {
@@ -274,12 +274,18 @@ def get_variant_spec(args, env_params):
     if 'max_pool_size' in env_params:
         variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.max_pool_size
 
+
     if 'use_mjc_state_model' in env_params and env_params.use_mjc_state_model:
         variant_spec['replay_pool_params']['type'] = 'MjcStateReplayPool'
         variant_spec['sampler_params']['type'] = 'MjcStateSampler'
-        variant_spec['use_mjc_state_model'] = True
+        variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = True
     else:
-        variant_spec['use_mjc_state_model'] = False
+        variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = False
+
+    if 'preprocessing_type' in env_params and env_params.preprocessing_type:
+        variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = env_params.preprocessing_type
+    else:
+        variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = None
 
     #if env_params.kwargs['max_pool_size'] is not None:
     #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']

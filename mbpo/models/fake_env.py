@@ -42,7 +42,7 @@ class FakeEnv:
         
         inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
-        ensemble_model_means[:,:,1:] += obs                                                         #### models output state change rather than state completely
+        ensemble_model_means[:,:,:-1] += obs                                                         #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
 
         ### directly use means, if deterministic
@@ -63,12 +63,12 @@ class FakeEnv:
         log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         #### retrieve r and done for new state
-        rewards, next_obs = samples[:,:1], samples[:,1:]
+        rewards, next_obs = samples[:,-1:], samples[:,:-1]
         terminals = self.config.termination_fn(obs, act, next_obs)
 
         batch_size = model_means.shape[0]
-        return_means = np.concatenate((model_means[:,:1], terminals, model_means[:,1:]), axis=-1)
-        return_stds = np.concatenate((model_stds[:,:1], np.zeros((batch_size,1)), model_stds[:,1:]), axis=-1)
+        return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
+        return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
 
         if return_single:
             next_obs = next_obs[0]
@@ -88,7 +88,7 @@ class FakeEnv:
         # inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.create_prediction_tensors(inputs, factored=True)
         # ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)
-        ensemble_model_means = tf.concat([ensemble_model_means[:,:,0:1], ensemble_model_means[:,:,1:] + obs_ph[None]], axis=-1)
+        ensemble_model_means = tf.concat([ensemble_model_means[:,:,-1:], ensemble_model_means[:,:,:-1] + obs_ph[None]], axis=-1)
         # ensemble_model_means[:,:,1:] += obs_ph
         ensemble_model_stds = tf.sqrt(ensemble_model_vars)
         # ensemble_model_stds = np.sqrt(ensemble_model_vars)
@@ -101,7 +101,7 @@ class FakeEnv:
 
         samples = ensemble_samples[0]
 
-        rewards, next_obs = samples[:,:1], samples[:,1:]
+        rewards, next_obs = samples[:,-1:], samples[:,:-1]
         terminals = self.config.termination_ph_fn(obs_ph, act_ph, next_obs)
         info = {}
 

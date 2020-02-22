@@ -9,6 +9,8 @@ from numbers import Number
 from itertools import count
 import gtimer as gt
 import pdb
+import random
+import sys
 
 import numpy as np
 import tensorflow as tf
@@ -73,7 +75,11 @@ class MBPO(RLAlgorithm):
             rollout_schedule=[20,100,1,1],
             hidden_dim=200,
             max_model_t=None,
+
             use_mjc_state_model = False,
+            model_std_inc = 0.02,
+            preprocessing_type = None,
+
             **kwargs,
     ):
         """
@@ -107,7 +113,6 @@ class MBPO(RLAlgorithm):
         self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.fake_env = FakeEnv(self._model, self._static_fns)
-        self.perturbed_env = PerturbedEnv(mjc_model_environment, std_inc=0)
         self.use_mjc_state_model = use_mjc_state_model
 
         self._rollout_schedule = rollout_schedule
@@ -130,7 +135,31 @@ class MBPO(RLAlgorithm):
         self._training_environment = training_environment
         self._evaluation_environment = evaluation_environment
         self._mjc_model_environment = mjc_model_environment
+        self.perturbed_env = PerturbedEnv(self._mjc_model_environment, std_inc=model_std_inc)
         self._policy = policy
+
+        #### testing block
+        # for i in range(10):
+        #     obs_r, sim_r = self._evaluation_environment.reset()
+        #     sim_r['acc']=obs_r[0:3]
+        #     actions = [
+        #         [0.8,0.5],
+        #         [0.8,-0.5],
+        #         [0.8,0.0],
+        #         [-0.8,0.5],
+        #         [-0.8,-0.5],
+        #         [-0.8,0.0],
+        #     ]
+        #     for i in range(25):
+        #         new_obs_r,_, _, _, new_sim_r = self._evaluation_environment.step(np.array(actions[random.randint(0,len(actions)-1)], dtype='float32'))
+        #         new_sim_r['acc']=new_obs_r[0:3]
+        #     obs_f, sim_f = self.perturbed_env.reset(sim_state=sim_r)
+        #     obs_step_f, sim_step_f = self.perturbed_env.reset(sim_state=new_sim_r)
+        #     error1 = obs_r - obs_f
+        #     error2 = new_obs_r - obs_step_f
+
+
+        #########
 
         self._Qs = Qs
         self._Q_targets = tuple(tf.keras.models.clone_model(Q) for Q in Qs)
@@ -437,23 +466,30 @@ class MBPO(RLAlgorithm):
         steps_added = []
 
         if self.use_mjc_state_model:
+            cum_error = 0
             sim_states = batch['sim_states']
             ### start rollouts from collected samples 
             for i in range(rollout_batch_size):
+                if (i%int(rollout_batch_size/50)==0):
+                    print(f'Rollout Progress: {i/rollout_batch_size*100} %', end='', flush=True)
+
                 cur_obs_real = obs[i]
-                cur_sim_state = sim_states[i]
-                cur_obs, cur_sim_state = self.perturbed_env.reset(sim_state=cur_sim_state)
-                start_errorcheck = np.sum((cur_obs_real-cur_obs)**2)
+                cur_sim_state = sim_states[i,0]
+                cur_obs = self.perturbed_env.reset(sim_state=cur_sim_state)
+                new_sim_state = self.perturbed_env.get_sim_state()
+                start_errorcheck = np.sum(abs(cur_obs_real-cur_obs))
+                cum_error += start_errorcheck
                 current_path = defaultdict(list)
 
                 for rollout in range(self._rollout_length):
                     ### get action
                     action = self._policy.actions_np([
-                        self.mjc_model_environment.convert_to_active_observation(
+                        self._mjc_model_environment.convert_to_active_observation(
                         cur_obs)[None]
                     ])[0]
 
-                    next_obs, rew, term, info, next_sim_state = self.perturbed_env.step(action)
+                    next_obs, rew, term, info = self.perturbed_env.step(action)
+                    next_sim_state = self.perturbed_env.get_sim_state
 
                     processed_sample = {
                         'observations': cur_obs,
@@ -471,7 +507,11 @@ class MBPO(RLAlgorithm):
                     steps_added.append(1)
                     if term or rollout==(self._rollout_length-1):
                         ### store samples
-                        self._model_pool.add_samples(current_path)
+                        last_path = {
+                            field_name: np.array(values)
+                            for field_name, values in current_path.items()
+                        }                                    
+                        self._model_pool.add_samples(last_path)
 
                         current_path = defaultdict(list)
                         cur_obs = None
@@ -480,6 +520,9 @@ class MBPO(RLAlgorithm):
                     else:
                         cur_obs = next_obs
                         cur_sim_state = next_sim_state
+            
+            print(f'\n Model rollout with perturbed mjc reset env, acc error: {cum_error}')
+
 
 
         else:

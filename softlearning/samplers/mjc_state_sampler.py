@@ -32,15 +32,19 @@ class MjcStateSampler(SimpleSampler):
 
     def sample(self):
         if self._current_observation is None:
-            self._current_observation, self._current_sim_state  = self.env.reset()
+            self._current_observation = self.env.reset()
+            self._current_sim_state = self.env.get_sim_state()
+            # self._current_sim_state['acc']  = self._current_observation[0:3]
 
         action = self.policy.actions_np([
             self.env.convert_to_active_observation(
                 self._current_observation)[None]
         ])[0]
 
-        next_observation, reward, terminal, info, next_sim_state = self.env.step(action)
-
+        next_observation, reward, terminal, info = self.env.step(action)
+        next_sim_state = self.env.get_sim_state()
+        next_sim_state['acc']  = next_observation[0:3]
+        
         self._path_length += 1
         self._path_return += reward
         self._total_samples += 1
