@@ -21,4 +21,3 @@ class PerturbedEnv:
     def get_sim_state(self, *args, **kwargs):
         assert hasattr(self.env, 'get_sim_state')
         return self.env.get_sim_state(*args, **kwargs)
-    

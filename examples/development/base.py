@@ -229,6 +229,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
         'algorithm_params': algorithm_params,
         'replay_pool_params': {
             'type': 'SimpleReplayPool',
+            'use_extended_action_space': True,
             'kwargs': {
                 'max_size': tune.sample_from(lambda spec: (
                     {

@@ -8,6 +8,7 @@ import safety_gym
 from .softlearning_env import SoftlearningEnv
 from softlearning.environments.gym import register_environments
 from softlearning.environments.gym.wrappers import NormalizeActionWrapper
+from softlearning.environments.adapters.safety_preprocessed_wrapper import SafetyPreprocessedEnv
 from collections import defaultdict
 
 
@@ -38,6 +39,10 @@ for gym_id in GYM_ENVIRONMENT_IDS:
 
 GYM_ENVIRONMENTS = dict(GYM_ENVIRONMENTS)
 
+WRAPPER_IDS = {
+    'Safexp-PointGoal2-v0':SafetyPreprocessedEnv,
+}
+
 
 class GymAdapter(SoftlearningEnv):
     """Adapter that implements the SoftlearningEnv for Gym envs."""
@@ -65,6 +70,10 @@ class GymAdapter(SoftlearningEnv):
             assert (domain is not None and task is not None), (domain, task)
             env_id = f"{domain}-{task}"
             env = gym.envs.make(env_id, **kwargs)
+
+            if env_id in WRAPPER_IDS:
+                env = WRAPPER_IDS[env_id](env)
+
             #env_id = f""
             #env = gym.make("Safexp-PointGoal1-v0")
         else:
@@ -82,6 +91,10 @@ class GymAdapter(SoftlearningEnv):
                 observation_keys or list(env.observation_space.spaces.keys()))
         if normalize:
             env = NormalizeActionWrapper(env)
+
+        #### check if extended action space exists:
+        if hasattr(env, 'action_space_ext'):
+            self.action_space_ext = env.action_space_ext
 
         self._env = env
 

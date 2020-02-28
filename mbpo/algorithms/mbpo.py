@@ -107,7 +107,13 @@ class MBPO(RLAlgorithm):
         super(MBPO, self).__init__(**kwargs)
 
         obs_dim = np.prod(training_environment.observation_space.shape)
-        act_dim = np.prod(training_environment.action_space.shape)
+        if hasattr(training_environment, 'action_space_ext'):
+            act_dim = np.prod(training_environment.action_space_ext.shape)
+            self.process_actions = True
+        else:
+            act_dim = np.prod(training_environment.action_space.shape)
+            self.process_actions = False
+
         
         #### create fake env from model 
         self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
@@ -525,10 +531,16 @@ class MBPO(RLAlgorithm):
 
 
 
-        else:
+        else:    
+
             for i in range(self._rollout_length):
                 act = self._policy.actions_np(obs)
                 
+                if self.process_actions:
+                    last_actions = batch['actions'][:,2:4]
+                    act_spikes = self.sampler.process_act_vec(act,last_actions)
+                    act = np.concatenate((act,last_actions,act_spikes), axis=1)
+
                 ##### here we're dreaming in the agents model #####
                 next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
                 steps_added.append(len(obs))

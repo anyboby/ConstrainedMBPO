@@ -52,7 +52,7 @@ class SimpleReplayPool(FlexibleReplayPool):
             **observation_fields,
             **{
                 'actions': {
-                    'shape': self._action_space.shape,
+                    'shape': self._action_space.shape,  #@anyboby edited
                     'dtype': 'float32'
                 },
                 'rewards': {
