@@ -16,6 +16,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.training import training_util
 
+
 from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
@@ -114,11 +115,16 @@ class MBPO(RLAlgorithm):
             act_dim = np.prod(training_environment.action_space.shape)
             self.process_actions = False
 
-        
+        #### determine unstacked obs dim
+        self.num_stacks = training_environment.stacks
+        self.stacking_axis = training_environment.stacking_axis
+        self.active_obs_dim = int(obs_dim/self.num_stacks)
+        #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
+
         #### create fake env from model 
-        self._model = construct_model(obs_dim=obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
+        self._model = construct_model(obs_dim_in=obs_dim, obs_dim_out=self.active_obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
-        self.fake_env = FakeEnv(self._model, self._static_fns)
+        self.fake_env = FakeEnv(self._model, self._static_fns, stacks=self.num_stacks, stacking_axis=self.stacking_axis)
         self.use_mjc_state_model = use_mjc_state_model
 
         self._rollout_schedule = rollout_schedule
@@ -290,7 +296,7 @@ class MBPO(RLAlgorithm):
 
                     #### train the model with input:(obs, act), outputs: (rew, delta_obs), inputs are divided into sets with holdout_ratio
                     # self._model.reset()        #@anyboby debug
-                    model_train_metrics = self._train_model(batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
+                    model_train_metrics = self._train_model(batch_size=256, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
@@ -459,7 +465,7 @@ class MBPO(RLAlgorithm):
         env_samples = self._pool.return_all_samples()
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        train_inputs, train_outputs = format_samples_for_training(env_samples)
+        train_inputs, train_outputs = format_samples_for_training(env_samples, stacks=self.num_stacks, stacking_axis=self.stacking_axis)
         model_metrics = self._model.train(train_inputs, train_outputs, **kwargs)
         return model_metrics
 
@@ -469,6 +475,10 @@ class MBPO(RLAlgorithm):
         ))
         batch = self.sampler.random_batch(rollout_batch_size)
         obs = batch['observations']
+        if self.process_actions:
+            last_actions = batch['actions'][:,2:4]
+            last_actions_x = last_actions[:,0]
+
         steps_added = []
 
         if self.use_mjc_state_model:
@@ -532,17 +542,28 @@ class MBPO(RLAlgorithm):
 
 
         else:    
-
+            log_a = []
+            log_obs = []
+            log_a.append(batch['actions'])
+            log_obs.append(obs)
             for i in range(self._rollout_length):
-                act = self._policy.actions_np(obs)
+                act = self._policy.actions_np(obs[:,-self.active_obs_dim:])
                 
                 if self.process_actions:
-                    last_actions = batch['actions'][:,2:4]
-                    act_spikes = self.sampler.process_act_vec(act,last_actions)
+                    actions_x = act[:,0]
+                    act_spikes = np.expand_dims(self.sampler.process_act_vec(actions_x,last_actions_x), axis=1)
                     act = np.concatenate((act,last_actions,act_spikes), axis=1)
-
                 ##### here we're dreaming in the agents model #####
-                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
+                ##### stack here, if you're stacking your env obs
+                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)  
+
+
+                log_a.append(act)
+                log_obs.append(next_obs)
+                # next_obs = obs
+                # next_obs[:,1]=obs[:,1]
+                # next_obs[:,0]=obs[:,0]
+
                 steps_added.append(len(obs))
                 samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
                 self._model_pool.add_samples(samples)
@@ -553,6 +574,11 @@ class MBPO(RLAlgorithm):
                     break
 
                 obs = next_obs[nonterm_mask]
+                if self.process_actions:
+                    last_actions = act[nonterm_mask, 0:2]
+                    last_actions_x = last_actions[:,0]
+
+
 
         mean_rollout_length = sum(steps_added) / rollout_batch_size
         rollout_stats = {'mean_rollout_length': mean_rollout_length}
@@ -825,14 +851,24 @@ class MBPO(RLAlgorithm):
 
     def _get_feed_dict(self, iteration, batch):
         """Construct TensorFlow feed_dict from sample batch."""
+        ### unstack for sac
 
-        feed_dict = {
-            self._observations_ph: batch['observations'],
-            self._actions_ph: batch['actions'],
-            self._next_observations_ph: batch['next_observations'],
-            self._rewards_ph: batch['rewards'],
-            self._terminals_ph: batch['terminals'],
-        }
+        if self.process_actions:
+            feed_dict = {
+                self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
+                self._actions_ph: batch['actions'][:,0:2],
+                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
+                self._rewards_ph: batch['rewards'],
+                self._terminals_ph: batch['terminals'],
+            }
+        else:
+            feed_dict = {
+                self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
+                self._actions_ph: batch['actions'],
+                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
+                self._rewards_ph: batch['rewards'],
+                self._terminals_ph: batch['terminals'],
+            }
 
         if self._store_extra_policy_info:
             feed_dict[self._log_pis_ph] = batch['log_pis']
@@ -874,7 +910,7 @@ class MBPO(RLAlgorithm):
         })
 
         policy_diagnostics = self._policy.get_diagnostics(
-            batch['observations'])
+            batch['observations'][:,-self.active_obs_dim:])
         diagnostics.update({
             f'policy/{key}': value
             for key, value in policy_diagnostics.items()

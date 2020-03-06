@@ -305,7 +305,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=50,
+              batch_size=32, max_epochs=None, max_epochs_since_update=3,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 
@@ -404,7 +404,6 @@ class BNN:
                             }
                         )
                     ### just to debug, which parts of the output generate most losses ###
-
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     named_holdout_losses = [['V{}'.format(i), holdout_losses[i]] for i in range(len(holdout_losses))]
                     named_losses = named_losses + named_holdout_losses + [['T', time.time() - t0]]

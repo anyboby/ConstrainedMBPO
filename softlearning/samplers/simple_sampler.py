@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .base_sampler import BaseSampler
 ACTION_PROCESS_ENVS = [
@@ -31,7 +32,8 @@ class SimpleSampler(BaseSampler):
                               info):
 
         if self._obs_process_type in ACTION_PROCESS_ENVS:
-            action_proc = np.concatenate((action, self._last_action, np.array([self.process_act(action, self._last_action)])))
+            #### concatenate act, last act and an acc_spike prediction signal based on these
+            action_proc = np.concatenate((action, self._last_action, np.array([self.process_act(action[0], self._last_action[0])])))
         else:
             action_proc = action
 
@@ -49,11 +51,13 @@ class SimpleSampler(BaseSampler):
     def process_act(self, act, last_act):
         '''
         Predicts a spike based on 0-transition between actions
+        !! very specifically designed for x-acceleration spike detection
         returns a normalized prediction signal for y-acceleration in mujoco envs
         a shape (1,) np array
+        
         '''
-        act_x = act[0]
-        last_act_x = last_act[0] 
+        act_x = act
+        last_act_x = last_act
         acc_spike = 0
         ### acc
         if last_act_x==act_x:
@@ -69,7 +73,7 @@ class SimpleSampler(BaseSampler):
 
     def sample(self):
         if self._current_observation is None:
-            self._current_observation = self.env.reset()
+            self._current_observation = np.squeeze(self.env.reset())
             self._last_action = np.zeros(shape=self.env.action_space.shape)
 
         action = self.policy.actions_np([
@@ -77,10 +81,18 @@ class SimpleSampler(BaseSampler):
                 self._current_observation)[None]
         ])[0]
 
+        #### DEBUG @anyboby
+        # print(action)
+
         next_observation, reward, terminal, info = self.env.step(action)
+        next_observation = np.squeeze(next_observation)
+        reward = np.squeeze(reward)
+        terminal = np.squeeze(terminal)
+        info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
 
         # just for testing
-        # self.env.render()
+        #self.env.render()
+        
         self._path_length += 1
         self._path_return += reward
         self._total_samples += 1
@@ -103,6 +115,7 @@ class SimpleSampler(BaseSampler):
                 field_name: np.array(values)
                 for field_name, values in self._current_path.items()
             }
+            
             self.pool.add_path(last_path)
             self._last_n_paths.appendleft(last_path)
 

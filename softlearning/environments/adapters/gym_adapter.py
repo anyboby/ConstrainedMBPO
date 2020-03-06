@@ -10,6 +10,8 @@ from softlearning.environments.gym import register_environments
 from softlearning.environments.gym.wrappers import NormalizeActionWrapper
 from softlearning.environments.adapters.safety_preprocessed_wrapper import SafetyPreprocessedEnv
 from collections import defaultdict
+from stable_baselines.common.vec_env import VecFrameStack
+from stable_baselines.common.vec_env import DummyVecEnv
 
 
 def parse_domain_task(gym_id):
@@ -41,8 +43,15 @@ GYM_ENVIRONMENTS = dict(GYM_ENVIRONMENTS)
 
 WRAPPER_IDS = {
     'Safexp-PointGoal2-v0':SafetyPreprocessedEnv,
+    'Safexp-PointGoal1-v0':SafetyPreprocessedEnv,
+    'Safexp-PointGoal0-v0':SafetyPreprocessedEnv,
 }
 
+VEC_STACK_IDS = {
+    'Safexp-PointGoal2-v0': 4,
+    'Safexp-PointGoal1-v0': 4,
+    'Safexp-PointGoal0-v0': 4,
+}
 
 class GymAdapter(SoftlearningEnv):
     """Adapter that implements the SoftlearningEnv for Gym envs."""
@@ -62,6 +71,8 @@ class GymAdapter(SoftlearningEnv):
         self.normalize = normalize
         self.observation_keys = observation_keys
         self.unwrap_time_limit = unwrap_time_limit
+        self.stacks = 1
+        self.stacking_axis = 0
 
         self._Serializable__initialize(locals())
         super(GymAdapter, self).__init__(domain, task, *args, **kwargs)
@@ -70,9 +81,6 @@ class GymAdapter(SoftlearningEnv):
             assert (domain is not None and task is not None), (domain, task)
             env_id = f"{domain}-{task}"
             env = gym.envs.make(env_id, **kwargs)
-
-            if env_id in WRAPPER_IDS:
-                env = WRAPPER_IDS[env_id](env)
 
             #env_id = f""
             #env = gym.make("Safexp-PointGoal1-v0")
@@ -91,10 +99,21 @@ class GymAdapter(SoftlearningEnv):
                 observation_keys or list(env.observation_space.spaces.keys()))
         if normalize:
             env = NormalizeActionWrapper(env)
+        
+        if env_id in WRAPPER_IDS:
+            env = WRAPPER_IDS[env_id](env)
+            #### check if extended action space exists:
+            if hasattr(env, 'action_space_ext'):
+                self.action_space_ext = env.action_space_ext
 
-        #### check if extended action space exists:
-        if hasattr(env, 'action_space_ext'):
-            self.action_space_ext = env.action_space_ext
+
+        if env_id in VEC_STACK_IDS:
+            env = DummyVecEnv([lambda:env])
+            env = VecFrameStack(env, VEC_STACK_IDS[env_id])
+            self.stacks = VEC_STACK_IDS[env_id]
+            self.stacking_axis = 0
+
+
 
         self._env = env
 
@@ -106,6 +125,12 @@ class GymAdapter(SoftlearningEnv):
     @property
     def active_observation_shape(self):
         """Shape for the active observation based on observation_keys."""
+        if self.stacks>1:
+            active_size = list(self._env.observation_space.shape)
+            active_size[self.stacking_axis] = int(self._env.observation_space.shape[self.stacking_axis]/self.stacks)
+            active_size = tuple(active_size)
+            return active_size
+
         if not isinstance(self._env.observation_space, spaces.Dict):
             return super(GymAdapter, self).active_observation_shape
 
@@ -122,6 +147,11 @@ class GymAdapter(SoftlearningEnv):
         return active_observation_shape
 
     def convert_to_active_observation(self, observation):
+        if self.stacks>1:
+            old_obs_len = self._env.observation_space.shape[self.stacking_axis] - int(self._env.observation_space.shape[self.stacking_axis]/self.stacks)
+            active_obs = np.delete(observation, slice(old_obs_len), self.stacking_axis)
+            return active_obs
+
         if not isinstance(self._env.observation_space, spaces.Dict):
             return observation
 
@@ -154,6 +184,9 @@ class GymAdapter(SoftlearningEnv):
         # observation['observation'] = env.step(action, *args, **kwargs)
         # return observation
 
+        if self.stacks>1:       ### because VecEnv has additional dim for parallel envs
+            action=np.array([action])
+            #action=np.array([[0.0,-0.4]])
         return self._env.step(action, *args, **kwargs)
 
     def reset(self, *args, **kwargs):

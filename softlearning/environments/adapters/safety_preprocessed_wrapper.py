@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def __init__(self, env):
         super(SafetyPreprocessedEnv, self).__init__(env)
-        self.observation_space = gym.spaces.Box(-np.inf, np.inf, (env.obs_flat_size-3,), dtype=np.float32)  #removing gyro
+        self.observation_space = gym.spaces.Box(-np.inf, np.inf, (env.obs_flat_size-6,), dtype=np.float32)  #removing gyro
         self.action_space_ext = gym.spaces.Box(-1, 1, (env.robot.nu+3,), dtype=np.float32)       # extended action space for stacking
         self.b, self.a = signal.butter(3, 0.1)
         self.obs_replay_vy_real = []
@@ -42,18 +42,18 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         velo = obs[57:60]
 
         ### vy velocity filtering
-        self.obs_replay_vy_real.append(velo[1])
-        v_y_filtered = signal.filtfilt(self.b, self.a, np.array(self.obs_replay_vy_real), method='gust')
-        velo[1] = v_y_filtered[-1]
-        self.obs_replay_vy_filt.append(v_y_filtered[-1])
+        # self.obs_replay_vy_real.append(velo[1])
+        # v_y_filtered = signal.filtfilt(self.b, self.a, np.array(self.obs_replay_vy_real), method='gust')
+        # velo[1] = v_y_filtered[-1]
+        # self.obs_replay_vy_filt.append(v_y_filtered[-1])
 
         ### acc-y 
-        padding = np.zeros(shape=(2,))
-        vy_aug = np.concatenate((padding, v_y_filtered), axis=0)
-        self.obs_replay_acc_y_real.append(acc[1])
-        acc_y_filt = np.gradient(vy_aug, 1)[-1]
-        self.obs_replay_acc_y_filt.append(acc_y_filt)
-        acc[1] = acc_y_filt
+        # padding = np.zeros(shape=(2,))
+        # vy_aug = np.concatenate((padding, v_y_filtered), axis=0)
+        # self.obs_replay_acc_y_real.append(acc[1])
+        # acc_y_filt = np.gradient(vy_aug, 1)[-1]
+        # self.obs_replay_acc_y_filt.append(acc_y_filt)
+        # acc[1] = acc_y_filt
 
         # if len(self.obs_replay_vy)>400:
         #     plt.plot(np.arange(len(self.obs_replay_vy)), self.obs_replay_vy, color='blue')                         # filtered y-vel
@@ -62,5 +62,7 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         #     plt.show()
 
         ### remove gyro
-        new_obs = np.concatenate((acc, goal_lidar, hazards_lidar, magnetometer, vases_lidar, velo))
+        # new_obs = np.concatenate((acc, goal_lidar, hazards_lidar, magnetometer, vases_lidar, velo))
+        new_obs = np.concatenate((goal_lidar, hazards_lidar,vases_lidar, magnetometer, velo))
+        
         return new_obs

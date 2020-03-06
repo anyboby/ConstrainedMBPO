@@ -4,10 +4,11 @@ import pdb
 
 class FakeEnv:
 
-    def __init__(self, model, config):
+    def __init__(self, model, config, stacks=1, stacking_axis=0):
         self.model = model
         self.config = config
-
+        self.stacks = stacks
+        self.stacking_axis = stacking_axis
     '''
         x : [ batch_size, obs_dim + 1 ]
         means : [ num_models, batch_size, obs_dim + 1 ]
@@ -32,17 +33,21 @@ class FakeEnv:
 
     def step(self, obs, act, deterministic=False):
         assert len(obs.shape) == len(act.shape)
-        if len(obs.shape) == 1:
+        obs_depth = len(obs.shape)
+        if obs_depth == 1:
             obs = obs[None]
             act = act[None]
             return_single = True
         else:
             return_single = False
 
-        
+
+        unstacked_obs_size = int(obs.shape[1+self.stacking_axis]/self.stacks)               ### e.g. if a stacked obs is 88 with 4 stacks,
+                                                                                            ### unstacking it yields 22
+
         inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
-        ensemble_model_means[:,:,:-1] += obs                                                         #### models output state change rather than state completely
+        ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]                                #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
 
         ### directly use means, if deterministic
@@ -65,6 +70,11 @@ class FakeEnv:
         #### retrieve r and done for new state
         rewards, next_obs = samples[:,-1:], samples[:,:-1]
         terminals = self.config.termination_fn(obs, act, next_obs)
+
+        #### stack previous obs with newly predicted obs
+        if self.stacks > 1:
+            next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
+            next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))
 
         batch_size = model_means.shape[0]
         return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
