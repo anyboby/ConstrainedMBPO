@@ -554,9 +554,7 @@ class MBPO(RLAlgorithm):
                     act_spikes = np.expand_dims(self.sampler.process_act_vec(actions_x,last_actions_x), axis=1)
                     act = np.concatenate((act,last_actions,act_spikes), axis=1)
                 ##### here we're dreaming in the agents model #####
-                ##### stack here, if you're stacking your env obs
                 next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)  
-
 
                 log_a.append(act)
                 log_obs.append(next_obs)
@@ -855,9 +853,9 @@ class MBPO(RLAlgorithm):
 
         if self.process_actions:
             feed_dict = {
-                self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
+                self._observations_ph: batch['observations'][:,-self.active_obs_dim:], 
                 self._actions_ph: batch['actions'][:,0:2],
-                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
+                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:], 
                 self._rewards_ph: batch['rewards'],
                 self._terminals_ph: batch['terminals'],
             }

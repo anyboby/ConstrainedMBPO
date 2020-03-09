@@ -4,6 +4,9 @@ import numpy as np
 import gym
 from gym import spaces, wrappers
 import safety_gym
+from safety_gym.envs.engine import Engine
+import json
+import os
 
 from .softlearning_env import SoftlearningEnv
 from softlearning.environments.gym import register_environments
@@ -101,7 +104,21 @@ class GymAdapter(SoftlearningEnv):
             env = NormalizeActionWrapper(env)
         
         if env_id in WRAPPER_IDS:
+            dirname, _ = os.path.split(os.path.abspath(__file__))
+            
+            #### load config file
+            with open(f'{dirname}/configs/{env_id}_config.json', 'r') as fp:
+                config = json.load(fp)
+            fp.close()
+            #### dump config file to current data dir
+            with open(f'{env_id}_config.json', 'w') as fp:
+                json.dump(config, fp)
+            fp.close()
+            ####
+
+            env = Engine(config)
             env = WRAPPER_IDS[env_id](env)
+            self.obs_indices = env.obs_indices
             #### check if extended action space exists:
             if hasattr(env, 'action_space_ext'):
                 self.action_space_ext = env.action_space_ext

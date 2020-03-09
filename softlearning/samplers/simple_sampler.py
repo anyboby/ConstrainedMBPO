@@ -81,9 +81,6 @@ class SimpleSampler(BaseSampler):
                 self._current_observation)[None]
         ])[0]
 
-        #### DEBUG @anyboby
-        # print(action)
-
         next_observation, reward, terminal, info = self.env.step(action)
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)

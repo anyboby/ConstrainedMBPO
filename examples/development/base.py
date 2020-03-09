@@ -46,7 +46,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
         'type': 'MBPO',
         'kwargs': {
             'reparameterize': REPARAMETERIZE,
-            'lr': 1e-4, #3e-4,
+            'lr': 3e-4,
             'target_update_interval': 1,
             'tau': 5e-3,
             'store_extra_policy_info': False,
