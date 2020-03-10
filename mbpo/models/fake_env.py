@@ -83,8 +83,8 @@ class FakeEnv:
             self.task = self.safe_config['task']
             unstacked_obs = obs[:,-unstacked_obs_size:]
             rewards = self.static_fns.reward_np(unstacked_obs, act, next_obs, self.safe_config)
-            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.safe_config)
-
+            terminals = self.static_fns.termination_fn(unstacked_obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
+            next_obs = self.static_fns.rebuild_goal(unstacked_obs, act, next_obs, unstacked_obs, self.safe_config)  ### rebuild goal if goal was met
             if self.stacks > 1:
                 next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
                 next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))

@@ -22,15 +22,43 @@ class StaticFns:
         stacks = safe_config['stacks']
         stacking_axis = safe_config['stacking_axis']
 
-        goal_dist = next_obs[:,obs_indices['goal_dist']]
-        last_dist = obs[:,obs_indices['goal_dist']]
+        if safe_config['continue_goal'] == True:
+            goal_dist = next_obs[:,obs_indices['goal_dist']]
+            goal_met_vec = np.vectorize(StaticFns._goal_met)
+            goal_met_vec.excluded.add(1)
+            done = goal_met_vec(goal_dist, safe_config)
+        else:
+            done = np.array([False]).repeat(len(obs))
+            done = done[:,None]
+        return done
+    
+    @staticmethod
+    def rebuild_goal(obs, act, next_obs, new_obs_pool, safe_config):
+        '''
+        rebuild goal, if the goal was met in the starting obs, pool of new goal_obs should be provided
+        please provide unstacked observations and next_observations
+        '''
+        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == len(new_obs_pool.shape) == 2
+        assert StaticFns.task == safe_config['task']
+        obs_indices = safe_config['obs_indices']
 
-        #done = np.array([False]).repeat(len(obs))
+        ### rebuild only if we already started in a goal
+        goal_dist = obs[:,obs_indices['goal_dist']] 
+
         goal_met_vec = np.vectorize(StaticFns._goal_met)
         goal_met_vec.excluded.add(1)
-        done = goal_met_vec(goal_dist, safe_config)
-        #done = done[:,None]
-        return done
+        goal_met = np.squeeze(goal_met_vec(goal_dist, safe_config))
+
+        rebuilt_obs = next_obs        
+        if np.max(goal_met) == True:
+            randind = np.random.randint(0, len(new_obs_pool))
+            rand_obs = new_obs_pool[randind,:]
+
+            rebuilt_obs[goal_met, obs_indices['goal_dist']] = rand_obs[obs_indices['goal_dist']]
+            rebuilt_obs[goal_met, obs_indices['goal_lidar']] = rand_obs[obs_indices['goal_lidar']]
+    
+        return rebuilt_obs
+
 
     @staticmethod
     def _goal_met(dist_goal, safe_config):
@@ -64,11 +92,19 @@ class StaticFns:
         reward_distance = safe_config['reward_distance']
         reward_goal = safe_config['reward_goal']
         reward_clip = safe_config['reward_clip']
-
+        reward_clip = 0.25 ### have to clip
+    
         reward = 0.0
         # Distance from robot to goal
         if 'goal' in StaticFns.task.lower() or 'button' in StaticFns.task.lower():
             reward += (last_dist_goal - dist_goal) * reward_distance
+
+        if reward_clip:
+            in_range = reward < reward_clip and reward > -reward_clip
+            if not(in_range):
+                reward = np.clip(reward, -reward_clip, reward_clip)
+                #print('Warning: reward was outside of range!')
+
         if StaticFns._goal_met(dist_goal, safe_config):
             reward += reward_goal 
         # # Distance from robot to box
@@ -105,9 +141,6 @@ class StaticFns:
         #     zalign = quat2zalign(self.data.get_body_xquat(self.reward_orientation_body))
         #     reward += self.reward_orientation_scale * zalign
         # Clip reward
-        if reward_clip:
-            in_range = reward < reward_clip and reward > -reward_clip
-            if not(in_range):
-                reward = np.clip(reward, -reward_clip, reward_clip)
-                print('Warning: reward was outside of range!')
+
         return reward
+

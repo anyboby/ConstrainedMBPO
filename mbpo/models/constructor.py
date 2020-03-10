@@ -13,13 +13,13 @@ def construct_model(obs_dim_in=11, obs_dim_out=None, act_dim=3, rew_dim=1, hidde
 	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim, activation="swish", weight_decay=0.000015))	#0.000025))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00002))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim, activation="swish", weight_decay=0.000025))	#0.000025))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))			#0.00005))
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#0.000075))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#0.000075))
-	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.00005))							#0.0001
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
+	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.0001))							#0.0001
 	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
 	return model
 
@@ -45,17 +45,18 @@ def format_samples_for_training(samples, safe_config=None):
 		unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)	
 		delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
 		
-		### remove terminals and outliers:
-		outlier_threshold = 0.15
+		## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
+		outlier_threshold = 0.2
 		mask = np.invert(samples['terminals'][:,0])
-		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs), outlier_threshold).mask, axis=-1))
+		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,:16]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
 		mask = mask*mask_outlier
-		
+
 		obs=obs[mask]
 		act=act[mask]
 		next_obs=next_obs[mask]
 		rew = rew[mask]
 		delta_obs = delta_obs[mask]
+		# delta_obs = np.clip(delta_obs,-outlier_threshold, outlier_threshold)		## clip delta_obs
 
 	else: 
 		delta_obs = next_obs - obs

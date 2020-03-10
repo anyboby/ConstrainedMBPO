@@ -598,14 +598,19 @@ class BNN:
         mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
         inv_var = tf.exp(-log_var)
 
+        #### @anyboby, this is not well done do this tomorrow !!
+        mse_weights = np.ones(shape=(56), dtype='float32')
+        mse_weights[0]=20
+        mse_weights_tensor = tf.constant(mse_weights)
+
         if inc_var_loss:
-            mse_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+            mse_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)
             var_losses = tf.reduce_mean(tf.reduce_mean(log_var, axis=-1), axis=-1)
             total_losses = mse_losses + var_losses
         else:
             total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
 
         if tensor_loss: 
-            total_losses = tf.reduce_mean(tf.square(mean - targets), axis=-2)
+            total_losses = tf.reduce_mean(tf.square(mean - targets)*mse_weights_tensor, axis=-2)
 
         return total_losses
