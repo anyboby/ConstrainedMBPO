@@ -4,11 +4,16 @@ import pdb
 
 class FakeEnv:
 
-    def __init__(self, model, config, stacks=1, stacking_axis=0):
+    def __init__(self, model, static_fns, safe_config=None):
         self.model = model
-        self.config = config
-        self.stacks = stacks
-        self.stacking_axis = stacking_axis
+        self.static_fns = static_fns
+        self.safe_config = safe_config
+        if safe_config:
+            self.stacks = self.safe_config['stacks']
+            self.stacking_axis = self.safe_config['stacking_axis']
+        else:
+            self.stacks = 1
+            self.stacking_axis = 0
     '''
         x : [ batch_size, obs_dim + 1 ]
         means : [ num_models, batch_size, obs_dim + 1 ]
@@ -47,6 +52,7 @@ class FakeEnv:
 
         inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+        test = obs[:,-unstacked_obs_size:]
         ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]                                #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
 
@@ -69,12 +75,22 @@ class FakeEnv:
 
         #### retrieve r and done for new state
         rewards, next_obs = samples[:,-1:], samples[:,:-1]
-        terminals = self.config.termination_fn(obs, act, next_obs)
 
+
+        #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
-        if self.stacks > 1:
-            next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
-            next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))
+        if self.safe_config:
+            self.task = self.safe_config['task']
+            unstacked_obs = obs[:,-unstacked_obs_size:]
+            rewards = self.static_fns.reward_np(unstacked_obs, act, next_obs, self.safe_config)
+            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.safe_config)
+
+            if self.stacks > 1:
+                next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
+                next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))
+        #### ----- special steps for safety-gym ----- ####
+        else:
+            terminals = self.static_fns.termination_fn(obs, act, next_obs)
 
         batch_size = model_means.shape[0]
         return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
@@ -112,7 +128,7 @@ class FakeEnv:
         samples = ensemble_samples[0]
 
         rewards, next_obs = samples[:,-1:], samples[:,:-1]
-        terminals = self.config.termination_ph_fn(obs_ph, act_ph, next_obs)
+        terminals = self.static_fns.termination_ph_fn(obs_ph, act_ph, next_obs)
         info = {}
 
         return next_obs, rewards, terminals, info

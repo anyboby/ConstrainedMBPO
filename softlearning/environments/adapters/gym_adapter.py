@@ -44,16 +44,10 @@ for gym_id in GYM_ENVIRONMENT_IDS:
 
 GYM_ENVIRONMENTS = dict(GYM_ENVIRONMENTS)
 
-WRAPPER_IDS = {
+SAFETY_WRAPPER_IDS = {
     'Safexp-PointGoal2-v0':SafetyPreprocessedEnv,
     'Safexp-PointGoal1-v0':SafetyPreprocessedEnv,
     'Safexp-PointGoal0-v0':SafetyPreprocessedEnv,
-}
-
-VEC_STACK_IDS = {
-    'Safexp-PointGoal2-v0': 4,
-    'Safexp-PointGoal1-v0': 4,
-    'Safexp-PointGoal0-v0': 4,
 }
 
 class GymAdapter(SoftlearningEnv):
@@ -102,34 +96,48 @@ class GymAdapter(SoftlearningEnv):
                 observation_keys or list(env.observation_space.spaces.keys()))
         if normalize:
             env = NormalizeActionWrapper(env)
-        
-        if env_id in WRAPPER_IDS:
+
+
+        #### --- specifically for safety_gym wrappring --- ###
+        if env_id in SAFETY_WRAPPER_IDS:
             dirname, _ = os.path.split(os.path.abspath(__file__))
-            
             #### load config file
-            with open(f'{dirname}/configs/{env_id}_config.json', 'r') as fp:
-                config = json.load(fp)
+            with open(f'{dirname}/../gym/safety_gym/configs/{env_id}_config.json', 'r') as fp:
+                self.safeconfig = json.load(fp)
             fp.close()
+            with open(f'{dirname}/../gym/safety_gym/add_configs/{env_id}_add_config.json', 'r') as fp:
+                add_config = json.load(fp)
+            fp.close()
+
+
+            env = Engine(self.safeconfig)
+            env = SAFETY_WRAPPER_IDS[env_id](env)
+
+            #### additional config info like stacking etc.
+            for k in add_config.keys():
+                self.safeconfig[k] = add_config[k]
+                    
             #### dump config file to current data dir
             with open(f'{env_id}_config.json', 'w') as fp:
-                json.dump(config, fp)
+                json.dump(self.safeconfig, fp)
             fp.close()
             ####
 
-            env = Engine(config)
-            env = WRAPPER_IDS[env_id](env)
+            ### adding unserializable additional info after dumping (lol)
             self.obs_indices = env.obs_indices
+            self.safeconfig['obs_indices'] = self.obs_indices
             #### check if extended action space exists:
             if hasattr(env, 'action_space_ext'):
                 self.action_space_ext = env.action_space_ext
+                self.safeconfig['action_space_ext'] = self.action_space_ext
 
-
-        if env_id in VEC_STACK_IDS:
+            ### stack env
+            self.stacks = self.safeconfig['stacks'] ### for convenience
+            self.stacking_axis = self.safeconfig['stacking_axis']
             env = DummyVecEnv([lambda:env])
-            env = VecFrameStack(env, VEC_STACK_IDS[env_id])
-            self.stacks = VEC_STACK_IDS[env_id]
-            self.stacking_axis = 0
+            env = VecFrameStack(env, self.safeconfig['stacks'])
 
+        #### --- end specifically for safety_gym  --- ###
 
 
         self._env = env

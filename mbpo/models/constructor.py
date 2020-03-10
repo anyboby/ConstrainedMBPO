@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.ma as ma
 import tensorflow as tf
 
 from mbpo.models.fc import FC
@@ -22,7 +23,7 @@ def construct_model(obs_dim_in=11, obs_dim_out=None, act_dim=3, rew_dim=1, hidde
 	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
 	return model
 
-def format_samples_for_training(samples, stacks=1, stacking_axis=0):
+def format_samples_for_training(samples, safe_config=None):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -36,11 +37,29 @@ def format_samples_for_training(samples, stacks=1, stacking_axis=0):
 	act = samples['actions']
 	next_obs = samples['next_observations']
 	rew = samples['rewards']
-	if stacks>1:
-		unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)
+
+	#### ---- preprocess samples for model training in safety gym -----####
+	if safe_config:
+		stacks = safe_config['stacks']
+		stacking_axis = safe_config['stacking_axis']
+		unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)	
 		delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
+		
+		### remove terminals and outliers:
+		outlier_threshold = 0.15
+		mask = np.invert(samples['terminals'][:,0])
+		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs), outlier_threshold).mask, axis=-1))
+		mask = mask*mask_outlier
+		
+		obs=obs[mask]
+		act=act[mask]
+		next_obs=next_obs[mask]
+		rew = rew[mask]
+		delta_obs = delta_obs[mask]
+
 	else: 
 		delta_obs = next_obs - obs
+	#### ----END preprocess samples for model training in safety gym -----####
 	inputs = np.concatenate((obs, act), axis=-1)
 	outputs = np.concatenate((delta_obs, rew), axis=-1)
 	return inputs, outputs

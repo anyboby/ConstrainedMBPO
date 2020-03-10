@@ -31,10 +31,10 @@ params = {
                                           # 3. try finding a balance between the size of new samples per number of
                                           #  updates of the model network (with model_train_freq)
 
-        'hidden_dim':150,               # hidden layer size of model bnn
+        'hidden_dim':360,               # hidden layer size of model bnn
         'model_train_freq': 1000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 100e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 10e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks

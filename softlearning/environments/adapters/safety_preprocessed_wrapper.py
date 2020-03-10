@@ -89,6 +89,9 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         for key, index in self.obs_indices.items():
             if key not in self.remove_obs:
                 flat_obs[index] = obs[key].flat
+            #### replace goal_dist with true dist
+            if key == 'goal_dist':
+                flat_obs[index] = self.env.dist_goal()
         obs = flat_obs
         
         return obs
