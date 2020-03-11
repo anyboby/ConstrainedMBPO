@@ -557,7 +557,6 @@ class MBPO(RLAlgorithm):
                     act = np.concatenate((act,last_actions,act_spikes), axis=1)
                 ##### here we're dreaming in the agents model #####
                 next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)  
-
                 log_a.append(act)
                 log_obs.append(next_obs)
                 # next_obs = obs
