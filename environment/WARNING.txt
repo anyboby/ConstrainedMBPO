@@ -1,0 +1,11 @@
+@anyboby
+
+fix the installation process, 
+
+building conda env from this repo doesn't work properly, currently you have to:
+
+1. create mbpo conda env from original mbpo repo (ad described in their installation)
+2. pip install egg viskit from original mbpo repo
+3. pip install setup.py of constrained mbpo
+4. install safety-gym seperately
+5. install stable baselines seperately
