@@ -61,6 +61,7 @@ def format_samples_for_training(samples, safe_config=None):
 	else: 
 		delta_obs = next_obs - obs
 	#### ----END preprocess samples for model training in safety gym -----####
+	
 	inputs = np.concatenate((obs, act), axis=-1)
 	outputs = np.concatenate((delta_obs, rew), axis=-1)
 	return inputs, outputs
