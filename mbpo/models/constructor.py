@@ -2,6 +2,7 @@ import numpy as np
 import numpy.ma as ma
 import tensorflow as tf
 
+import copy
 from mbpo.models.fc import FC
 from mbpo.models.bnn import BNN
 
@@ -23,7 +24,7 @@ def construct_model(obs_dim_in=11, obs_dim_out=None, act_dim=3, rew_dim=1, hidde
 	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
 	return model
 
-def format_samples_for_training(samples, safe_config=None):
+def format_samples_for_training(samples, safe_config=None, add_noise=False):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -64,7 +65,20 @@ def format_samples_for_training(samples, safe_config=None):
 	
 	inputs = np.concatenate((obs, act), axis=-1)
 	outputs = np.concatenate((next_obs[:, -unstacked_obs_size:], rew), axis=-1)		###@anyboby testing
+
+	if add_noise:
+		inputs = _add_noise(inputs, 0.02)
+
 	return inputs, outputs
+
+def _add_noise(data_inp, noiseToSignal):
+    data= copy.deepcopy(data_inp)
+    mean_data = np.mean(data, axis = 0)
+    std_of_noise = mean_data*noiseToSignal
+    for j in range(mean_data.shape[0]):
+        if(std_of_noise[j]>0):
+            data[:,j] = np.copy(data[:,j]+np.random.normal(0, np.absolute(std_of_noise[j]), (data.shape[0],)))
+    return data
 
 
 def reset_model(model):

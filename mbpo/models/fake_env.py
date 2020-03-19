@@ -53,7 +53,7 @@ class FakeEnv:
         inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
         test = obs[:,-unstacked_obs_size:]
-        ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]                                #### models output state change rather than state completely
+        # ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:] # @anyboby testing           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
 
         ### directly use means, if deterministic
