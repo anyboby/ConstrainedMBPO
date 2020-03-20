@@ -64,10 +64,10 @@ def format_samples_for_training(samples, safe_config=None, add_noise=False):
 	#### ----END preprocess samples for model training in safety gym -----####
 	
 	inputs = np.concatenate((obs, act), axis=-1)
-	outputs = np.concatenate((next_obs[:, -unstacked_obs_size:], rew), axis=-1)		###@anyboby testing
+	outputs = np.concatenate((delta_obs, rew), axis=-1)		###@anyboby testing
 
 	if add_noise:
-		inputs = _add_noise(inputs, 0.02)
+		inputs = _add_noise(inputs, 0.0001)
 
 	return inputs, outputs
 
