@@ -14,6 +14,7 @@ from softlearning.environments.gym.wrappers import NormalizeActionWrapper
 from softlearning.environments.adapters.safety_preprocessed_wrapper import SafetyPreprocessedEnv
 from collections import defaultdict
 from stable_baselines.common.vec_env import VecFrameStack
+from stable_baselines.common.vec_env import VecNormalize
 from stable_baselines.common.vec_env import DummyVecEnv
 
 
@@ -135,6 +136,7 @@ class GymAdapter(SoftlearningEnv):
             self.stacks = self.safeconfig['stacks'] ### for convenience
             self.stacking_axis = self.safeconfig['stacking_axis']
             env = DummyVecEnv([lambda:env])
+            #env = VecNormalize(env)        doesn't work at all for some reason
             env = VecFrameStack(env, self.safeconfig['stacks'])
 
         #### --- end specifically for safety_gym  --- ###

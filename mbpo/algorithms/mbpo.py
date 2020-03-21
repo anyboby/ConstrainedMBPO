@@ -467,7 +467,7 @@ class MBPO(RLAlgorithm):
         env_samples = self._pool.return_all_samples()
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        train_inputs, train_outputs = format_samples_for_training(env_samples, safe_config=self.safe_config, add_noise=False)
+        train_inputs, train_outputs = format_samples_for_training(env_samples, safe_config=self.safe_config, add_noise=True)
         model_metrics = self._model.train(train_inputs, train_outputs, **kwargs)
         return model_metrics
 

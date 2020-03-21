@@ -49,14 +49,14 @@ def format_samples_for_training(samples, safe_config=None, add_noise=False):
 		## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
 		outlier_threshold = 0.2
 		mask = np.invert(samples['terminals'][:,0])
-		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,:16]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
+		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,:]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
 		mask = mask*mask_outlier
 
 		obs=obs[mask]
 		act=act[mask]
 		next_obs=next_obs[mask]
 		rew = rew[mask]
-		delta_obs = delta_obs[mask]
+		delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
 		# delta_obs = np.clip(delta_obs,-outlier_threshold, outlier_threshold)		## clip delta_obs
 
 	else: 
@@ -66,8 +66,10 @@ def format_samples_for_training(samples, safe_config=None, add_noise=False):
 	inputs = np.concatenate((obs, act), axis=-1)
 	outputs = np.concatenate((delta_obs, rew), axis=-1)		###@anyboby testing
 
+	# add noise
 	if add_noise:
-		inputs = _add_noise(inputs, 0.0001)
+		inputs = _add_noise(inputs, 0.0001)		### noise helps 
+
 
 	return inputs, outputs
 
