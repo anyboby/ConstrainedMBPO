@@ -49,7 +49,7 @@ def format_samples_for_training(samples, safe_config=None, add_noise=False):
 		## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
 		outlier_threshold = 0.2
 		mask = np.invert(samples['terminals'][:,0])
-		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,:]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
+		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,:16]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
 		mask = mask*mask_outlier
 
 		obs=obs[mask]
