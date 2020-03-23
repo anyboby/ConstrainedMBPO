@@ -31,7 +31,7 @@ from mbpo.algorithms.utils.utils import values_as_sorted_list
 import mbpo.algorithms.utils.trust_region as tro
 from mbpo.algorithms.utils.mpi_tf import MpiAdamOptimizer, sync_all_params
 from mbpo.algorithms.utils.mpi_tools import mpi_fork, proc_id, num_procs, mpi_sum
-
+from mbpo.algorithms.utils.logx import EpochLogger, setup_logger_kwargs
 
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
@@ -213,7 +213,7 @@ class MBPO(RLAlgorithm):
         self.actor_critic=mlp_actor_critic
         ac_kwargs=dict()
         self.ent_reg = 0
-        # steps_per_epoch = model_batch_size ?
+        self.steps_per_epoch = model_batch_size ?
         # gamma = discount
         # lam = 0.97
         # cost_gamma = 0.99
@@ -231,6 +231,25 @@ class MBPO(RLAlgorithm):
 
         # MPI Fork + tf gpu doesn't work ! at least without further mods
         # therefore either tf gpu or --cpus==1
+
+        # ________________________________ #        
+        #       Cpo agent and logger       #
+        # ________________________________ #
+
+
+        cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
+                            objective_penalized=False,  # Irrelevant in CPO
+                            learn_penalty=False,  # Irrelevant in CPO
+                            penalty_param_loss=False  # Irrelevant in CPO
+                            )
+
+        self.agent = CPOAgent(**cpo_kwargs)
+        exp_name = 'cpo'
+        test_seed = random.randint(0,9999)
+        logger_kwargs = setup_logger_kwargs(exp_name, test_seed)
+        logger = EpochLogger(**logger_kwargs)
+        logger.save_config(locals())
+        self.agent.set_logger(logger)
 
         # ________________________________ #        
         #           CPO TF Graph           #
@@ -255,8 +274,8 @@ class MBPO(RLAlgorithm):
         pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc = ac_outs
 
         # Organize placeholders for zipping with data from buffer on updates
-        buf_phs = [obs_ph, a_ph, adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph]
-        buf_phs += values_as_sorted_list(pi_info_phs)
+        self.buf_phs = [obs_ph, a_ph, adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph]
+        self.buf_phs += values_as_sorted_list(pi_info_phs)
 
         # organize tf ops required for generation of actions
         ops_for_action = dict(pi=pi, 
@@ -278,19 +297,17 @@ class MBPO(RLAlgorithm):
 
         # limit pool size ! can only contain current policy samples
         # include pi_info shapes in the pool, maybe create own pool ?
-
-        # ________________________________ #        
-        #           Create cpo agent       #
-        # ________________________________ #
-
-
-        cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
-                            objective_penalized=False,  # Irrelevant in CPO
-                            learn_penalty=False,  # Irrelevant in CPO
-                            penalty_param_loss=False  # Irrelevant in CPO
-                            )
-
-        self.agent = CPOAgent(**cpo_kwargs)
+        # Experience buffer
+        local_steps_per_epoch = int(steps_per_epoch / num_procs())
+        pi_info_shapes = {k: v.shape.as_list()[1:] for k,v in pi_info_phs.items()}
+        buf = CPOBuffer(local_steps_per_epoch,
+                        obs_shape, 
+                        act_shape, 
+                        pi_info_shapes, 
+                        gamma, 
+                        lam,
+                        cost_gamma,
+                        cost_lam)
 
         # ________________________________ #        
         #    Computation graph for policy  #
@@ -404,7 +421,7 @@ class MBPO(RLAlgorithm):
         # _____________________________________ #        
         #    Provide session to agent           #
         # _____________________________________ #
-        agent.prepare_session(sess)
+        self.agent.prepare_session(sess)
 
         #### -------------------------------- ####
         
@@ -822,6 +839,75 @@ class MBPO(RLAlgorithm):
             ## so skip the model pool sampling
             batch = env_batch
         return batch
+
+    # _____________________________________ #        
+    #        Create update function         #
+    # _____________________________________ #
+
+    def update(self):
+        cur_cost = self.agent.logger.get_stats('EpCost')[0]
+        #c = cur_cost - cost_lim
+        rand_cost = 0
+        cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + randint(0, rand_cost)
+        c = cur_cost - cur_cost_lim
+        if c > 0 and self.agent.cares_about_cost:
+            self.agent.logger.log('Warning! Safety constraint is already violated.', 'red')
+
+        #=====================================================================#
+        #  Prepare feed dict                                                  #
+        #=====================================================================#
+
+        inputs = {k:v for k,v in zip(self.buf_phs, self._pool.get())}
+        inputs[surr_cost_rescale_ph] = logger.get_stats('EpLen')[0]
+        inputs[cur_cost_ph] = cur_cost
+
+        #=====================================================================#
+        #  Make some measurements before updating                             #
+        #=====================================================================#
+
+        measures = dict(LossPi=pi_loss,
+                        SurrCost=surr_cost,
+                        LossV=v_loss,
+                        Entropy=ent)
+        if not(agent.reward_penalized):
+            measures['LossVC'] = vc_loss
+
+        pre_update_measures = sess.run(measures, feed_dict=inputs)
+        logger.store(**pre_update_measures)
+
+        #=====================================================================#
+        #  update cost_limit (@mo creation)                               #
+        #=====================================================================#
+        # Provide training package to agent
+        training_package["cost_lim"]= cur_cost_lim
+        agent.prepare_update(training_package)
+
+        #=====================================================================#
+        #  Update policy                                                      #
+        #=====================================================================#
+        agent.update_pi(inputs)
+
+        #=====================================================================#
+        #  Update value function                                              #
+        #=====================================================================#
+        for _ in range(vf_iters):
+            sess.run(train_vf, feed_dict=inputs)
+
+        #=====================================================================#
+        #  Make some measurements after updating                              #
+        #=====================================================================#
+
+        del measures['Entropy']
+        measures['KL'] = d_kl
+
+        post_update_measures = sess.run(measures, feed_dict=inputs)
+        deltas = dict()
+        for k in post_update_measures:
+            if k in pre_update_measures:
+                deltas['Delta'+k] = post_update_measures[k] - pre_update_measures[k]
+        logger.store(KL=post_update_measures['KL'], **deltas)
+
+
 
     def _init_global_step(self):
         self.global_step = training_util.get_or_create_global_step()
