@@ -21,18 +21,6 @@ from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 
-from mbpo.algorithms.cpo import CPOAgent
-from mbpo.algorithms.utils.ac_network import count_vars, \
-                                            get_vars, \
-                                            mlp_actor_critic, \
-                                            placeholders, \
-                                            placeholders_from_spaces
-from mbpo.algorithms.utils.utils import values_as_sorted_list
-import mbpo.algorithms.utils.trust_region as tro
-from mbpo.algorithms.utils.mpi_tf import MpiAdamOptimizer, sync_all_params
-from mbpo.algorithms.utils.mpi_tools import mpi_fork, proc_id, num_procs, mpi_sum
-
-
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.models.perturbed_env import PerturbedEnv
@@ -119,18 +107,18 @@ class MBPO(RLAlgorithm):
 
         super(MBPO, self).__init__(**kwargs)
 
-        self.obs_dim = np.prod(training_environment.observation_space.shape)
+        obs_dim = np.prod(training_environment.observation_space.shape)
         if hasattr(training_environment, 'action_space_ext'):
-            self.act_dim = np.prod(training_environment.action_space_ext.shape)
+            act_dim = np.prod(training_environment.action_space_ext.shape)
             self.process_actions = True
         else:
-            self.act_dim = np.prod(training_environment.action_space.shape)
+            act_dim = np.prod(training_environment.action_space.shape)
             self.process_actions = False
 
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
-        self.active_obs_dim = int(self.obs_dim/self.num_stacks)
+        self.active_obs_dim = int(obs_dim/self.num_stacks)
         self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
         if self.safe_config: weighted=True 
         else: weighted=False
@@ -172,6 +160,29 @@ class MBPO(RLAlgorithm):
         self.perturbed_env = PerturbedEnv(self._mjc_model_environment, std_inc=model_std_inc)
         self._policy = policy
 
+        #### testing block
+        # for i in range(10):
+        #     obs_r, sim_r = self._evaluation_environment.reset()
+        #     sim_r['acc']=obs_r[0:3]
+        #     actions = [
+        #         [0.8,0.5],
+        #         [0.8,-0.5],
+        #         [0.8,0.0],
+        #         [-0.8,0.5],
+        #         [-0.8,-0.5],
+        #         [-0.8,0.0],
+        #     ]
+        #     for i in range(25):
+        #         new_obs_r,_, _, _, new_sim_r = self._evaluation_environment.step(np.array(actions[random.randint(0,len(actions)-1)], dtype='float32'))
+        #         new_sim_r['acc']=new_obs_r[0:3]
+        #     obs_f, sim_f = self.perturbed_env.reset(sim_state=sim_r)
+        #     obs_step_f, sim_step_f = self.perturbed_env.reset(sim_state=new_sim_r)
+        #     error1 = obs_r - obs_f
+        #     error2 = new_obs_r - obs_step_f
+
+
+        #########
+
         self._Qs = Qs
         self._Q_targets = tuple(tf.keras.models.clone_model(Q) for Q in Qs)
 
@@ -207,214 +218,6 @@ class MBPO(RLAlgorithm):
 
         #### create tf ops 
         self._build()
-
-
-
-        # ________________________________ #        
-        #           CPO Params             #
-        # ________________________________ #
-        
-        ### @anyboby most of these should be moved to config 
-
-        self.actor_critic=mlp_actor_critic
-        ac_kwargs=dict()
-        self.ent_reg = 0
-        # steps_per_epoch = model_batch_size ?
-        # gamma = discount
-        # lam = 0.97
-        # cost_gamma = 0.99
-        # cost_lam = 0.97
-        self.cost_lim = 25
-        self.cost_lim_end = 25
-        # penalty_init 
-        self.target_kl = 0.01
-        self.vf_lr = 1e-3
-        # vf_iters = 80   what is that?
-        # ----- logging ?
-        #logger = <cpo_rl.utils.logx.EpochLogger object at 0x7f6acf2876d8>
-        #logger_kwargs={'exp_name': 'cpo_PointGoal2', 'output_dir': '/media/mo/Sync/Sync...Goal2_s10'}
-        # save_freq = checkpoint save_freq from config ?
-
-        # MPI Fork + tf gpu doesn't work ! at least without further mods
-        # therefore either tf gpu or --cpus==1
-
-        # ________________________________ #        
-        #           CPO TF Graph           #
-        # ________________________________ #
-
-
-        # add act dim to 
-        ac_kwargs['action_space'] = self.act_dim
-        
-        # input and actions phs
-        obs_ph, a_ph = placeholders_from_spaces(self.active_obs_dim, self.act_dim)
-
-        # phs for computation graph inputs for batches
-        adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph = placeholders(*(None for _ in range(5)))
-
-        # phs for cpo specific inputs to comp graph
-        surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
-        cur_cost_ph = tf.placeholder(tf.float32, shape=())
-
-        # unpack actor critic outputs
-        ac_outs = self.actor_critic(obs_ph, a_ph, **ac_kwargs)
-        pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc = ac_outs
-
-        # Organize placeholders for zipping with data from buffer on updates
-        buf_phs = [obs_ph, a_ph, adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph]
-        buf_phs += values_as_sorted_list(pi_info_phs)
-
-        # organize tf ops required for generation of actions
-        ops_for_action = dict(pi=pi, 
-                              v=v, 
-                              logp_pi=logp_pi,
-                              pi_info=pi_info)
-        ops_for_action['vc'] = vc
-
-        # Count variables
-        var_counts = tuple(count_vars(scope) for scope in ['pi', 'vf', 'vc'])
-        logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
-
-        # Make a sample estimate for entropy to use as sanity check
-        approx_ent = tf.reduce_mean(-logp)
-
-        # ________________________________ #        
-        #           Replay Buffer          #
-        # ________________________________ #
-
-        # limit pool size ! can only contain current policy samples
-        # include pi_info shapes in the pool, maybe create own pool ?
-
-        # ________________________________ #        
-        #           Create cpo agent       #
-        # ________________________________ #
-
-
-        cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
-                            objective_penalized=False,  # Irrelevant in CPO
-                            learn_penalty=False,  # Irrelevant in CPO
-                            penalty_param_loss=False  # Irrelevant in CPO
-                            )
-
-        self.agent = CPOAgent(**cpo_kwargs)
-
-        # ________________________________ #        
-        #    Computation graph for policy  #
-        # ________________________________ #
-        ratio = tf.exp(logp-logp_old_ph)
-
-        # Surrogate advantage / clipped surrogate advantage
-        if self.agent.clipped_adv:
-            min_adv = tf.where(adv_ph>0, 
-                            (1+self.agent.clip_ratio)*adv_ph, 
-                            (1-self.agent.clip_ratio)*adv_ph
-                            )
-            surr_adv = tf.reduce_mean(tf.minimum(ratio * adv_ph, min_adv))
-        else:
-            surr_adv = tf.reduce_mean(ratio * adv_ph)
-
-        # Surrogate cost (advantage)
-        surr_cost = tf.reduce_mean(ratio * cadv_ph)
-
-        # Create policy objective function, including entropy regularization
-        pi_objective = surr_adv + self.ent_reg * ent
-
-        # Loss function for pi is negative of pi_objective
-        pi_loss = -pi_objective
-
-        # Optimizer-specific symbols
-        if self.agent.trust_region:              ### <------- CPO
-
-            # Symbols needed for CG solver for any trust region method
-            pi_params = get_vars('pi')
-            flat_g = tro.flat_grad(pi_loss, pi_params)
-            v_ph, hvp = tro.hessian_vector_product(d_kl, pi_params)
-            if self.agent.damping_coeff > 0:
-                hvp += self.agent.damping_coeff * v_ph
-
-            # Symbols needed for CG solver for CPO only
-            flat_b = tro.flat_grad(surr_cost, pi_params)
-
-            # Symbols for getting and setting params
-            get_pi_params = tro.flat_concat(pi_params)
-            set_pi_params = tro.assign_params_from_flat(v_ph, pi_params)
-
-            training_package = dict(flat_g=flat_g,
-                                    flat_b=flat_b,
-                                    v_ph=v_ph,
-                                    hvp=hvp,
-                                    get_pi_params=get_pi_params,
-                                    set_pi_params=set_pi_params)
-
-        elif self.agent.first_order:
-
-            # Optimizer for first-order policy optimization
-            train_pi = MpiAdamOptimizer(learning_rate= self.agent.pi_lr).minimize(pi_loss)
-
-            # Prepare training package for agent
-            training_package = dict(train_pi=train_pi)
-
-        else:
-            raise NotImplementedError
-
-        # Provide training package to agent
-        training_package.update(dict(pi_loss=pi_loss, 
-                                    surr_cost=surr_cost,
-                                    d_kl=d_kl, 
-                                    target_kl=self.target_kl,
-                                    cost_lim=self.cost_lim))
-        self.agent.prepare_update(training_package)
-
-        # ________________________________ #        
-        #    Computation graph for value   #
-        # ________________________________ #
-
-        # Value losses
-        v_loss = tf.reduce_mean((ret_ph - v)**2)
-        vc_loss = tf.reduce_mean((cret_ph - vc)**2)
-
-        # If agent uses penalty directly in reward function, don't train a separate
-        # value function for predicting cost returns. (Only use one vf for r - p*c.)
-        total_value_loss = v_loss + vc_loss
-
-        # Optimizer for value learning
-        train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
-
-        # _____________________________________ #        
-        #    Set up session, syncs and save     #
-        # _____________________________________ #
-
-        gpu = tf.test.is_gpu_available(
-        cuda_only=False, min_cuda_compute_capability=None
-        )
-        if gpu:
-            ## --------------- allow dynamic memory growth to avoid cudnn init error ------------- ##
-            from keras.backend.tensorflow_backend import set_session #---------------------------- ##
-            config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True,
-                                        per_process_gpu_memory_fraction = 0.9/num_procs()), 
-                                    log_device_placement=False)
-            sess = tf.Session(config=config) #---------------------------------------------------- ##
-            set_session(sess) # set this TensorFlow session as the default session for Keras ----- ##
-            ## ----------------------------------------------------------------------------------- ##
-        else:
-            sess = tf.Session()
-        
-        sess.run(tf.global_variables_initializer())
-        
-        # Sync params across processes
-        sess.run(sync_all_params())
-
-        # Setup model saving
-        logger.setup_tf_saver(sess, inputs={'obs': obs_ph}, outputs={'pi': pi, 'v': v, 'vc': vc})
-
-        # _____________________________________ #        
-        #    Provide session to agent           #
-        # _____________________________________ #
-        agent.prepare_session(sess)
-
-        #### -------------------------------- ####
-        
-
 
     def _build(self):
         self._training_ops = {}
