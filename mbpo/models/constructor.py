@@ -6,7 +6,15 @@ import copy
 from mbpo.models.fc import FC
 from mbpo.models.bnn import BNN
 
-def construct_model(obs_dim_in=11, obs_dim_out=None, act_dim=3, rew_dim=1, hidden_dim=200, num_networks=7, num_elites=5, session=None):
+def construct_model(obs_dim_in=11, 
+					obs_dim_out=None, 
+					act_dim=3, 
+					rew_dim=1, 
+					hidden_dim=200, 
+					num_networks=7, 
+					num_elites=5, 
+					weighted=False, 
+					session=None):
 	if not obs_dim_out:
 		obs_dim_out = obs_dim_in
 
@@ -21,7 +29,7 @@ def construct_model(obs_dim_in=11, obs_dim_out=None, act_dim=3, rew_dim=1, hidde
 	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
 	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
 	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.0001))							#0.0001
-	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001})
+	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001}, weighted=weighted, )
 	return model
 
 def format_samples_for_training(samples, safe_config=None, add_noise=False):

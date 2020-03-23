@@ -120,10 +120,18 @@ class MBPO(RLAlgorithm):
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(obs_dim/self.num_stacks)
         self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
+        if self.safe_config: weighted=True 
+        else: weighted=False
         #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
 
         #### create fake env from model 
-        self._model = construct_model(obs_dim_in=obs_dim, obs_dim_out=self.active_obs_dim, act_dim=act_dim, hidden_dim=hidden_dim, num_networks=num_networks, num_elites=num_elites)
+        self._model = construct_model(obs_dim_in=obs_dim, 
+                                        obs_dim_out=self.active_obs_dim, 
+                                        act_dim=act_dim, 
+                                        hidden_dim=hidden_dim, 
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites,
+                                        weighted=weighted)
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.fake_env = FakeEnv(self._model, self._static_fns, safe_config=self.safe_config)
         

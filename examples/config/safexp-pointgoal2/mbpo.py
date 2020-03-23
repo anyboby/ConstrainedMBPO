@@ -8,7 +8,8 @@ params = {
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
     'preprocessing_type':'Safexp-PointGoal2',
-    
+    'use_extended_action_space' : True,
+
     'max_pool_size':int(6e4),           # maximum pool size for model training, if memory is an issue
 
     'kwargs': {
@@ -18,6 +19,7 @@ params = {
         'eval_render_mode': None,    # 
         'eval_n_episodes': 5,
         'eval_deterministic': True,
+
 
         'discount': 0.99,
         'tau': 5e-3,
