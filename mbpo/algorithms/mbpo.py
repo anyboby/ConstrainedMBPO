@@ -32,6 +32,8 @@ import mbpo.algorithms.utils.trust_region as tro
 from mbpo.algorithms.utils.mpi_tf import MpiAdamOptimizer, sync_all_params
 from mbpo.algorithms.utils.mpi_tools import mpi_fork, proc_id, num_procs, mpi_sum
 from mbpo.algorithms.utils.logx import EpochLogger, setup_logger_kwargs
+from mbpo.algorithms.utils.buffer import CPOBuffer
+
 
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
@@ -119,7 +121,10 @@ class MBPO(RLAlgorithm):
 
         super(MBPO, self).__init__(**kwargs)
 
+        self.obs_space = training_environment.observation_space
+        self.act_space = training_environment.action_space
         self.obs_dim = np.prod(training_environment.observation_space.shape)
+        
         if hasattr(training_environment, 'action_space_ext'):
             self.act_dim = np.prod(training_environment.action_space_ext.shape)
             self.process_actions = True
@@ -200,7 +205,7 @@ class MBPO(RLAlgorithm):
         self._action_shape = action_shape
 
         #### create tf ops 
-        self._build()
+        #self._build() #@anyboby uncomment, this creates sac 
 
 
 
@@ -213,11 +218,11 @@ class MBPO(RLAlgorithm):
         self.actor_critic=mlp_actor_critic
         ac_kwargs=dict()
         self.ent_reg = 0
-        self.steps_per_epoch = model_batch_size ?
-        # gamma = discount
-        # lam = 0.97
-        # cost_gamma = 0.99
-        # cost_lam = 0.97
+        self.steps_per_epoch = self._rollout_batch_size #?
+        self.gamma = discount
+        self.lam = 0.97
+        self.cost_gamma = 0.99
+        self.cost_lam = 0.97
         self.cost_lim = 25
         self.cost_lim_end = 25
         # penalty_init 
@@ -257,10 +262,10 @@ class MBPO(RLAlgorithm):
 
 
         # add act dim to 
-        ac_kwargs['action_space'] = self.act_dim
+        ac_kwargs['action_space'] = self.act_space
         
         # input and actions phs
-        obs_ph, a_ph = placeholders_from_spaces(self.active_obs_dim, self.act_dim)
+        obs_ph, a_ph = placeholders_from_spaces(self.obs_space, self.act_space)
 
         # phs for computation graph inputs for batches
         adv_ph, cadv_ph, ret_ph, cret_ph, logp_old_ph = placeholders(*(None for _ in range(5)))
@@ -298,16 +303,16 @@ class MBPO(RLAlgorithm):
         # limit pool size ! can only contain current policy samples
         # include pi_info shapes in the pool, maybe create own pool ?
         # Experience buffer
-        local_steps_per_epoch = int(steps_per_epoch / num_procs())
-        pi_info_shapes = {k: v.shape.as_list()[1:] for k,v in pi_info_phs.items()}
-        buf = CPOBuffer(local_steps_per_epoch,
-                        obs_shape, 
-                        act_shape, 
-                        pi_info_shapes, 
-                        gamma, 
-                        lam,
-                        cost_gamma,
-                        cost_lam)
+        self.local_steps_per_epoch = int(self.steps_per_epoch / num_procs())
+        self.pi_info_shapes = {k: v.shape.as_list()[1:] for k,v in pi_info_phs.items()}
+        self.buf = CPOBuffer(self.local_steps_per_epoch,
+                        self.obs_space.shape, 
+                        self.act_space.shape, 
+                        self.pi_info_shapes, 
+                        self.gamma, 
+                        self.lam,
+                        self.cost_gamma,
+                        self.cost_lam)
 
         # ________________________________ #        
         #    Computation graph for policy  #

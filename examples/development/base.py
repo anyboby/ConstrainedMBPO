@@ -288,6 +288,10 @@ def get_variant_spec(args, env_params):
     else:
         variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = None
 
+    if 'sampler_type' in env_params:
+        variant_spec['sampler_params']['type'] = env_params.sampler_type
+
+
     #if env_params.kwargs['max_pool_size'] is not None:
     #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']
         

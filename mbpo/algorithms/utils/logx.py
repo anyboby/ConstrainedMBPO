@@ -10,8 +10,8 @@ import numpy as np
 import time
 import tensorflow as tf
 import os.path as osp, time, atexit, os
-from cpo_rl.utils.mpi_tools import proc_id, mpi_statistics_scalar
-from cpo_rl.utils.serialization_utils import convert_json
+from mbpo.algorithms.utils.mpi_tools import proc_id, mpi_statistics_scalar
+from mbpo.algorithms.utils.serialization_utils import convert_json
 
 
 DEFAULT_DATA_DIR = osp.join(osp.abspath(osp.dirname(osp.dirname(osp.dirname(__file__)))),'data')
