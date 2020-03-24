@@ -26,7 +26,7 @@ params = {
         'num_networks': 7,
         'num_elites': 5,
         'real_ratio': 1,
-        'target_entropy': -3,
+        'target_entropy': 'auto',
         'max_model_t': None,
         'rollout_schedule': [20, 300, 1, 20],
         'hidden_dim': 400,
