@@ -8,7 +8,7 @@ params = {
     'exp_name': 'defaults',
 
     'kwargs': {
-        'epoch_length': 3000,
+        'epoch_length': 50000,
         'train_every_n_steps': 50,
         'n_train_repeat': 10,
         'eval_render_mode': 'human',
@@ -26,7 +26,7 @@ params = {
         'num_networks': 7,
         'num_elites': 5,
         'real_ratio': 1,
-        'target_entropy': 'auto',
+        'target_entropy': -22, #'auto',
         'max_model_t': None,
         'rollout_schedule': [20, 300, 1, 20],
         'hidden_dim': 400,
