@@ -276,7 +276,7 @@ class MBPO(RLAlgorithm):
 
             #### util class Progress, e.g. for plotting a progress bar
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
-            self._training_progress = Progress(self._epoch_length * int(self._n_train_repeat/self._train_every_n_steps))
+            self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
             start_samples = self.sampler._total_samples                     
 
             ### train for epoch_length ###
