@@ -17,14 +17,34 @@ GAUSSIAN_POLICY_PARAMS_BASE = {
     }
 }
 
+CPO_POLICY_PARAMS_BASE = {
+    'type': 'CPOPolicy',
+    'kwargs': {
+        'hidden_layer_sizes':   (M, M),
+        'squash': True,
+        'vf_lr':                1e-3,
+        'vf_iters':             80,                 
+        'target_kl':            0.01,
+        'cost_lim_end':         25,
+        'cost_lim':             25,
+        'cost_lam':             0.97,
+        'cost_gamma':           0.99,
+        'lam':                  0.97,
+        'gamma':                0.99,
+        'rollout_batch_size':   10000,
+    }
+}
+
 GAUSSIAN_POLICY_PARAMS_FOR_DOMAIN = {}
 
 POLICY_PARAMS_BASE = {
     'GaussianPolicy': GAUSSIAN_POLICY_PARAMS_BASE,
+    'CPOPolicy' :   CPO_POLICY_PARAMS_BASE,
 }
 
 POLICY_PARAMS_BASE.update({
     'gaussian': POLICY_PARAMS_BASE['GaussianPolicy'],
+    'cpo': POLICY_PARAMS_BASE['CPOPolicy']
 })
 
 POLICY_PARAMS_FOR_DOMAIN = {

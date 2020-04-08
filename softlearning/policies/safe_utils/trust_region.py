@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from mbpo.algorithms.utils.utils import EPS
+from softlearning.policies.safe_utils.utils import EPS
 """
 Tensorflow utilities for trust region optimization
 """

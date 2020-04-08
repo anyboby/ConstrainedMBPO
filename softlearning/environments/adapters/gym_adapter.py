@@ -151,7 +151,8 @@ class GymAdapter(SoftlearningEnv):
 
     @property
     def active_observation_shape(self):
-        """Shape for the active observation based on observation_keys."""
+        """Shape for the active observation based on observation_keys. 
+        returns latest observation in case of a stacked observation."""
         if self.stacks>1:
             active_size = list(self._env.observation_space.shape)
             active_size[self.stacking_axis] = int(self._env.observation_space.shape[self.stacking_axis]/self.stacks)

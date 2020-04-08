@@ -4,6 +4,8 @@ params = {
     'domain': "Safexp-PointGoal2",
     'task': "v0",
 
+    'policy':'CPOPolicy',
+
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      

@@ -12,6 +12,16 @@ def get_gaussian_policy(env, Q, **kwargs):
 
     return policy
 
+def get_cpo_policy(env, Q, **kwargs):
+    from .cpo_policy import CPOPolicy
+    policy = CPOPolicy(
+        obs_space=env.observation_space,
+        act_space=env.action_space,
+        **kwargs)
+
+    return policy
+
+
 
 def get_uniform_policy(env, *args, **kwargs):
     from .uniform_policy import UniformPolicy
@@ -25,6 +35,7 @@ def get_uniform_policy(env, *args, **kwargs):
 POLICY_FUNCTIONS = {
     'GaussianPolicy': get_gaussian_policy,
     'UniformPolicy': get_uniform_policy,
+    'CPOPolicy': get_cpo_policy,
 }
 
 
