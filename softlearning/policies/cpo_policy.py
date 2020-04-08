@@ -584,8 +584,18 @@ class CPOPolicy(BasePolicy):
         pass
 
     def actions(self, obs):
+        # check if single obs or multiple
+        # remove single dims
+        feed_obs = np.squeeze(obs)
+        if len(feed_obs.shape) == len(self.obs_space.shape):
+            feed_obs = feed_obs[np.newaxis]
+        elif len(feed_obs.shape) > len(self.obs_space.shape):
+            feed_obs = feed_obs
+        else: 
+            raise Exception('faulty obs')
+
         get_action_outs = self.sess.run(self.ops_for_action, 
-                        feed_dict={self.obs_ph: obs[np.newaxis]})
+                        feed_dict={self.obs_ph: feed_obs})
         a = get_action_outs['pi']
         return a
 
@@ -600,10 +610,8 @@ class CPOPolicy(BasePolicy):
 
 
     def actions_np(self, obs):
-        get_action_outs = self.sess.run(self.ops_for_action, 
-                        feed_dict={self.obs_ph: obs[np.newaxis]})
-        a = get_action_outs['pi']
-        return np.array(a)
+        actions = self.actions(obs)
+        return np.array(actions)
 
     def log_pis_np(self, obs, a):
         pass

@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from mpi4py import MPI
-from mbpo.algorithms.utils.mpi_tools import broadcast
+from softlearning.policies.safe_utils.mpi_tools import broadcast
 
 
 def flat_concat(xs):

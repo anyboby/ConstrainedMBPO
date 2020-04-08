@@ -262,7 +262,7 @@ def get_parser(allow_policy_list=False):
         parser.add_argument(
             '--policy',
             type=str,
-            choices=('gaussian', ),
+            choices=('gaussian', 'cpopolicy'),
             default='gaussian')
 
     # parser.add_argument(

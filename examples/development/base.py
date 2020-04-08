@@ -32,10 +32,13 @@ CPO_POLICY_PARAMS_BASE = {
         'lam':                  0.97,
         'gamma':                0.99,
         'rollout_batch_size':   10000,
+        'target_entropy':       0,
     }
 }
 
 GAUSSIAN_POLICY_PARAMS_FOR_DOMAIN = {}
+CPO_POLICY_PARAMS_FOR_DOMAIN = {}
+
 
 POLICY_PARAMS_BASE = {
     'GaussianPolicy': GAUSSIAN_POLICY_PARAMS_BASE,
@@ -44,15 +47,17 @@ POLICY_PARAMS_BASE = {
 
 POLICY_PARAMS_BASE.update({
     'gaussian': POLICY_PARAMS_BASE['GaussianPolicy'],
-    'cpo': POLICY_PARAMS_BASE['CPOPolicy']
+    'cpopolicy': POLICY_PARAMS_BASE['CPOPolicy']
 })
 
 POLICY_PARAMS_FOR_DOMAIN = {
     'GaussianPolicy': GAUSSIAN_POLICY_PARAMS_FOR_DOMAIN,
+    'CPOPolicy': CPO_POLICY_PARAMS_FOR_DOMAIN,
 }
 
 POLICY_PARAMS_FOR_DOMAIN.update({
     'gaussian': POLICY_PARAMS_FOR_DOMAIN['GaussianPolicy'],
+    'cpopolicy': POLICY_PARAMS_FOR_DOMAIN['CPOPolicy'],
 })
 
 DEFAULT_MAX_PATH_LENGTH = 1000
@@ -71,7 +76,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(1000), #5000
         }
     },
     'SQL': {
