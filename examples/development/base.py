@@ -254,7 +254,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
         'algorithm_params': algorithm_params,
         'replay_pool_params': {
             'type': 'SimpleReplayPool',
-            'use_extended_action_space': True,
+            'use_extended_action_space': False,
             'kwargs': {
                 'max_size': tune.sample_from(lambda spec: (
                     {
@@ -276,7 +276,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
                 'min_pool_size': MAX_PATH_LENGTH_PER_DOMAIN.get(
                     domain, DEFAULT_MAX_PATH_LENGTH),
                 'batch_size': 256,
-                'preprocess_type': 'Safexp-PointGoal2'#'default'#'pointgoal0'
+                'preprocess_type': 'default'#'default'#'pointgoal0'
             }
         },
         'run_params': {
@@ -310,6 +310,8 @@ def get_variant_spec(args, env_params):
 
     if 'preprocessing_type' in env_params and env_params.preprocessing_type:
         variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = env_params.preprocessing_type
+        variant_spec['sampler_params']['kwargs']['preprocess_type'] = env_params.preprocessing_type
+
     else:
         variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = None
 

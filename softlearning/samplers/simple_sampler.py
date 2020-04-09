@@ -87,7 +87,7 @@ class SimpleSampler(BaseSampler):
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)
-        info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
+        info = info.get(0, {})      ## @anyboby not very clean, only works for 1 env in parallel
 
         # just for testing
         #self.env.render()

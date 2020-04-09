@@ -21,7 +21,6 @@ from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 
-
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.models.perturbed_env import PerturbedEnv
@@ -124,12 +123,16 @@ class MBPO(RLAlgorithm):
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
         self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
+        if self.safe_config: weighted=True 
+        else: weighted=False
         #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
 
         #### create fake env from model 
-        self._model = construct_model(obs_dim_in=self.obs_dim, obs_dim_out=self.active_obs_dim,
-                                      act_dim=self.act_dim, hidden_dim=hidden_dim, 
-                                      num_networks=num_networks, num_elites=num_elites)
+        self._model = construct_model(obs_dim_in=self.obs_dim, 
+                                        obs_dim_out=self.active_obs_dim,
+                                        act_dim=self.act_dim, 
+                                        hidden_dim=hidden_dim, 
+                                        num_networks=num_networks, num_elites=num_elites)
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.fake_env = FakeEnv(self._model, self._static_fns, safe_config=self.safe_config)
         
@@ -251,7 +254,7 @@ class MBPO(RLAlgorithm):
 
             #### util class Progress, e.g. for plotting a progress bar
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
-            self._training_progress = Progress(self._epoch_length * self._n_train_repeat)
+            self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
             start_samples = self.sampler._total_samples                     
 
             ### train for epoch_length ###

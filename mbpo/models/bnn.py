@@ -137,7 +137,7 @@ class BNN:
 
         return self.layers.pop()
 
-    def finalize(self, optimizer, optimizer_args=None, *args, **kwargs):
+    def finalize(self, optimizer, optimizer_args=None, weighted=False, *args, **kwargs):
         """Finalizes the network.
 
         Arguments:
@@ -187,11 +187,11 @@ class BNN:
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
-            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True))
+            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weighted=weighted))
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False)
-            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True)
+            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weighted=weighted)
+            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weighted=weighted)
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
 
         # Initialize all variables
@@ -581,7 +581,7 @@ class BNN:
         else:
             return mean, tf.exp(logvar)
 
-    def _compile_losses(self, inputs, targets, inc_var_loss=True, tensor_loss=False):
+    def _compile_losses(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weighted=False):
         """Helper method for compiling the loss function.
 
         The loss function is obtained from the log likelihood, assuming that the output
@@ -598,10 +598,13 @@ class BNN:
         mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
         inv_var = tf.exp(-log_var)
 
+        if weighted:
         #### @anyboby, this is not well done do this tomorrow !!
-        mse_weights = np.ones(shape=(56), dtype='float32')
-        mse_weights[0]=20
-        mse_weights_tensor = tf.constant(mse_weights)
+            mse_weights = np.ones(shape=(56), dtype='float32')
+            mse_weights[0]=20
+            mse_weights_tensor = tf.constant(mse_weights)
+        else:
+            mse_weights_tensor = 1
 
         if inc_var_loss:
             mse_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)

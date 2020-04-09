@@ -82,8 +82,10 @@ class GymAdapter(SoftlearningEnv):
 
             #env_id = f""
             #env = gym.make("Safexp-PointGoal1-v0")
+            
         else:
             assert domain is None and task is None, (domain, task)
+            env_id = 'custom'
 
         if isinstance(env, wrappers.TimeLimit) and unwrap_time_limit:
             # Remove the TimeLimit wrapper that sets 'done = True' when
