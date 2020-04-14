@@ -238,7 +238,6 @@ class SAC(RLAlgorithm):
                 optimizer=Q_optimizer,
                 variables=Q.trainable_variables,
                 increment_global_step=False,
-                clip_gradients=10.0,                    #### @anyboby testing
                 summaries=((
                     "loss", "gradients", "gradient_norm", "global_gradient_norm"
                 ) if self._tf_summaries else ()))
@@ -319,7 +318,6 @@ class SAC(RLAlgorithm):
             optimizer=self._policy_optimizer,
             variables=self._policy.trainable_variables,
             increment_global_step=False,
-            clip_gradients=10.0,                ## @anyboby testing
             summaries=(
                 "loss", "gradients", "gradient_norm", "global_gradient_norm"
             ) if self._tf_summaries else ())

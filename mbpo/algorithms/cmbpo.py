@@ -11,6 +11,7 @@ import gtimer as gt
 import pdb
 import random
 import sys
+import warnings
 
 import numpy as np
 import tensorflow as tf
@@ -34,7 +35,7 @@ def td_target(reward, discount, next_value):
     return reward + discount * next_value
 
 
-class MBPO(RLAlgorithm):
+class CMBPO(RLAlgorithm):
     """Model-Based Policy Optimization (MBPO)
 
     References
@@ -105,18 +106,21 @@ class MBPO(RLAlgorithm):
                 a likelihood ratio based estimator otherwise.
         """
 
-        super(MBPO, self).__init__(**kwargs)
+        super(CMBPO, self).__init__(**kwargs)
 
         self.obs_space = training_environment.observation_space
         self.act_space = training_environment.action_space
         self.obs_dim = np.prod(training_environment.observation_space.shape)
         
-        if hasattr(training_environment, 'action_space_ext'):
-            self.act_dim = np.prod(training_environment.action_space_ext.shape)
-            self.process_actions = True
-        else:
-            self.act_dim = np.prod(training_environment.action_space.shape)
-            self.process_actions = False
+        # if hasattr(training_environment, 'action_space_ext'):
+        #     self.act_dim = np.prod(training_environment.action_space_ext.shape)
+        #     self.process_actions = True
+        # else:
+        #     self.act_dim = np.prod(training_environment.action_space.shape)
+        #     self.process_actions = False
+
+        self.act_dim = np.prod(training_environment.action_space.shape)
+        self.process_actions = False
 
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
@@ -162,6 +166,7 @@ class MBPO(RLAlgorithm):
         self._mjc_model_environment = mjc_model_environment
         self.perturbed_env = PerturbedEnv(self._mjc_model_environment, std_inc=model_std_inc)
         self._policy = policy
+        self._initial_exploration_policy = policy   #overwriting initial _exploration policy, not implemented for cpo yet
 
         self._Qs = Qs
         self._Q_targets = tuple(tf.keras.models.clone_model(Q) for Q in Qs)
@@ -169,6 +174,14 @@ class MBPO(RLAlgorithm):
         self._pool = pool
         self._plotter = plotter
         self._tf_summaries = tf_summaries
+
+        # set up pool
+        pi_info_shapes = {k: v.shape.as_list()[1:] for k,v in self._policy.pi_info_phs.items()}
+        self._pool.initialize(pi_info_shapes,
+                                gamma = self._policy.gamma,
+                                lam = self._policy.lam,
+                                cost_gamma = self._policy.cost_gamma,
+                                cost_lam = self._policy.cost_lam)
 
         self._policy_lr = lr
         self._Q_lr = lr
@@ -196,7 +209,7 @@ class MBPO(RLAlgorithm):
         assert len(action_shape) == 1, action_shape
         self._action_shape = action_shape
 
-        self._build()
+        #self._build()
 
 
     def _build(self):
@@ -235,6 +248,8 @@ class MBPO(RLAlgorithm):
             self._initial_exploration_hook(
                 training_environment, self._initial_exploration_policy, pool)
 
+        
+        
         #### set up sampler with train env and actual policy (may be different from initial exploration policy)
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
@@ -249,9 +264,7 @@ class MBPO(RLAlgorithm):
 
         #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
-            
-            if self._epoch >= 1:
-                print(1/random.randint(0,1))
+
             #### do something at beginning of epoch (in this case reset self._train_steps_this_epoch=0)
             self._epoch_before_hook()
             gt.stamp('epoch_before_hook')
@@ -268,10 +281,11 @@ class MBPO(RLAlgorithm):
                 samples_now = self.sampler._total_samples
                 self._timestep = samples_now - start_samples
 
-                #### check if you're at the end of an epoch to train
-                if (samples_now >= start_samples + self._epoch_length
-                    and self.ready_to_train):
-                    break
+                #@anyboby not really making sense atm with the pool being cleared after training
+                # #### check if you're at the end of an epoch to train
+                # if (samples_now >= start_samples + self._epoch_length
+                #     and self.ready_to_train):
+                #     break
 
                 #### not implemented atm
                 self._timestep_before_hook()
@@ -294,9 +308,9 @@ class MBPO(RLAlgorithm):
                     
                     #### rollout model env ####
                     self._set_rollout_length()
-                    self._reallocate_model_pool(use_mjc_model_pool=self.use_mjc_state_model)
-                    model_rollout_metrics = self._rollout_model(rollout_batch_size=self._rollout_batch_size, deterministic=self._deterministic)
-                    model_metrics.update(model_rollout_metrics)
+                    #self._reallocate_model_pool(use_mjc_model_pool=self.use_mjc_state_model)
+                    #model_rollout_metrics = self._rollout_model(rollout_batch_size=self._rollout_batch_size, deterministic=self._deterministic)
+                    #model_metrics.update(model_rollout_metrics)
                     ###########################
 
                     gt.stamp('epoch_rollout_model')
@@ -309,12 +323,18 @@ class MBPO(RLAlgorithm):
                 gt.stamp('sample')
 
                 ### n_train_repeat from config ###
+                finished_training = False
                 if self.ready_to_train:
-                    self._do_training_repeats(timestep=self._total_timestep)
+                    self._policy.update(self._pool.get())
+                    finished_training = True
+                
+
                 gt.stamp('train')
 
                 self._timestep_after_hook()
                 gt.stamp('timestep_after_hook')
+                if finished_training:
+                    break
 
             training_paths = self.sampler.get_last_n_paths(
                 math.ceil(self._epoch_length / self.sampler._max_path_length))
@@ -339,11 +359,17 @@ class MBPO(RLAlgorithm):
 
             sampler_diagnostics = self.sampler.get_diagnostics()
 
+            diag_obs_batch = np.concatenate(([evaluation_paths[i]['observations'] for i in range(len(evaluation_paths))]), axis=0)
             diagnostics = self.get_diagnostics(
                 iteration=self._total_timestep,
-                batch=self._evaluation_batch(),
+                obs_batch=diag_obs_batch,
                 training_paths=training_paths,
                 evaluation_paths=evaluation_paths)
+            # diagnostics = self.get_diagnostics(
+            #     iteration=self._total_timestep,
+            #     batch=self._evaluation_batch(),
+            #     training_paths=training_paths,
+            #     evaluation_paths=evaluation_paths)
 
             time_diagnostics = gt.get_times().stamps.itrs
 
@@ -364,6 +390,9 @@ class MBPO(RLAlgorithm):
                     (f'sampler/{key}', sampler_diagnostics[key])
                     for key in sorted(sampler_diagnostics.keys())
                 ),
+                # *(
+                #     (f'moritz/test', self._total_timestep*random.randint(1,10))
+                # ),                
                 *(
                     (f'model/{key}', model_metrics[key])
                     for key in sorted(model_metrics.keys())
@@ -422,8 +451,8 @@ class MBPO(RLAlgorithm):
         ))
 
     def _reallocate_model_pool(self, use_mjc_model_pool=False):
-        obs_space = self._pool._observation_space
-        act_space = self._pool._action_space
+        obs_space = self._obs_space
+        act_space = self._act_space
 
         #### calc rollouts per epoch and total steps made in the model per epoch
         rollouts_per_epoch = self._rollout_batch_size * self._epoch_length / self._model_train_freq
@@ -454,7 +483,7 @@ class MBPO(RLAlgorithm):
 
     def _train_model(self, **kwargs):
 
-        env_samples = self._pool.return_all_samples()
+        env_samples = self._pool.get_model_samples()
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
         train_inputs, train_outputs = format_samples_for_training(env_samples, safe_config=self.safe_config, add_noise=True)
@@ -871,36 +900,25 @@ class MBPO(RLAlgorithm):
 
     def get_diagnostics(self,
                         iteration,
-                        batch,
+                        obs_batch,
                         training_paths,
                         evaluation_paths):
         """Return diagnostic information as ordered dictionary.
 
-        Records mean and standard deviation of Q-function and state
-        value function, and TD-loss (mean squared Bellman error)
+        Records state value function, and TD-loss (mean squared Bellman error)
         for the sample batch.
 
         Also calls the `draw` method of the plotter, if plotter defined.
         """
 
-        feed_dict = self._get_feed_dict(iteration, batch)
-
-        (Q_values, Q_losses, alpha, global_step) = self._session.run(
-            (self._Q_values,
-             self._Q_losses,
-             self._alpha,
-             self.global_step),
-            feed_dict)
+        # @anyboby 
+        warnings.warn('diagnostics not implemented yet!')
 
         diagnostics = OrderedDict({
-            'Q-avg': np.mean(Q_values),
-            'Q-std': np.std(Q_values),
-            'Q_loss': np.mean(Q_losses),
-            'alpha': alpha,
-        })
+            })
 
-        policy_diagnostics = self._policy.get_diagnostics(
-            batch['observations'][:,-self.active_obs_dim:])
+        policy_diagnostics = self._policy.get_diagnostics(                  #use eval paths
+            obs_batch[:,-self.active_obs_dim:])
         diagnostics.update({
             f'policy/{key}': value
             for key, value in policy_diagnostics.items()
@@ -914,15 +932,19 @@ class MBPO(RLAlgorithm):
     @property
     def tf_saveables(self):
         saveables = {
-            '_policy_optimizer': self._policy_optimizer,
-            **{
-                f'Q_optimizer_{i}': optimizer
-                for i, optimizer in enumerate(self._Q_optimizers)
-            },
-            '_log_alpha': self._log_alpha,
+            self._policy.tf_saveables
         }
 
-        if hasattr(self, '_alpha_optimizer'):
-            saveables['_alpha_optimizer'] = self._alpha_optimizer
+        # saveables = {
+        #     '_policy_optimizer': self._policy_optimizer,
+        #     **{
+        #         f'Q_optimizer_{i}': optimizer
+        #         for i, optimizer in enumerate(self._Q_optimizers)
+        #     },
+        #     '_log_alpha': self._log_alpha,
+        # }
+
+        # if hasattr(self, '_alpha_optimizer'):
+        #     saveables['_alpha_optimizer'] = self._alpha_optimizer
 
         return saveables

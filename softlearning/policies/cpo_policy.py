@@ -1,11 +1,15 @@
 """Safety Policy"""
 
 from collections import OrderedDict
+from contextlib import contextmanager
+import warnings
+
 
 import numpy as np
 import tensorflow as tf
 from copy import deepcopy
 import random 
+
 
 import softlearning.policies.safe_utils.trust_region as tro
 from softlearning.policies.safe_utils.utils import values_as_sorted_list
@@ -309,8 +313,6 @@ class CPOPolicy(BasePolicy):
                 act_space, 
                 *args, **kwargs):
         
-
-
         cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
                     objective_penalized=False,  # Irrelevant in CPO
                     learn_penalty=False,  # Irrelevant in CPO
@@ -348,7 +350,8 @@ class CPOPolicy(BasePolicy):
         self.stepchs_per_epoch = kwargs.get('rollout_batch_size', 10000)
         self.vf_iters = kwargs.get('vf_iters', 80)
 
-        
+        #usually not deterministic, but give the option for eval runs
+        self._deterministic = False
         
         # ___________________________________________ #
         #              Prepare ac network             #
@@ -370,25 +373,35 @@ class CPOPolicy(BasePolicy):
 
         # unpack actor critic outputs
         ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
-        pi, logp, logp_pi, pi_info, pi_info_phs, self.d_kl, self.ent, v, vc = ac_outs
+        self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc = ac_outs
 
         # Organize placeholders for zipping with data from buffer on updates
         self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, self.cadv_ph, self.ret_ph, self.cret_ph, self.logp_old_ph]
-        self.buf_phs += values_as_sorted_list(pi_info_phs)
+        self.buf_phs += values_as_sorted_list(self.pi_info_phs)
 
         # organize tf ops required for generation of actions
-        self.ops_for_action = dict(pi=pi, 
-                              v=v, 
-                              logp_pi=logp_pi,
-                              pi_info=pi_info)
-        self.ops_for_action['vc'] = vc
+        self.ops_for_action = dict(pi=self.pi, 
+                              v=self.v, 
+                              logp_pi=self.logp_pi,
+                              pi_info=self.pi_info)
+        self.ops_for_action['vc'] = self.vc
+
+        # organize tf ops for diagnostics
+        self.ops_for_diagnostics = dict(pi=self.pi,
+                                        v=self.v,
+                                        vc=self.vc,
+                                        logp_pi=self.logp_pi,
+                                        pi_info=self.pi_info,
+                                        # d_kl=self.d_kl,
+                                        # ent=self.ent,
+                                        )
 
         # Count variables
         var_counts = tuple(count_vars(scope) for scope in ['pi', 'vf', 'vc'])
         self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
 
         # Make a sample estimate for entropy to use as sanity check
-        approx_ent = tf.reduce_mean(-logp)
+        approx_ent = tf.reduce_mean(-self.logp)
 
         # @anyboby borrowed from sac maybe for later ######
         target_entropy = kwargs['target_entropy']
@@ -403,7 +416,7 @@ class CPOPolicy(BasePolicy):
         # ________________________________ #        
         #    Computation graph for policy  #
         # ________________________________ #
-        ratio = tf.exp(logp-self.logp_old_ph)
+        ratio = tf.exp(self.logp-self.logp_old_ph)
         # Surrogate advantage / clipped surrogate advantage
         if self.agent.clipped_adv:
             min_adv = tf.where(self.adv_ph>0, 
@@ -471,8 +484,8 @@ class CPOPolicy(BasePolicy):
         # ________________________________ #
 
         # Value losses
-        self.v_loss = tf.reduce_mean((self.ret_ph - v)**2)
-        self.vc_loss = tf.reduce_mean((self.cret_ph - vc)**2)
+        self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
+        self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
 
         # If agent uses penalty directly in reward function, don't train a separate
         # value function for predicting cost returns. (Only use one vf for r - p*c.)
@@ -506,7 +519,7 @@ class CPOPolicy(BasePolicy):
         self.sess.run(sync_all_params())
 
         # Setup model saving
-        self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': pi, 'v': v, 'vc': vc})
+        self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
 
         # _____________________________________ #        
         #    Provide session to agent           #
@@ -520,7 +533,8 @@ class CPOPolicy(BasePolicy):
     def update(self, buf_inputs):
         cur_cost = self.logger.get_stats('EpCost')[0]
         rand_cost = 0
-        cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + randint(0, rand_cost)
+        #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
+        cur_cost_lim = self.cost_lim
         c = cur_cost - cur_cost_lim
         if c > 0 and self.agent.cares_about_cost:
             self.logger.log('Warning! Safety constraint is already violated.', 'red')
@@ -580,44 +594,80 @@ class CPOPolicy(BasePolicy):
         self.logger.store(KL=post_update_measures['KL'], **deltas)
 
 
+    def format_obs_for_tf(self, obs):
+        sq_obs = np.squeeze(obs)
+        if len(sq_obs.shape) == len(self.obs_space.shape):
+            sq_obs = sq_obs[np.newaxis]
+        elif len(sq_obs.shape) > len(self.obs_space.shape):
+            sq_obs = sq_obs
+        else: 
+            raise Exception('faulty obs')
+        return sq_obs
+
     def reset(self):
         pass
 
     def actions(self, obs):
-        # check if single obs or multiple
-        # remove single dims
-        feed_obs = np.squeeze(obs)
-        if len(feed_obs.shape) == len(self.obs_space.shape):
-            feed_obs = feed_obs[np.newaxis]
-        elif len(feed_obs.shape) > len(self.obs_space.shape):
-            feed_obs = feed_obs
-        else: 
-            raise Exception('faulty obs')
-
-        get_action_outs = self.sess.run(self.ops_for_action, 
-                        feed_dict={self.obs_ph: feed_obs})
+        get_action_outs = self.get_action_outs(obs)
         a = get_action_outs['pi']
         return a
-
-
-    def log_pis(self, obs, a):
-        pass
-
-    def get_action_outs(self, obs):
-        get_action_outs = self.sess.run(self.ops_for_action, 
-                        feed_dict={self.obs_ph: obs[np.newaxis]})
-        return get_action_outs
-
 
     def actions_np(self, obs):
         actions = self.actions(obs)
         return np.array(actions)
 
+    def log_pis(self, obs, a):
+        pass
+
+    def get_action_outs(self, obs):
+        # check if single obs or multiple
+        # remove single dims
+        feed_obs = self.format_obs_for_tf(obs)
+        get_action_outs = self.sess.run(self.ops_for_action, 
+                        feed_dict={self.obs_ph: feed_obs})
+        return get_action_outs
+
+    def get_v(self, obs):
+        feed_obs = self.format_obs_for_tf(obs)
+        val = self.sess.run([self.v], feed_dict={self.obs_ph: feed_obs})
+        return val
+
+    def get_vc(self, obs):
+        feed_obs = self.format_obs_for_tf(obs)
+        val_c = self.sess.run([self.vc], feed_dict={self.obs_ph: feed_obs})
+        return val_c
+
+    @contextmanager
+    def set_deterministic(self, deterministic=True):
+        """Context manager for changing the determinism of the policy.
+        Args:
+            set_deterministic (`bool`): Value to set the self._is_deterministic
+                to during the context. The value will be reset back to the
+                previous value when the context exits.
+        """
+        warnings.warn('Deterministic CPOPolicy not implemented, has no effect')
+
+        was_deterministic = self._deterministic
+        self._deterministic = deterministic
+        yield
+        self._deterministic = was_deterministic
+
+    @property
+    def tf_saveables(self):
+        self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
+        saveables = {
+            'obs':  self.obs_ph,
+            'pi':   self.pi,
+            'v':    self.v,
+            'vc':   self.vc,
+            }
+        return saveables
+
     def log_pis_np(self, obs, a):
         pass
+
     def get_weights(self):
-        raise NotImplementedError
-        # return self.ac_network.get_weights
+        return get_vars()
 
     def set_weights(self, *args, **kwargs):
         raise NotImplementedError
@@ -625,8 +675,7 @@ class CPOPolicy(BasePolicy):
         
     @property
     def trainable_variables(self):
-        raise NotImplementedError
-        # return self.ac_network.trainable_variables
+        return get_vars()
 
     @property
     def non_trainable_weights(self):
@@ -634,33 +683,41 @@ class CPOPolicy(BasePolicy):
         # """Due to our nested model structure, we need to filter duplicates."""
         # return list(set(super(CPOPolicy, self).non_trainable_weights))
 
-    def get_diagnostics(self, conditions):
+    def get_diagnostics(self, obs):
         """Return diagnostic information of the policy.
 
         Returns the mean, min, max, and standard deviation of means and
         covariances.
         """
-        raise NotImplementedError
 
-        (shifts_np,
-        log_scale_diags_np,
-        log_pis_np,
-        raw_actions_np,
-        actions_np) = self.diagnostics_model.predict(conditions)
+        # check if single obs or multiple
+        # remove single dims
+        feed_obs = self.format_obs_for_tf(obs)
+
+        get_diag_outs = self.sess.run(self.ops_for_diagnostics, 
+                        feed_dict={self.obs_ph: feed_obs})
+        
+
+        a = get_diag_outs['pi']
+        v = get_diag_outs['v']
+        vc = get_diag_outs.get('vc', 0)  # Agent may not use cost value func
+        logp = get_diag_outs['logp_pi']
+        pi_info = get_diag_outs['pi_info']
+        # d_kl = get_diag_outs['d_kl']
+        # ent = get_diag_outs['ent']
 
         return OrderedDict({
-            'shifts-mean': np.mean(shifts_np),
-            'shifts-std': np.std(shifts_np),
-
-            'log_scale_diags-mean': np.mean(log_scale_diags_np),
-            'log_scale_diags-std': np.std(log_scale_diags_np),
-
-            '-log-pis-mean': np.mean(-log_pis_np),
-            '-log-pis-std': np.std(-log_pis_np),
-
-            'raw-actions-mean': np.mean(raw_actions_np),
-            'raw-actions-std': np.std(raw_actions_np),
-
-            'actions-mean': np.mean(actions_np),
-            'actions-std': np.std(actions_np),
+            'a-mean'        : np.mean(a),
+            'a-std'         : np.std(a),
+            'v-mean'      : np.mean(v),
+            'v-std'       : np.std(v),
+            'vc-mean'     : np.mean(vc),
+            'vc-std'      : np.std(vc),
+            'logp-mean'   : np.mean(logp),
+            'logp-std'    : np.std(logp),
+            'pi_info'     : pi_info,
+            # 'd_kl-mean-std' : np.mean(d_kl),
+            # 'd_kl-std'      : np.std(d_kl),
+            # 'ent-mean'      : np.mean(ent),
+            # 'ent-std'       : np.std(ent),
         })

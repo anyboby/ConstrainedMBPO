@@ -20,11 +20,24 @@ from examples.instrument import run_example_local, run_example_debug
 
 import mbpo.static
 
+
 class ExperimentRunner(tune.Trainable):
     def _setup(self, variant):
         set_seed(variant['run_params']['seed'])
 
         self._variant = variant
+
+        self.SAVE_PER_ALGO = {
+            'default':self.save_mbpo,
+            'mbpo':self.save_mbpo,
+            'cmbpo': self.save_cmbpo
+        }
+
+        self.RESTORE_PER_ALGO = {
+            'default':self.restore_mbpo,
+            'mbpo':self.restore_mbpo,
+            'cmbpo':self.restore_cmbpo,
+        }
 
         gpu_options = tf.GPUOptions(allow_growth=True)
         session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
@@ -118,7 +131,7 @@ class ExperimentRunner(tune.Trainable):
             'variant': self._variant,
             'training_environment': self.training_environment,
             'evaluation_environment': self.evaluation_environment,
-            'sampler': self.sampler,
+            'sampler': self.sampler,    # logger in sampler is not pickable atm!
             'algorithm': self.algorithm,
             'Qs': self.Qs,
             'policy_weights': self.policy.get_weights(),
@@ -136,21 +149,16 @@ class ExperimentRunner(tune.Trainable):
             extendable/maintainable interfaces. Currently we use
             `tf.train.Checkpoint` and `pickle.dump` in very unorganized way
             which makes things not so usable.
+        @anyboby: implemented algorithm specific saving methods, not optimal either, 
+            but general interfaces seem hard implement due to all the different 
+            frameworks (Keras, tf, pickling etc.)
         """
-        pickle_path = self._pickle_path(checkpoint_dir)
-        with open(pickle_path, 'wb') as f:
-            pickle.dump(self.picklables, f)
-
-        if self._variant['run_params'].get('checkpoint_replay_pool', False):
-            self._save_replay_pool(checkpoint_dir)
-
-        tf_checkpoint = self._get_tf_checkpoint()
-
-        tf_checkpoint.save(
-            file_prefix=self._tf_checkpoint_prefix(checkpoint_dir),
-            session=self._session)
-
-        return os.path.join(checkpoint_dir, '')
+        
+        ### choose saving methods
+        algo = self._variant['algorithm_params']['type']
+        save_fn = self.SAVE_PER_ALGO.get(algo, self.SAVE_PER_ALGO['default'])
+        res = save_fn(checkpoint_dir)
+        return res
 
     def _save_replay_pool(self, checkpoint_dir):
         replay_pool_pickle_path = self._replay_pool_pickle_path(
@@ -171,7 +179,31 @@ class ExperimentRunner(tune.Trainable):
 
     def _restore(self, checkpoint_dir):
         assert isinstance(checkpoint_dir, str), checkpoint_dir
+        ### choose restore method
+        algo = self._variant['algorithm_params']['type']
+        restore_fn = self.RESTORE_PER_ALGO.get(algo, self.RESTORE_PER_ALGO['default'])
+        restore_fn(checkpoint_dir)
+        self._built = True
 
+    def save_mbpo(self, checkpoint_dir):
+        pickle_path = self._pickle_path(checkpoint_dir)
+        with open(pickle_path, 'wb') as f:
+            pickle.dump(self.picklables, f)
+
+        if self._variant['run_params'].get('checkpoint_replay_pool', False):
+            self._save_replay_pool(checkpoint_dir)
+
+        tf_checkpoint = self._get_tf_checkpoint()
+
+        tf_checkpoint.save(
+            file_prefix=self._tf_checkpoint_prefix(checkpoint_dir),
+            session=self._session)
+
+        return os.path.join(checkpoint_dir, '')
+
+    def save_cmbpo(self, checkpoint_dir):
+        pass
+    def restore_mbpo(self, checkpoint_dir):
         checkpoint_dir = checkpoint_dir.rstrip('/')
 
         with self._session.as_default():
@@ -183,6 +215,7 @@ class ExperimentRunner(tune.Trainable):
             'training_environment']
         evaluation_environment = self.evaluation_environment = picklable[
             'evaluation_environment']
+        mjc_model_environment = self.mjc_model_environment = picklable.get('mjc_model_environment', None)
 
         replay_pool = self.replay_pool = (
             get_replay_pool_from_variant(self._variant, training_environment))
@@ -199,14 +232,22 @@ class ExperimentRunner(tune.Trainable):
         initial_exploration_policy = self.initial_exploration_policy = (
             get_policy('UniformPolicy', training_environment))
 
+        #### get termination function
+        environment_params=self._variant['environment_params']
+        domain = environment_params['training']['domain']
+        static_fns = mbpo.static[domain.lower()]
+        ####
+
         self.algorithm = get_algorithm_from_variant(
             variant=self._variant,
             training_environment=training_environment,
             evaluation_environment=evaluation_environment,
+            mjc_model_environment = mjc_model_environment,
             policy=policy,
             initial_exploration_policy=initial_exploration_policy,
             Qs=Qs,
             pool=replay_pool,
+            static_fns=static_fns,
             sampler=sampler,
             session=self._session)
         self.algorithm.__setstate__(picklable['algorithm'].__getstate__())
@@ -221,8 +262,9 @@ class ExperimentRunner(tune.Trainable):
         # TODO(hartikainen): target Qs should either be checkpointed or pickled.
         for Q, Q_target in zip(self.algorithm._Qs, self.algorithm._Q_targets):
             Q_target.set_weights(Q.get_weights())
-
-        self._built = True
+        
+    def restore_cmbpo(self, checkpoint_dir):
+        pass
 
 
 def main(argv=None):

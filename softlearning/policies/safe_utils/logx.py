@@ -96,18 +96,18 @@ class Logger:
                 hyperparameter configuration with multiple random seeds, you
                 should give them all the same ``exp_name``.)
         """
-        if proc_id()==0:
-            self.output_dir = output_dir or "/tmp/experiments/%i"%int(time.time())
-            if osp.exists(self.output_dir):
-                print("Warning: Log dir %s already exists! Storing info there anyway."%self.output_dir)
-            else:
-                os.makedirs(self.output_dir)
-            self.output_file = open(osp.join(self.output_dir, output_fname), 'w')
-            atexit.register(self.output_file.close)
-            print(colorize("Logging data to %s"%self.output_file.name, 'green', bold=True))
-        else:
-            self.output_dir = None
-            self.output_file = None
+        # if proc_id()==0:
+        #     self.output_dir = output_dir or "/tmp/experiments/%i"%int(time.time())
+        #     if osp.exists(self.output_dir):
+        #         print("Warning: Log dir %s already exists! Storing info there anyway."%self.output_dir)
+        #     else:
+        #         os.makedirs(self.output_dir)
+        #     self.output_file = open(osp.join(self.output_dir, output_fname), 'w')
+        #     atexit.register(self.output_file.close)
+        #     print(colorize("Logging data to %s"%self.output_file.name, 'green', bold=True))
+        # else:
+        #     self.output_dir = None
+        #     self.output_file = None
         self.first_row=True
         self.log_headers = []
         self.log_current_row = {}
@@ -150,15 +150,15 @@ class Logger:
             logger = EpochLogger(**logger_kwargs)
             logger.save_config(locals())
         """
-        config_json = convert_json(config)
-        if self.exp_name is not None:
-            config_json['exp_name'] = self.exp_name
-        if proc_id()==0:
-            output = json.dumps(config_json, separators=(',',':\t'), indent=4, sort_keys=True)
-            print(colorize('Saving config:\n', color='cyan', bold=True))
-            print(output)
-            with open(osp.join(self.output_dir, "config.json"), 'w') as out:
-                out.write(output)
+        # config_json = convert_json(config)
+        # if self.exp_name is not None:
+        #     config_json['exp_name'] = self.exp_name
+        # if proc_id()==0:
+        #     output = json.dumps(config_json, separators=(',',':\t'), indent=4, sort_keys=True)
+        #     print(colorize('Saving config:\n', color='cyan', bold=True))
+        #     print(output)
+        #     with open(osp.join(self.output_dir, "config.json"), 'w') as out:
+        #         out.write(output)
 
     def save_state(self, state_dict, itr=None):
         """
@@ -181,14 +181,14 @@ class Logger:
 
             itr: An int, or None. Current iteration of training.
         """
-        if proc_id()==0:
-            fname = 'vars.pkl' if itr is None else 'vars%d.pkl'%itr
-            try:
-                joblib.dump(state_dict, osp.join(self.output_dir, fname))
-            except:
-                self.log('Warning: could not pickle state_dict.', color='red')
-            if hasattr(self, 'tf_saver_elements'):
-                self._tf_simple_save(itr)
+        # if proc_id()==0:
+        #     fname = 'vars.pkl' if itr is None else 'vars%d.pkl'%itr
+        #     try:
+        #         joblib.dump(state_dict, osp.join(self.output_dir, fname))
+        #     except:
+        #         self.log('Warning: could not pickle state_dict.', color='red')
+        #     if hasattr(self, 'tf_saver_elements'):
+        #         self._tf_simple_save(itr)
 
     def setup_tf_saver(self, sess, inputs, outputs):
         """
@@ -208,26 +208,26 @@ class Logger:
             outputs (dict): A dictionary that maps from keys of your choice
                 to the outputs from your computation graph.
         """
-        self.tf_saver_elements = dict(session=sess, inputs=inputs, outputs=outputs)
-        self.tf_saver_info = {'inputs': {k:v.name for k,v in inputs.items()},
-                              'outputs': {k:v.name for k,v in outputs.items()}}
+        # self.tf_saver_elements = dict(session=sess, inputs=inputs, outputs=outputs)
+        # self.tf_saver_info = {'inputs': {k:v.name for k,v in inputs.items()},
+        #                       'outputs': {k:v.name for k,v in outputs.items()}}
 
     def _tf_simple_save(self, itr=None):
         """
         Uses simple_save to save a trained model, plus info to make it easy
         to associated tensors to variables after restore. 
         """
-        if proc_id()==0:
-            assert hasattr(self, 'tf_saver_elements'), \
-                "First have to setup saving with self.setup_tf_saver"
-            fpath = 'simple_save' + ('%d'%itr if itr is not None else '')
-            fpath = osp.join(self.output_dir, fpath)
-            if osp.exists(fpath):
-                # simple_save refuses to be useful if fpath already exists,
-                # so just delete fpath if it's there.
-                shutil.rmtree(fpath)
-            tf.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
-            joblib.dump(self.tf_saver_info, osp.join(fpath, 'model_info.pkl'))
+        # if proc_id()==0:
+        #     assert hasattr(self, 'tf_saver_elements'), \
+        #         "First have to setup saving with self.setup_tf_saver"
+        #     fpath = 'simple_save' + ('%d'%itr if itr is not None else '')
+        #     fpath = osp.join(self.output_dir, fpath)
+        #     if osp.exists(fpath):
+        #         # simple_save refuses to be useful if fpath already exists,
+        #         # so just delete fpath if it's there.
+        #         shutil.rmtree(fpath)
+        #     tf.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
+        #     joblib.dump(self.tf_saver_info, osp.join(fpath, 'model_info.pkl'))
     
     def dump_tabular(self):
         """
@@ -249,11 +249,11 @@ class Logger:
                 print(fmt%(key, valstr))
                 vals.append(val)
             print("-"*n_slashes, flush=True)
-            if self.output_file is not None:
-                if self.first_row:
-                    self.output_file.write("\t".join(self.log_headers)+"\n")
-                self.output_file.write("\t".join(map(str,vals))+"\n")
-                self.output_file.flush()
+            # if self.output_file is not None:
+            #     if self.first_row:
+            #         self.output_file.write("\t".join(self.log_headers)+"\n")
+            #     self.output_file.write("\t".join(map(str,vals))+"\n")
+            #     self.output_file.flush()
         self.log_current_row.clear()
         self.first_row=False
 

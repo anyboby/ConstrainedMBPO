@@ -84,6 +84,7 @@ def run_example_debug_cmd(example_module_name, example_argv):
 @cli.command(
     name='run_example_cluster',
     context_settings={'ignore_unknown_options': True})
+    
 @click.argument("example_module_name", required=True, type=str)
 @click.argument('example_argv', nargs=-1, type=click.UNPROCESSED)
 def run_example_cluster_cmd(example_module_name, example_argv):

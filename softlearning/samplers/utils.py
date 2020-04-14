@@ -22,7 +22,7 @@ def get_sampler_from_variant(variant, *args, **kwargs):
         'Sampler': base_sampler.BaseSampler,
         'SimpleSampler': simple_sampler.SimpleSampler,
         'MjcStateSampler': mjc_state_sampler.MjcStateSampler,
-        'CpoSampler' : cpo_sampler.CpoSampler,
+        'CPOSampler' : cpo_sampler.CpoSampler,
     }
 
     sampler_params = variant['sampler_params']

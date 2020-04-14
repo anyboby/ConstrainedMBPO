@@ -5,7 +5,9 @@ from . import (
     extra_policy_info_replay_pool,
     union_pool,
     trajectory_replay_pool,
-    mjc_state_replay_pool)
+    mjc_state_replay_pool,
+    cpobuffer,
+    )
 
 
 POOL_CLASSES = {
@@ -15,6 +17,7 @@ POOL_CLASSES = {
         extra_policy_info_replay_pool.ExtraPolicyInfoReplayPool),
     'UnionPool': union_pool.UnionPool,
     'MjcStateReplayPool': mjc_state_replay_pool.MjcStateReplayPool,
+    'CPOBuffer': cpobuffer.CPOBuffer,
 }
 
 DEFAULT_REPLAY_POOL = 'SimpleReplayPool'
@@ -23,11 +26,11 @@ DEFAULT_REPLAY_POOL = 'SimpleReplayPool'
 def get_replay_pool_from_variant(variant, env, *args, **kwargs):
     replay_pool_params = variant['replay_pool_params']
     replay_pool_type = replay_pool_params['type']
-    use_extended_action_space = replay_pool_params['use_extended_action_space']
+    preprocess_type = replay_pool_params['preprocess_type']
     replay_pool_kwargs = deepcopy(replay_pool_params['kwargs'])
 
     ### check if env has extended action space
-    if use_extended_action_space:
+    if 'Safexp' in preprocess_type:
         assert hasattr(env, 'action_space_ext')
         action_space = env.action_space_ext
     else: 

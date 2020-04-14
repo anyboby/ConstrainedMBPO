@@ -32,11 +32,19 @@ def create_MBPO_algorithm(variant, *args, **kwargs):
 
     return algorithm
 
+def create_CMBPO_algorithm(variant, *args, **kwargs):
+    from mbpo.algorithms.cmbpo import CMBPO
+
+    algorithm = CMBPO(*args, **kwargs)
+
+    return algorithm
+
 
 ALGORITHM_CLASSES = {
     'SAC': create_SAC_algorithm,
     'SQL': create_SQL_algorithm,
     'MBPO': create_MBPO_algorithm,
+    'CMBPO': create_CMBPO_algorithm,
 }
 
 

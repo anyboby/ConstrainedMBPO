@@ -79,6 +79,18 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'n_initial_exploration_steps': int(1000), #5000
         }
     },
+    'CMBPO': {
+        'type': 'CMBPO',
+        'kwargs': {
+            'reparameterize': REPARAMETERIZE,
+            'lr': 3e-4,
+            'target_update_interval': 1,
+            'tau': 5e-3,
+            'store_extra_policy_info': False,
+            'action_prior': 'uniform',
+            'n_initial_exploration_steps': int(1000), #5000
+        }
+    },
     'SQL': {
         'type': 'SQL',
         'kwargs': {
@@ -214,6 +226,48 @@ ENVIRONMENT_PARAMS = {
 
 NUM_CHECKPOINTS = 10
 
+REPLAY_POOL_PARAMS_PER_ALGO = {
+    'default': {
+        'type': 'SimpleReplayPool',
+        'preprocess_type': 'default',
+        'kwargs': {
+            'max_size': tune.sample_from(lambda spec: (
+                {
+                    'SimpleReplayPool': int(1e6),
+                    'TrajectoryReplayPool': int(1e4),
+                    'CPOBuffer':int(1e4),
+                }.get(
+                    spec.get('config', spec)
+                    ['replay_pool_params']
+                    ['type'],
+                    int(1e6))
+            )),
+        }
+    },
+    'CMBPO': {
+        'type': 'CPOBuffer',
+        'preprocess_type': 'default',
+        'kwargs': {
+            'max_size': tune.sample_from(lambda spec: (
+                {
+                    'SimpleReplayPool': int(1e6),
+                    'TrajectoryReplayPool': int(1e4),
+                    'CPOBuffer':int(1e5),
+                }.get(
+                    spec.get('config', spec)
+                    ['replay_pool_params']
+                    ['type'],
+                    int(1e6))
+            )),
+        }
+    },
+}
+
+SAMPLER_TYPES_PER_ALGO = {
+    'default': 'SimpleSampler',
+    'CMBPO': 'CPOSampler',
+}
+
 
 def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params):
     algorithm_params = deep_update(
@@ -252,24 +306,9 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
             }
         },
         'algorithm_params': algorithm_params,
-        'replay_pool_params': {
-            'type': 'SimpleReplayPool',
-            'use_extended_action_space': False,
-            'kwargs': {
-                'max_size': tune.sample_from(lambda spec: (
-                    {
-                        'SimpleReplayPool': int(1e6),
-                        'TrajectoryReplayPool': int(1e4),
-                    }.get(
-                        spec.get('config', spec)
-                        ['replay_pool_params']
-                        ['type'],
-                        int(1e6))
-                )),
-            }
-        },
+        'replay_pool_params': REPLAY_POOL_PARAMS_PER_ALGO.get(algorithm, REPLAY_POOL_PARAMS_PER_ALGO['default']),
         'sampler_params': {
-            'type': 'SimpleSampler',
+            'type': SAMPLER_TYPES_PER_ALGO.get(algorithm, SAMPLER_TYPES_PER_ALGO['default']),
             'kwargs': {
                 'max_path_length': MAX_PATH_LENGTH_PER_DOMAIN.get(
                     domain, DEFAULT_MAX_PATH_LENGTH),
@@ -277,14 +316,15 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
                     domain, DEFAULT_MAX_PATH_LENGTH),
                 'batch_size': 256,
                 'preprocess_type': 'default'#'default'#'pointgoal0'
-            }
+            },
         },
         'run_params': {
             'seed': tune.sample_from(
                 lambda spec: np.random.randint(0, 10000)),
             'checkpoint_at_end': True,
-            'checkpoint_frequency': NUM_EPOCHS_PER_DOMAIN.get(
-                domain, DEFAULT_NUM_EPOCHS) // NUM_CHECKPOINTS,
+            'checkpoint_frequency': 1,
+            # 'checkpoint_frequency': NUM_EPOCHS_PER_DOMAIN.get(    #@anyboby uncomment
+            #     domain, DEFAULT_NUM_EPOCHS) // NUM_CHECKPOINTS,
             'checkpoint_replay_pool': False,
         },
     }
@@ -297,9 +337,10 @@ def get_variant_spec(args, env_params):
     variant_spec = get_variant_spec_base(
         universe, domain, task, args.policy, env_params.type, env_params)
 
+
+    # overwrite some manually inserted params
     if 'max_pool_size' in env_params:
         variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.max_pool_size
-
 
     if 'use_mjc_state_model' in env_params and env_params.use_mjc_state_model:
         variant_spec['replay_pool_params']['type'] = 'MjcStateReplayPool'
@@ -311,12 +352,10 @@ def get_variant_spec(args, env_params):
     if 'preprocessing_type' in env_params and env_params.preprocessing_type:
         variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = env_params.preprocessing_type
         variant_spec['sampler_params']['kwargs']['preprocess_type'] = env_params.preprocessing_type
+        variant_spec['replay_pool_params']['preprocess_type'] = env_params.preprocessing_type
 
     else:
         variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = None
-
-    if 'sampler_type' in env_params:
-        variant_spec['sampler_params']['type'] = env_params.sampler_type
 
 
     #if env_params.kwargs['max_pool_size'] is not None:

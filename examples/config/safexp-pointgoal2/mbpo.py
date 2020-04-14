@@ -8,7 +8,6 @@ params = {
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
     'preprocessing_type':'Safexp-PointGoal2',
-    'use_extended_action_space' : True,
 
     'max_pool_size':int(6e4),           # maximum pool size for model training, if memory is an issue
 
