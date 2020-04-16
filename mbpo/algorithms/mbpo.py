@@ -249,9 +249,6 @@ class MBPO(RLAlgorithm):
 
         #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
-            
-            if self._epoch >= 1:
-                print(1/random.randint(0,1))
             #### do something at beginning of epoch (in this case reset self._train_steps_this_epoch=0)
             self._epoch_before_hook()
             gt.stamp('epoch_before_hook')

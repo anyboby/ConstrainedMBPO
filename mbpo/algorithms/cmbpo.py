@@ -21,6 +21,7 @@ from tensorflow.python.training import training_util
 from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
+from softlearning.policies.safe_utils.logx import EpochLogger
 
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
 from mbpo.models.fake_env import FakeEnv
@@ -209,7 +210,13 @@ class CMBPO(RLAlgorithm):
         assert len(action_shape) == 1, action_shape
         self._action_shape = action_shape
 
-        #self._build()
+        # provide session to policy and agent
+        self._policy.prepare_session(self._session)
+
+        # provide policy and sampler with the same logger
+        self.logger = EpochLogger()
+        self._policy.set_logger(self.logger)
+        self.sampler.set_logger(self.logger)
 
 
     def _build(self):
@@ -264,7 +271,7 @@ class CMBPO(RLAlgorithm):
 
         #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
-
+            
             #### do something at beginning of epoch (in this case reset self._train_steps_this_epoch=0)
             self._epoch_before_hook()
             gt.stamp('epoch_before_hook')
@@ -322,6 +329,7 @@ class CMBPO(RLAlgorithm):
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
+                # @anyboby TODO: clean this up, and make a proper timer for updates
                 ### n_train_repeat from config ###
                 finished_training = False
                 if self.ready_to_train:
@@ -335,6 +343,21 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('timestep_after_hook')
                 if finished_training:
                     break
+
+
+            #=====================================================================#
+            #  Log performance and stats                                          #
+            #=====================================================================#
+
+            self.logger.log_tabular('Epoch', self._epoch)
+            self._policy.log()
+            self.sampler.log()
+            
+            # write results to file, ray prints for us, so no need to print from logger
+            logger_diagnostics = self.logger.dump_tabular(output_dir=self._log_dir, print_out=False)
+
+            #=====================================================================#
+
 
             training_paths = self.sampler.get_last_n_paths(
                 math.ceil(self._epoch_length / self.sampler._max_path_length))
@@ -372,6 +395,9 @@ class CMBPO(RLAlgorithm):
             #     evaluation_paths=evaluation_paths)
 
             time_diagnostics = gt.get_times().stamps.itrs
+
+            # add diagnostics from logger
+            diagnostics.update(logger_diagnostics)
 
             diagnostics.update(OrderedDict((
                 *(
