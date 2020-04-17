@@ -238,8 +238,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                     'CPOBuffer':int(1e4),
                 }.get(
                     spec.get('config', spec)
-                    ['replay_pool_params']
-                    ['type'],
+                    ['replay_pool_params']['type'],
                     int(1e6))
             )),
         }
@@ -255,9 +254,12 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                     'CPOBuffer':int(1e5),
                 }.get(
                     spec.get('config', spec)
-                    ['replay_pool_params']
-                    ['type'],
+                    ['replay_pool_params']['type'],
                     int(1e6))
+            )),
+            'size': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['algorithm_params']['kwargs']['epoch_length'] 
             )),
         }
     },
@@ -297,7 +299,8 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
         },
         'policy_params': deep_update(
             POLICY_PARAMS_BASE[policy],
-            POLICY_PARAMS_FOR_DOMAIN[policy].get(domain, {})
+            POLICY_PARAMS_FOR_DOMAIN[policy].get(domain, {}),
+            {'log_dir':env_params['log_dir']},
         ),
         'Q_params': {
             'type': 'double_feedforward_Q_function',
@@ -322,9 +325,8 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
             'seed': tune.sample_from(
                 lambda spec: np.random.randint(0, 10000)),
             'checkpoint_at_end': True,
-            'checkpoint_frequency': 1,
-            # 'checkpoint_frequency': NUM_EPOCHS_PER_DOMAIN.get(    #@anyboby uncomment
-            #     domain, DEFAULT_NUM_EPOCHS) // NUM_CHECKPOINTS,
+            'checkpoint_frequency': NUM_EPOCHS_PER_DOMAIN.get(    #@anyboby uncomment
+                domain, DEFAULT_NUM_EPOCHS) // NUM_CHECKPOINTS,
             'checkpoint_replay_pool': False,
         },
     }

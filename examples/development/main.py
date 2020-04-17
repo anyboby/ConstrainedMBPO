@@ -29,14 +29,14 @@ class ExperimentRunner(tune.Trainable):
 
         self.SAVE_PER_ALGO = {
             'default':self.save_mbpo,
-            'mbpo':self.save_mbpo,
-            'cmbpo': self.save_cmbpo
+            'MBPO':self.save_mbpo,
+            'CMBPO': self.save_cmbpo
         }
 
         self.RESTORE_PER_ALGO = {
             'default':self.restore_mbpo,
-            'mbpo':self.restore_mbpo,
-            'cmbpo':self.restore_cmbpo,
+            'MBPO':self.restore_mbpo,
+            'CMBPO':self.restore_cmbpo,
         }
 
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -60,7 +60,7 @@ class ExperimentRunner(tune.Trainable):
         environment_params = variant['environment_params']
         training_environment = self.training_environment = (
             get_environment_from_params(environment_params['training']))
-        mjc_model_environment = self.training_environment = (
+        mjc_model_environment = self.mjc_model_environment = (
             get_environment_from_params(environment_params['training']))            
         evaluation_environment = self.evaluation_environment = (
             get_environment_from_params(environment_params['evaluation'])
@@ -100,6 +100,12 @@ class ExperimentRunner(tune.Trainable):
 
         self._built = True
 
+        ## add graph since ray doesn't seem to automatically add that
+        graph_writer = tf.summary.FileWriter(self.logdir, self._session.graph)
+        graph_writer.flush()
+        graph_writer.close()
+
+
     def _train(self):
         if not self._built:
             self._build()
@@ -125,17 +131,17 @@ class ExperimentRunner(tune.Trainable):
 
         return tf_checkpoint
 
-    @property
-    def picklables(self):
-        return {
-            'variant': self._variant,
-            'training_environment': self.training_environment,
-            'evaluation_environment': self.evaluation_environment,
-            'sampler': self.sampler,    # logger in sampler is not pickable atm!
-            'algorithm': self.algorithm,
-            'Qs': self.Qs,
-            'policy_weights': self.policy.get_weights(),
-        }
+    # @property
+    # def picklables(self):
+    #     return {
+    #         'variant': self._variant,
+    #         'training_environment': self.training_environment,
+    #         'evaluation_environment': self.evaluation_environment,
+    #         'sampler': self.sampler,    # logger in sampler is not pickable atm!
+    #         'algorithm': self.algorithm,
+    #         'Qs': self.Qs,
+    #         'policy_weights': self.policy.get_weights(),
+    #     }
 
     def _save(self, checkpoint_dir):
         """Implements the checkpoint logic.
@@ -185,7 +191,44 @@ class ExperimentRunner(tune.Trainable):
         restore_fn(checkpoint_dir)
         self._built = True
 
-    def save_mbpo(self, checkpoint_dir):
+    def save_mbpo(self, checkpoint_dir):        
+        self.picklables = {
+                'variant': self._variant,
+                'training_environment': self.training_environment,
+                'evaluation_environment': self.evaluation_environment,
+                'mjc_model_environment': self.mjc_model_environment,
+                'sampler': self.sampler,    # logger in sampler is not pickable atm!
+                'algorithm': self.algorithm,
+                'Qs': self.Qs,
+                'policy_weights': self.policy.get_weights(),
+                }
+        
+        pickle_path = self._pickle_path(checkpoint_dir)
+        with open(pickle_path, 'wb') as f:
+            pickle.dump(self.picklables, f)
+
+        if self._variant['run_params'].get('checkpoint_replay_pool', False):
+            self._save_replay_pool(checkpoint_dir)
+        
+        tf_checkpoint = self._get_tf_checkpoint()
+
+        tf_checkpoint.save(
+            file_prefix=self._tf_checkpoint_prefix(checkpoint_dir),
+            session=self._session)
+        return os.path.join(checkpoint_dir, '')
+
+    def save_cmbpo(self, checkpoint_dir):
+        self.picklables = {
+                'variant': self._variant,
+                'training_environment': self.training_environment,
+                'evaluation_environment': self.evaluation_environment,
+                'mjc_model_environment': self.mjc_model_environment,
+                'sampler': self.sampler,    # logger in sampler is not pickable atm!
+                'algorithm': self.algorithm,
+                'Qs': self.Qs,
+                #'policy_weights': self.policy.get_weights(),
+                }
+        
         pickle_path = self._pickle_path(checkpoint_dir)
         with open(pickle_path, 'wb') as f:
             pickle.dump(self.picklables, f)
@@ -193,15 +236,14 @@ class ExperimentRunner(tune.Trainable):
         if self._variant['run_params'].get('checkpoint_replay_pool', False):
             self._save_replay_pool(checkpoint_dir)
 
-        tf_checkpoint = self._get_tf_checkpoint()
+        self.policy_path = self.policy.save(checkpoint_dir)
+        # tf_checkpoint = self._get_tf_checkpoint()
 
-        tf_checkpoint.save(
-            file_prefix=self._tf_checkpoint_prefix(checkpoint_dir),
-            session=self._session)
-
+        # tf_checkpoint.save(
+        #     file_prefix=self._tf_checkpoint_prefix(checkpoint_dir),
+        #     session=self._session)
         return os.path.join(checkpoint_dir, '')
 
-    def save_cmbpo(self, checkpoint_dir):
         pass
     def restore_mbpo(self, checkpoint_dir):
         checkpoint_dir = checkpoint_dir.rstrip('/')
@@ -264,8 +306,7 @@ class ExperimentRunner(tune.Trainable):
             Q_target.set_weights(Q.get_weights())
         
     def restore_cmbpo(self, checkpoint_dir):
-        pass
-
+        raise NotImplementedError
 
 def main(argv=None):
     """Run ExperimentRunner locally on ray.

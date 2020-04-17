@@ -21,7 +21,8 @@ from softlearning.models.ac_network import mlp_actor_critic, \
                                             count_vars, \
                                             placeholders, \
                                             placeholders_from_spaces
-from softlearning.policies.safe_utils.logx import EpochLogger, setup_logger_kwargs
+from softlearning.policies.safe_utils.logx import EpochLogger, setup_logger_kwargs, \
+                                                save_state, save_tf, save_config
 
 from .base_policy import BasePolicy
 
@@ -143,13 +144,13 @@ class TrustRegionAgent(Agent):
 
 
 
-
-class CPOAgent(TrustRegionAgent):
-
 #   reward_penalized=False,     # Irrelevant in CPO
 #   objective_penalized=False,  # Irrelevant in CPO
 #   learn_penalty=False,        # Irrelevant in CPO
 #   penalty_param_loss=False    # Irrelevant in CPO
+
+
+class CPOAgent(TrustRegionAgent):
 
     def __init__(self, learn_margin=False, **kwargs):
         super().__init__(**kwargs)
@@ -160,6 +161,7 @@ class CPOAgent(TrustRegionAgent):
             ))
         self.margin = 0
         self.margin_lr = 0.05
+        self.margin_discount = 0.9
 
 
     def update_pi(self, inputs):
@@ -184,13 +186,14 @@ class CPOAgent(TrustRegionAgent):
         # Need old params, old policy cost gap (epcost - limit), 
         # and surr_cost rescale factor (equal to average eplen).
         old_params = self.sess.run(get_pi_params)
-        c = self.logger.get_stats('EpCost')[0] - cost_lim
+        c = self.logger.get_stats('CostEp')[0] - cost_lim
         rescale = self.logger.get_stats('EpLen')[0]
 
         # Consider the right margin
         if self.learn_margin:
             self.margin += self.margin_lr * c
             self.margin = max(0, self.margin)
+            self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
 
         # The margin should be the same across processes anyhow, but let's
         # mpi_avg it just to be 100% sure there's no drift. :)
@@ -265,7 +268,7 @@ class CPOAgent(TrustRegionAgent):
         self.logger.store(Optim_A=A, Optim_B=B, Optim_c=c,
                           Optim_q=q, Optim_r=r, Optim_s=s,
                           Optim_Lam=lam, Optim_Nu=nu, 
-                          Penalty=nu, DeltaPenalty=0,
+                          Penalty=nu, PenaltyDelta=0,
                           Margin=self.margin,
                           OptimCase=optim_case)
 
@@ -311,25 +314,32 @@ class CPOPolicy(BasePolicy):
     def __init__(self, 
                 obs_space, 
                 act_space, 
-                *args, **kwargs):
+                logger=None,
+                *args, **kwargs,
+                ):
         
         cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
                     objective_penalized=False,  # Irrelevant in CPO
                     learn_penalty=False,  # Irrelevant in CPO
-                    penalty_param_loss=False  # Irrelevant in CPO
+                    penalty_param_loss=False,  # Irrelevant in CPO
+                    learn_margin=True,
                     )
 
         # ________________________________ #        
         #       Cpo agent and logger       #
         # ________________________________ #
 
+        log_dir = kwargs.get('log_dir','~/ray_cmbpo/')
         self.agent = CPOAgent(**cpo_kwargs)
         exp_name = 'cpo'
         test_seed = random.randint(0,9999)
-        logger_kwargs = setup_logger_kwargs(exp_name, test_seed)
-        self.logger = EpochLogger(**logger_kwargs)
-        self.logger.save_config(locals())
-        self.agent.set_logger(self.logger)
+        #logger_kwargs = setup_logger_kwargs(exp_name, test_seed, data_dir=log_dir)
+        if logger:
+            self.logger = logger
+        else:
+            self.logger = EpochLogger()
+            #self.logger.save_config(locals())
+            self.agent.set_logger(self.logger)
 
         self.ac = mlp_actor_critic
         self.act_space = act_space
@@ -362,21 +372,31 @@ class CPOPolicy(BasePolicy):
         ac_kwargs['action_space'] = self.act_space
         ac_kwargs['hidden_sizes'] = kwargs['hidden_layer_sizes']
         # tf placeholders
-        self.obs_ph, self.a_ph = placeholders_from_spaces(self.obs_space, self.act_space)
+        with tf.variable_scope('inputs'):
+            self.obs_ph, self.a_ph = placeholders_from_spaces(self.obs_space, self.act_space)
 
-        # inputs to computation graph for batch data
-        self.adv_ph, self.cadv_ph, self.ret_ph, self.cret_ph, self.logp_old_ph = placeholders(*(None for _ in range(5)))
+        # input placeholders to computation graph for batch data
+        with tf.variable_scope('pi'):
+            self.adv_ph, self.cadv_ph, self.logp_old_ph = placeholders(*(None for _ in range(3)))
+        
+        with tf.variable_scope('vf'):
+            self.old_v_ph, self.ret_ph = placeholders(*(None for _ in range(2)))
 
-        # phs for cpo specific inputs to comp graph
-        self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
-        self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
+        with tf.variable_scope('vc'):
+            self.old_vc_ph, self.cret_ph = placeholders(*(None for _ in range(2)))
+            # phs for cpo specific inputs to comp graph
+            self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
+            self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
 
         # unpack actor critic outputs
         ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
-        self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc = ac_outs
+        self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc \
+            = ac_outs
 
         # Organize placeholders for zipping with data from buffer on updates
-        self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, self.cadv_ph, self.ret_ph, self.cret_ph, self.logp_old_ph]
+        self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, \
+                            self.cadv_ph, self.ret_ph, self.cret_ph,\
+                            self.logp_old_ph, self.old_v_ph, self.old_vc_ph]
         self.buf_phs += values_as_sorted_list(self.pi_info_phs)
 
         # organize tf ops required for generation of actions
@@ -431,7 +451,6 @@ class CPOPolicy(BasePolicy):
         self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
 
         # Create policy objective function, including entropy regularization
-
         pi_objective = surr_adv + self.ent_reg * self.ent
 
         # Loss function for pi is negative of pi_objective
@@ -484,8 +503,23 @@ class CPOPolicy(BasePolicy):
         # ________________________________ #
 
         # Value losses
-        self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
-        self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
+        # @anyboby testing value clipping
+        old_vpred = self.old_v_ph
+        v_cliprange = 0.1
+        v_clipped = old_vpred + tf.clip_by_value(self.v-old_vpred, -v_cliprange, v_cliprange)
+        v_loss1 = tf.square(self.ret_ph-self.v)
+        v_loss2 = tf.square(self.ret_ph-v_clipped)
+        self.v_loss = .5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2))
+        #self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
+
+        old_vcpred = self.old_v_ph
+        
+        vc_cliprange = tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
+        vc_clipped = old_vcpred + tf.clip_by_value(self.vc-old_vcpred, -vc_cliprange, vc_cliprange)
+        vc_loss1 = tf.square(self.cret_ph-self.vc)
+        vc_loss2 = tf.square(self.cret_ph-vc_clipped)
+        self.vc_loss = .5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2))
+        #self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
 
         # If agent uses penalty directly in reward function, don't train a separate
         # value function for predicting cost returns. (Only use one vf for r - p*c.)
@@ -494,44 +528,67 @@ class CPOPolicy(BasePolicy):
         # Optimizer for value learning
         self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
 
-        # _____________________________________ #        
-        #    Set up session, syncs and save     #
-        # _____________________________________ #
+        # # _____________________________________ #        
+        # #    Set up session, syncs and save     #
+        # # _____________________________________ #
 
-        gpu = tf.test.is_gpu_available(
-        cuda_only=False, min_cuda_compute_capability=None
-        )
-        if gpu:
-            ## --------------- allow dynamic memory growth to avoid cudnn init error ------------- ##
-            from keras.backend.tensorflow_backend import set_session #---------------------------- ##
-            config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True,
-                                        per_process_gpu_memory_fraction = 0.9/num_procs()), 
-                                    log_device_placement=False)
-            self.sess = tf.Session(config=config) #---------------------------------------------------- ##
-            set_session(self.sess) # set this TensorFlow session as the default session for Keras ----- ##
-            ## ----------------------------------------------------------------------------------- ##
-        else:
-            self.sess = tf.Session()
+        # gpu = tf.test.is_gpu_available(
+        # cuda_only=False, min_cuda_compute_capability=None
+        # )
+        # if gpu:
+        #     ## --------------- allow dynamic memory growth to avoid cudnn init error ------------- ##
+        #     from keras.backend.tensorflow_backend import set_session #---------------------------- ##
+        #     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True,
+        #                                 per_process_gpu_memory_fraction = 0.9/num_procs()), 
+        #                             log_device_placement=False)
+        #     self.sess = tf.Session(config=config) #---------------------------------------------------- ##
+        #     set_session(self.sess) # set this TensorFlow session as the default session for Keras ----- ##
+        #     ## ----------------------------------------------------------------------------------- ##
+        # else:
+        #     self.sess = tf.Session()
 
-        self.sess.run(tf.global_variables_initializer())
+        # self.sess.run(tf.global_variables_initializer())
         
-        # Sync params across processes
-        self.sess.run(sync_all_params())
+        # # Sync params across processes
+        # self.sess.run(sync_all_params())
 
-        # Setup model saving
-        self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
+        # # Setup model saving
+        # self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
 
-        # _____________________________________ #        
-        #    Provide session to agent           #
-        # _____________________________________ #
+        # # _____________________________________ #        
+        # #    Provide session to agent           #
+        # # _____________________________________ #
+        # self.agent.prepare_session(self.sess)
+
+        # #### -------------------------------- ####
+    
+    
+    def prepare_session(self, sess):
+        """
+        set session of policy, also provides session to agent,
+        make sure to call before running update
+        Args:
+            sess: tf session
+        """
+        self.sess = sess
         self.agent.prepare_session(self.sess)
 
-        #### -------------------------------- ####
+
+    def set_logger(self, logger):
+        """
+        provide a logger (Policy creates it's own logger by default, 
+        but you might want to share a logger between algo, samplers, etc.)
         
+        automatically shares logger with agent
+        Args: 
+            logger : instance of EpochLogger
+        """ 
+        self.logger = logger
+        self.agent.set_logger(logger) #share logger with agent
 
     #@anyboby todo: buf_inputs has to be delivered to update. implement when buffer (or pool) is done
     def update(self, buf_inputs):
-        cur_cost = self.logger.get_stats('EpCost')[0]
+        cur_cost = self.logger.get_stats('CostEp')[0]
         rand_cost = 0
         #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
         cur_cost_lim = self.cost_lim
@@ -590,7 +647,7 @@ class CPOPolicy(BasePolicy):
         deltas = dict()
         for k in post_update_measures:
             if k in pre_update_measures:
-                deltas['Delta'+k] = post_update_measures[k] - pre_update_measures[k]
+                deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
         self.logger.store(KL=post_update_measures['KL'], **deltas)
 
 
@@ -652,17 +709,6 @@ class CPOPolicy(BasePolicy):
         yield
         self._deterministic = was_deterministic
 
-    @property
-    def tf_saveables(self):
-        self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
-        saveables = {
-            'obs':  self.obs_ph,
-            'pi':   self.pi,
-            'v':    self.v,
-            'vc':   self.vc,
-            }
-        return saveables
-
     def log_pis_np(self, obs, a):
         pass
 
@@ -682,6 +728,31 @@ class CPOPolicy(BasePolicy):
         raise NotImplementedError
         # """Due to our nested model structure, we need to filter duplicates."""
         # return list(set(super(CPOPolicy, self).non_trainable_weights))
+
+    def save(self, checkpoint_dir):
+        tf_path, model_info_path = save_tf(self.sess, inputs={'x':self.obs_ph},
+                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc}, 
+                        output_dir=checkpoint_dir)
+        return tf_path, model_info_path
+
+    def log(self):
+        logger = self.logger
+        self.agent.log()
+        # Vc loss and change, if applicable (reward_penalized agents don't use vc)
+        if not(self.agent.reward_penalized):
+            logger.log_tabular('LossVC', average_only=True)
+            logger.log_tabular('LossVCDelta', average_only=True)
+
+        if self.agent.use_penalty or self.agent.save_penalty:
+            logger.log_tabular('Penalty', average_only=True)
+            logger.log_tabular('PenaltyDelta', average_only=True)
+        else:
+            logger.log_tabular('Penalty', 0)
+            logger.log_tabular('PenaltyDelta', 0)
+
+        # Policy stats
+        logger.log_tabular('Entropy', average_only=True)
+        logger.log_tabular('KL', average_only=True)
 
     def get_diagnostics(self, obs):
         """Return diagnostic information of the policy.
@@ -707,15 +778,15 @@ class CPOPolicy(BasePolicy):
         # ent = get_diag_outs['ent']
 
         return OrderedDict({
-            'a-mean'        : np.mean(a),
-            'a-std'         : np.std(a),
-            'v-mean'      : np.mean(v),
-            'v-std'       : np.std(v),
-            'vc-mean'     : np.mean(vc),
-            'vc-std'      : np.std(vc),
-            'logp-mean'   : np.mean(logp),
-            'logp-std'    : np.std(logp),
-            'pi_info'     : pi_info,
+            'cpo/a-mean'        : np.mean(a),
+            'cpo/a-std'         : np.std(a),
+            'cpo/v-mean'      : np.mean(v),
+            'cpo/v-std'       : np.std(v),
+            'cpo/vc-mean'     : np.mean(vc),
+            'cpo/vc-std'      : np.std(vc),
+            'cpo/logp-mean'   : np.mean(logp),
+            'cpo/logp-std'    : np.std(logp),
+            'cpo/pi_info'     : pi_info,
             # 'd_kl-mean-std' : np.mean(d_kl),
             # 'd_kl-std'      : np.std(d_kl),
             # 'ent-mean'      : np.mean(ent),

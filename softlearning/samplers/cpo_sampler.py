@@ -5,6 +5,9 @@ from itertools import islice
 import numpy as np
 import matplotlib.pyplot as plt
 
+from softlearning.policies.safe_utils.logx import EpochLogger
+from softlearning.policies.safe_utils.mpi_tools import mpi_sum
+
 from .base_sampler import BaseSampler
 ACTION_PROCESS_ENVS = [
     'Safexp-PointGoal2',
@@ -16,11 +19,17 @@ class CpoSampler():
                  min_pool_size,
                  batch_size,
                  store_last_n_paths = 10,
-                 preprocess_type='default'):
+                 preprocess_type='default',
+                 logger = None):
         self._max_path_length = max_path_length
         self._path_length = 0
         self._path_return = 0
         self._path_cost = 0
+
+        if logger:
+            self.logger = logger
+        else: 
+            self.logger = EpochLogger()
 
         self._store_last_n_paths = store_last_n_paths
         self._last_n_paths = deque(maxlen=store_last_n_paths)
@@ -44,11 +53,21 @@ class CpoSampler():
     def initialize(self, env, policy, pool):
         self.env = env
         self.policy = policy
-        self.logger = self.policy.logger #get logger from policy (@anyboby, could be done nicer)
         self.pool = pool
 
     def set_policy(self, policy):
         self.policy = policy
+
+    def set_logger(self, logger):
+        """
+        provide a logger (Sampler creates it's own logger by default, 
+        but you might want to share a logger between algo, samplers, etc.)
+        
+        automatically shares logger with agent
+        Args: 
+            logger : instance of EpochLogger
+        """ 
+        self.logger = logger        
 
     def terminate(self):
         self.env.close()
@@ -208,7 +227,7 @@ class CpoSampler():
 
             # Only save EpRet / EpLen if trajectory finished
             if terminal:
-                self.logger.store(EpRet=self._path_return, EpLen=self._path_length, EpCost=self._path_cost)
+                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
             else:
                 print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
 
@@ -222,7 +241,7 @@ class CpoSampler():
                                         self._path_return)
             self._last_path_return = self._path_return
 
-            self.policy.reset()
+            self.policy.reset() #does nohing for cpo policy atm
             self._current_observation = None
             self._path_length = 0
             self._path_return = 0
@@ -235,3 +254,40 @@ class CpoSampler():
             self._last_action = a
 
         return next_observation, reward, terminal, info
+
+    def log(self):
+        """
+        logs several stats over the timesteps since the last 
+        flush (such as epCost, totalCost etc.)
+        """
+        logger = self.logger
+        cumulative_cost = mpi_sum(self.cum_cost)    
+        cost_rate = cumulative_cost / self._total_samples
+
+        # Performance stats
+        logger.log_tabular('RetEp', with_min_and_max=True)
+        logger.log_tabular('CostEp', with_min_and_max=True)
+        logger.log_tabular('EpLen', average_only=True)
+        logger.log_tabular('CostCumulative', cumulative_cost)
+        logger.log_tabular('CostRate', cost_rate)
+
+        # Value function values
+        logger.log_tabular('VVals', with_min_and_max=True)
+        logger.log_tabular('CostVVals', with_min_and_max=True)
+
+        # Pi loss and change
+        logger.log_tabular('LossPi', average_only=True)
+        logger.log_tabular('LossPiDelta', average_only=True)
+
+        # Surr cost and change
+        logger.log_tabular('SurrCost', average_only=True)
+        logger.log_tabular('SurrCostDelta', average_only=True)
+
+        # V loss and change
+        logger.log_tabular('LossV', average_only=True)
+        logger.log_tabular('LossVDelta', average_only=True)
+
+        # Time and steps elapsed
+        logger.log_tabular('TotalEnvInteracts', self._total_samples)
+        #logger.log_tabular('Time', time.time()-start_time)
+        

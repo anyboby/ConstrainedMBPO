@@ -9,7 +9,7 @@ from softlearning.policies.safe_utils.utils import combined_shape, \
 
 class CPOBuffer:
 
-    def __init__(self, max_size, 
+    def __init__(self, size, 
                  observation_space, action_space, 
                  *args,
                  **kwargs,
@@ -18,20 +18,20 @@ class CPOBuffer:
         self.act_shape = action_space.shape
         ## ignore other args and kwargs
 
-        self.obs_buf = np.zeros(combined_shape(max_size, self.obs_shape), dtype=np.float32)
-        self.act_buf = np.zeros(combined_shape(max_size, self.act_shape), dtype=np.float32)
-        self.adv_buf = np.zeros(max_size, dtype=np.float32)
-        self.rew_buf = np.zeros(max_size, dtype=np.float32)
-        self.ret_buf = np.zeros(max_size, dtype=np.float32)
-        self.val_buf = np.zeros(max_size, dtype=np.float32)
-        self.cadv_buf = np.zeros(max_size, dtype=np.float32)    # cost advantage
-        self.cost_buf = np.zeros(max_size, dtype=np.float32)    # costs
-        self.cret_buf = np.zeros(max_size, dtype=np.float32)    # cost return
-        self.cval_buf = np.zeros(max_size, dtype=np.float32)    # cost value
-        self.logp_buf = np.zeros(max_size, dtype=np.float32)
-        self.term_buf = np.zeros(max_size, dtype=np.bool_)
+        self.obs_buf = np.zeros(combined_shape(size, self.obs_shape), dtype=np.float32)
+        self.act_buf = np.zeros(combined_shape(size, self.act_shape), dtype=np.float32)
+        self.adv_buf = np.zeros(size, dtype=np.float32)
+        self.rew_buf = np.zeros(size, dtype=np.float32)
+        self.ret_buf = np.zeros(size, dtype=np.float32)
+        self.val_buf = np.zeros(size, dtype=np.float32)
+        self.cadv_buf = np.zeros(size, dtype=np.float32)    # cost advantage
+        self.cost_buf = np.zeros(size, dtype=np.float32)    # costs
+        self.cret_buf = np.zeros(size, dtype=np.float32)    # cost return
+        self.cval_buf = np.zeros(size, dtype=np.float32)    # cost value
+        self.logp_buf = np.zeros(size, dtype=np.float32)
+        self.term_buf = np.zeros(size, dtype=np.bool_)
         
-        self.ptr, self.path_start_idx, self.max_size = 0, 0, max_size
+        self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
     ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
     def initialize(self, pi_info_shapes,
@@ -79,6 +79,14 @@ class CPOBuffer:
         self.path_start_idx = self.ptr
 
     def get(self):
+        """
+        Returns a list of predetermined values in the buffer.
+        
+        Returns:
+            list: [self.obs_buf, self.act_buf, self.adv_buf,
+                self.cadv_buf, self.ret_buf, self.cret_buf,
+                self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
+        """
         assert self.ptr == self.max_size    # buffer has to be full before you can get
         self.ptr, self.path_start_idx = 0, 0
 
@@ -92,8 +100,8 @@ class CPOBuffer:
 
         return [self.obs_buf, self.act_buf, self.adv_buf,
                 self.cadv_buf, self.ret_buf, self.cret_buf,
-                self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
-
+                self.logp_buf, self.val_buf, self.cval_buf] \
+                + values_as_sorted_list(self.pi_info_bufs)
     def get_model_samples(self):
         # buffer does not have to be full for model samples
         # self.ptr, self.path_start_idx = 0, 0
