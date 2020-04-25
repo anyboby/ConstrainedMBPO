@@ -7,7 +7,6 @@ params = {
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
-    'preprocessing_type':'Safexp-PointGoal2',
 
     'max_pool_size':int(6e4),           # maximum pool size for model training, if memory is an issue
 

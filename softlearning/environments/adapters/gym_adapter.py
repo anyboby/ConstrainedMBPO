@@ -129,10 +129,6 @@ class GymAdapter(SoftlearningEnv):
             ### adding unserializable additional info after dumping (lol)
             self.obs_indices = env.obs_indices
             self.safeconfig['obs_indices'] = self.obs_indices
-            #### check if extended action space exists:
-            if hasattr(env, 'action_space_ext'):
-                self.action_space_ext = env.action_space_ext
-                self.safeconfig['action_space_ext'] = self.action_space_ext
 
             ### stack env
             self.stacks = self.safeconfig['stacks'] ### for convenience
@@ -214,9 +210,9 @@ class GymAdapter(SoftlearningEnv):
         # observation['observation'] = env.step(action, *args, **kwargs)
         # return observation
 
-        if self.stacks>1:       ### because VecEnv has additional dim for parallel envs
+        if isinstance(self._env, VecFrameStack):       ### because VecEnv has additional dim for parallel envs
             action=np.array([action])
-            #action=np.array([[0.0,-0.4]])
+            
         return self._env.step(action, *args, **kwargs)
 
     def reset(self, *args, **kwargs):
@@ -234,6 +230,10 @@ class GymAdapter(SoftlearningEnv):
 
     def seed(self, *args, **kwargs):
         return self._env.seed(*args, **kwargs)
+
+    @property
+    def domain(self):
+        return self._domain
 
     @property
     def unwrapped(self):

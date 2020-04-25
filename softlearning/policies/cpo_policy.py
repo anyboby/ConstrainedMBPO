@@ -19,6 +19,7 @@ from softlearning.policies.safe_utils.mpi_tf import MpiAdamOptimizer, sync_all_p
 from softlearning.models.ac_network import mlp_actor_critic, \
                                             get_vars, \
                                             count_vars, \
+                                            placeholder, \
                                             placeholders, \
                                             placeholders_from_spaces
 from softlearning.policies.safe_utils.logx import EpochLogger, setup_logger_kwargs, \
@@ -161,7 +162,9 @@ class CPOAgent(TrustRegionAgent):
             ))
         self.margin = 0
         self.margin_lr = 0.05
-        self.margin_discount = 0.9
+        self.margin_discount = 0.93
+        self.c_gamma = kwargs['c_gamma']
+        self.max_path_length = kwargs['max_path_length']
 
 
     def update_pi(self, inputs):
@@ -177,17 +180,28 @@ class CPOAgent(TrustRegionAgent):
         d_kl = self.training_package['d_kl']
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
+        c_disc_ret_op = self.training_package['c_disc_ret']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
-        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost], feed_dict=inputs)
+        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, c_disc_ret_op], feed_dict=inputs)
         outs = [mpi_avg(out) for out in outs]
-        g, b, pi_l_old, surr_cost_old = outs
+        g, b, pi_l_old, surr_cost_old, c_ret_old = outs
 
         # Need old params, old policy cost gap (epcost - limit), 
         # and surr_cost rescale factor (equal to average eplen).
         old_params = self.sess.run(get_pi_params)
-        c = self.logger.get_stats('CostEp')[0] - cost_lim
-        rescale = self.logger.get_stats('EpLen')[0]
+
+        # calc the cost lim if it were discounted, 
+        # need rescale since cost_lim refers to one episode
+        #rescale = self.logger.get_stats('EpLen')[0]
+        rescale = self.max_path_length
+        cost_lim_disc = (cost_lim/rescale)/(1-self.c_gamma)
+
+        # compare
+        c_debug = self.logger.get_stats('CostEp')[0] - cost_lim
+        # undiscount (@anyboby TODO not really understand why we undiscount here, despite
+        # the theory in CPO suggests the discounted Return)
+        c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
 
         # Consider the right margin
         if self.learn_margin:
@@ -317,12 +331,34 @@ class CPOPolicy(BasePolicy):
                 logger=None,
                 *args, **kwargs,
                 ):
+
+        # ___________________________________________ #
+        #                   Params                    #
+        # ___________________________________________ #
+        self.vf_lr = kwargs.get('vf_lr', 3e-4)
+        self.cvf_lr = kwargs.get('cvf_lr', 1e-3)
+        self.target_kl = kwargs.get('target_kl', 0.01)
+        self.ent_reg = kwargs.get('ent_reg', 0.01)
+        self.cost_lim_end = kwargs.get('cost_lim_end', 25)
+        self.cost_lim = kwargs.get('cost_lim', 25)
+        self.cost_lam = kwargs.get('cost_lam', 0.97)
+        self.cost_gamma = kwargs.get('cost_gamma', 0.99)
+        self.lam = kwargs.get('lam', 0.97)
+        self.gamma = kwargs.get('discount', 0.99)
+        self.stepchs_per_epoch = kwargs.get('rollout_batch_size', 10000)
+        self.vf_iters = kwargs.get('vf_iters', 80)
+        self.max_path_length = kwargs.get('max_path_length', 1)
+        #usually not deterministic, but give the option for eval runs
+        self._deterministic = False
+        
         
         cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
                     objective_penalized=False,  # Irrelevant in CPO
                     learn_penalty=False,  # Irrelevant in CPO
                     penalty_param_loss=False,  # Irrelevant in CPO
-                    learn_margin=True,
+                    learn_margin=False, #learn_margin=True,
+                    c_gamma = self.cost_gamma,
+                    max_path_length=self.max_path_length
                     )
 
         # ________________________________ #        
@@ -344,25 +380,8 @@ class CPOPolicy(BasePolicy):
         self.ac = mlp_actor_critic
         self.act_space = act_space
         self.obs_space = obs_space
+        self.ep_len = kwargs.get('epoch_length')
 
-
-        # ___________________________________________ #
-        #                   Params                    #
-        # ___________________________________________ #
-        self.vf_lr = kwargs.get('vf_lr', 1e-3)
-        self.target_kl = kwargs.get('target_kl', 0.01)
-        self.cost_lim_end = kwargs.get('cost_lim_end', 25)
-        self.cost_lim = kwargs.get('cost_lim', 25)
-        self.cost_lam = kwargs.get('cost_lam', 0.97)
-        self.cost_gamma = kwargs.get('cost_gamma', 0.99)
-        self.lam = kwargs.get('lam', 0.97)
-        self.gamma = kwargs.get('discount', 0.99)
-        self.stepchs_per_epoch = kwargs.get('rollout_batch_size', 10000)
-        self.vf_iters = kwargs.get('vf_iters', 80)
-
-        #usually not deterministic, but give the option for eval runs
-        self._deterministic = False
-        
         # ___________________________________________ #
         #              Prepare ac network             #
         # ___________________________________________ #
@@ -376,16 +395,26 @@ class CPOPolicy(BasePolicy):
             self.obs_ph, self.a_ph = placeholders_from_spaces(self.obs_space, self.act_space)
 
         # input placeholders to computation graph for batch data
-        with tf.variable_scope('pi'):
-            self.adv_ph, self.cadv_ph, self.logp_old_ph = placeholders(*(None for _ in range(3)))
-        
-        with tf.variable_scope('vf'):
-            self.old_v_ph, self.ret_ph = placeholders(*(None for _ in range(2)))
+        with tf.variable_scope('adv_ph'):
+            self.adv_ph = placeholder(None)
+        with tf.variable_scope('cadv_ph'):
+            self.cadv_ph = placeholders(*(None for _ in range(1)))[0]
+        with tf.variable_scope('logp_old_ph'):
+            self.logp_old_ph = placeholders(*(None for _ in range(1)))[0]
 
-        with tf.variable_scope('vc'):
-            self.old_vc_ph, self.cret_ph = placeholders(*(None for _ in range(2)))
+        with tf.variable_scope('old_vc_ph'):
+            self.old_v_ph = placeholders(*(None for _ in range(1)))[0]
+        with tf.variable_scope('ret_ph'):
+            self.ret_ph = placeholders(*(None for _ in range(1)))[0]
+
+        with tf.variable_scope('old_vc_ph'):
+            self.old_vc_ph = placeholders(*(None for _ in range(1)))[0]
+        with tf.variable_scope('cret_ph'):
+            self.cret_ph = placeholders(*(None for _ in range(1)))[0]
+        with tf.variable_scope('surr_cost_rescale_ph'):
             # phs for cpo specific inputs to comp graph
             self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
+        with tf.variable_scope('cur_cost_ph'):
             self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
 
         # unpack actor critic outputs
@@ -430,7 +459,7 @@ class CPOPolicy(BasePolicy):
             if target_entropy == 'auto'
             else target_entropy)
 
-        self.ent_reg = 0
+        self.ent_reg=0.01
         ##### ---------------- #####
 
         # ________________________________ #        
@@ -449,6 +478,12 @@ class CPOPolicy(BasePolicy):
 
         # Surrogate cost (advantage)
         self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
+
+        # Cret
+        self.c_disc_ret = tf.reduce_mean(self.cret_ph)
+
+        # cost_lim if it were discounted
+        # self.disc_cost_lim = (self.cost_lim/self.ep_len)
 
         # Create policy objective function, including entropy regularization
         pi_objective = surr_adv + self.ent_reg * self.ent
@@ -493,6 +528,7 @@ class CPOPolicy(BasePolicy):
         # Provide training package to agent
         self.training_package.update(dict(pi_loss=self.pi_loss, 
                                     surr_cost=self.surr_cost,
+                                    c_disc_ret = self.c_disc_ret,
                                     d_kl=self.d_kl, 
                                     target_kl=self.target_kl,
                                     cost_lim=self.cost_lim))
@@ -514,7 +550,7 @@ class CPOPolicy(BasePolicy):
 
         old_vcpred = self.old_v_ph
         
-        vc_cliprange = tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
+        vc_cliprange = 0.2 # tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
         vc_clipped = old_vcpred + tf.clip_by_value(self.vc-old_vcpred, -vc_cliprange, vc_cliprange)
         vc_loss1 = tf.square(self.cret_ph-self.vc)
         vc_loss2 = tf.square(self.cret_ph-vc_clipped)
@@ -526,7 +562,10 @@ class CPOPolicy(BasePolicy):
         total_value_loss = self.v_loss + self.vc_loss
 
         # Optimizer for value learning
-        self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
+        #self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
+        #@anyboby testing: this shouldn't make a difference, but lets try it:
+        self.train_cvf = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_loss)
+        self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_loss)
 
         # # _____________________________________ #        
         # #    Set up session, syncs and save     #
@@ -635,6 +674,7 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         for _ in range(self.vf_iters):
             self.sess.run(self.train_vf, feed_dict=inputs)
+            self.sess.run(self.train_cvf, feed_dict=inputs)
 
         #=====================================================================#
         #  Make some measurements after updating                              #
@@ -776,8 +816,8 @@ class CPOPolicy(BasePolicy):
         pi_info = get_diag_outs['pi_info']
         # d_kl = get_diag_outs['d_kl']
         # ent = get_diag_outs['ent']
-
-        return OrderedDict({
+        pi_info_means = {'cpo/pi_info_'+k:np.mean(v) for k,v in pi_info.items()}
+        diag = OrderedDict({
             'cpo/a-mean'        : np.mean(a),
             'cpo/a-std'         : np.std(a),
             'cpo/v-mean'      : np.mean(v),
@@ -792,3 +832,6 @@ class CPOPolicy(BasePolicy):
             # 'ent-mean'      : np.mean(ent),
             # 'ent-std'       : np.std(ent),
         })
+        diag.update(pi_info_means)
+
+        return diag

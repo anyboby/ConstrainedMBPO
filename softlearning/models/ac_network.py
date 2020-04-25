@@ -110,7 +110,10 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, actio
     d_kl = gaussian_kl(mu, log_std, old_mu_ph, old_log_std_ph)
     ent = gaussian_entropy(log_std)
 
-    pi_info = {'mu': mu, 'log_std': log_std}
+    # adjust log_std to input dim, even though it doesn't depend on it
+    # @anyboby lol this is so bad
+    log_std_info = tf.tensordot(tf.ones(tf.shape(x)[0]), log_std, axes=0)
+    pi_info = {'mu': mu, 'log_std': log_std_info}
     pi_info_phs = {'mu': old_mu_ph, 'log_std': old_log_std_ph}
 
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent

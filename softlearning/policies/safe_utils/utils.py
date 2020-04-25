@@ -14,7 +14,7 @@ def keys_as_sorted_list(dict):
 def values_as_sorted_list(dict):
     return [dict[k] for k in keys_as_sorted_list(dict)]
 
-def discount_cumsum(x, discount):
+def discount_cumsum(x, discount, axis=0):
     """
     magic from rllab for computing discounted cumulative sums of vectors.
 
@@ -23,10 +23,18 @@ def discount_cumsum(x, discount):
         [x0, 
          x1, 
          x2]
-
+        discount: factor for exponentially 
     output:
         [x0 + discount * x1 + discount^2 * x2,  
          x1 + discount * x2,
          x2]
     """
-    return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
+
+    x_flipped = np.flip(x, axis=axis)
+    disc_cumsum_flipped = scipy.signal.lfilter([1], [1, float(-discount)], x_flipped, axis=axis)
+    disc_cumsum = np.flip(disc_cumsum_flipped, axis=axis)
+
+    # original 
+    #scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
+
+    return disc_cumsum 

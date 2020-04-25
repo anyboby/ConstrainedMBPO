@@ -8,7 +8,6 @@ params = {
     'exp_name': 'defaults',
 
     'use_mjc_state_model': False,      
-    'preprocessing_type':'Safexp-PointGoal2',
         
     #'max_pool_size':int(5e5),         # haven't seen oom in pointgoal so far
 

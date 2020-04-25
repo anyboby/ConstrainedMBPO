@@ -79,7 +79,6 @@ class MBPO(RLAlgorithm):
 
             use_mjc_state_model = False,
             model_std_inc = 0.02,
-            preprocessing_type = None,
 
             **kwargs,
     ):
@@ -111,33 +110,24 @@ class MBPO(RLAlgorithm):
         self.act_space = training_environment.action_space
         self.obs_dim = np.prod(training_environment.observation_space.shape)
         
-        if hasattr(training_environment, 'action_space_ext'):
-            self.act_dim = np.prod(training_environment.action_space_ext.shape)
-            self.process_actions = True
-        else:
-            self.act_dim = np.prod(training_environment.action_space.shape)
-            self.process_actions = False
-
+        
+        self.act_dim = np.prod(training_environment.action_space.shape)
+        
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
         self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
-        if self.safe_config: weighted=True 
-        else: weighted=False
+
         #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
 
-        #### create fake env from model 
-        self._model = construct_model(obs_dim_in=self.obs_dim, 
-                                        obs_dim_out=self.active_obs_dim,
-                                        act_dim=self.act_dim, 
-                                        hidden_dim=hidden_dim, 
-                                        num_networks=num_networks, 
-                                        num_elites=num_elites,
-                                        weighted=True)
-        self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
-        self.fake_env = FakeEnv(self._model, self._static_fns, safe_config=self.safe_config)
-        
+        ## create fake environment for model
+        self.fake_env = FakeEnv(training_environment,
+                                    static_fns, num_networks=7, 
+                                    num_elites=5, hidden_dim=hidden_dim, 
+                                    safe_config=self.safe_config,
+                                    session = self._session)
+
         self.use_mjc_state_model = use_mjc_state_model
 
         self._rollout_schedule = rollout_schedule
@@ -284,8 +274,10 @@ class MBPO(RLAlgorithm):
                     )
 
                     #### train the model with input:(obs, act), outputs: (rew, delta_obs), inputs are divided into sets with holdout_ratio
-                    # self._model.reset()        #@anyboby debug
-                    model_train_metrics = self._train_model(batch_size=256, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
+                            #@anyboby debug
+                    samples = self._pool.return_all_samples()
+                    self.fake_env.reset_model()
+                    model_train_metrics = self.fake_env.train(samples, batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
@@ -449,25 +441,12 @@ class MBPO(RLAlgorithm):
             assert self._model_pool.size == new_pool.size
             self._model_pool = new_pool
 
-    def _train_model(self, **kwargs):
-
-        env_samples = self._pool.return_all_samples()
-
-        #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        train_inputs, train_outputs = format_samples_for_training(env_samples, safe_config=self.safe_config, add_noise=True)
-        model_metrics = self._model.train(train_inputs, train_outputs, **kwargs)
-        return model_metrics
-
     def _rollout_model(self, rollout_batch_size, **kwargs):
         print('[ Model Rollout ] Starting | Epoch: {} | Rollout length: {} | Batch size: {}'.format(
             self._epoch, self._rollout_length, rollout_batch_size
         ))
         batch = self.sampler.random_batch(rollout_batch_size)
         obs = batch['observations']
-        if self.process_actions:
-            last_actions = batch['actions'][:,2:4]
-            last_actions_x = last_actions[:,0]
-
         steps_added = []
 
         if self.use_mjc_state_model:
@@ -538,17 +517,10 @@ class MBPO(RLAlgorithm):
             for i in range(self._rollout_length):
                 act = self._policy.actions_np(obs[:,-self.active_obs_dim:])
                 
-                if self.process_actions:
-                    actions_x = act[:,0]
-                    act_spikes = np.expand_dims(self.sampler.process_act_vec(actions_x,last_actions_x), axis=1)
-                    act = np.concatenate((act,last_actions,act_spikes), axis=1)
                 ##### here we're dreaming in the agents model #####
-                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)  
+                next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)
                 log_a.append(act)
                 log_obs.append(next_obs)
-                # next_obs = obs
-                # next_obs[:,1]=obs[:,1]
-                # next_obs[:,0]=obs[:,0]
 
                 steps_added.append(len(obs))
                 samples = {'observations': obs, 'actions': act, 'next_observations': next_obs, 'rewards': rew, 'terminals': term}
@@ -560,10 +532,7 @@ class MBPO(RLAlgorithm):
                     break
 
                 obs = next_obs[nonterm_mask]
-                if self.process_actions:
-                    last_actions = act[nonterm_mask, 0:2]
-                    last_actions_x = last_actions[:,0]
-
+                
 
 
         mean_rollout_length = sum(steps_added) / rollout_batch_size
@@ -840,22 +809,13 @@ class MBPO(RLAlgorithm):
         """Construct TensorFlow feed_dict from sample batch."""
         ### unstack for sac
 
-        if self.process_actions:
-            feed_dict = {
-                self._observations_ph: batch['observations'][:,-self.active_obs_dim:], 
-                self._actions_ph: batch['actions'][:,0:2],
-                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:], 
-                self._rewards_ph: batch['rewards'],
-                self._terminals_ph: batch['terminals'],
-            }
-        else:
-            feed_dict = {
-                self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
-                self._actions_ph: batch['actions'],
-                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
-                self._rewards_ph: batch['rewards'],
-                self._terminals_ph: batch['terminals'],
-            }
+        feed_dict = {
+            self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
+            self._actions_ph: batch['actions'],
+            self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
+            self._rewards_ph: batch['rewards'],
+            self._terminals_ph: batch['terminals'],
+        }
 
         if self._store_extra_policy_info:
             feed_dict[self._log_pis_ph] = batch['log_pis']

@@ -3,25 +3,39 @@ from scipy import signal
 import gym
 
 import matplotlib.pyplot as plt
+from math import log as log
+from math import exp as e
+import math
 
 
 class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def __init__(self, env):
         super(SafetyPreprocessedEnv, self).__init__(env)
-        self.action_space_ext = gym.spaces.Box(-1, 1, (env.robot.nu+3,), dtype=np.float32)       # extended action space for stacking
+        self.action_space = gym.spaces.Box(-1, 1, (env.robot.nu,), dtype=np.float32) 
         self.b, self.a = signal.butter(3, 0.1)
         self.obs_replay_vy_real = []
         self.obs_replay_vy_filt = []
         self.obs_replay_acc_y_real = []
         self.obs_replay_acc_y_filt = []
+        
         self.prev_obs = None
+        self.prev_act = np.zeros(self.action_space.shape)
+
+        ## inits for action processing
+        self.prev_acc_spike = 0
+        self.time_since_spike = 0
+        self.transform_a_vec = np.vectorize(transform_a)
+        self.spike_vec = np.vectorize(spike)
+
         self.remove_obs = [
             'accelerometer',
-            'gyro'
+            'gyro',
+            #'ctrl',
         ]
-        self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])
+        self.add_obs = 0
+        self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])+self.add_obs
         self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
-        self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size
+        self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
         self.obs_indices = {}
         k_size = 0
         offset = 0
@@ -35,17 +49,19 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def reset(self, **kwargs):
         observation = self.env.reset(**kwargs)
         #self.obs_replay_vy = [observation[58]]
-        observation = self.preprocess_obs(observation)
+        observation = self.preprocess_obs(observation, action=np.zeros(self.action_space.shape))
         self.prev_obs = observation
         #stacked_obs = np.concatenate((observation, self.prev_obs))
         return self.observation(observation)
 
     def step(self, action):
-        observation, reward, done, info = self.env.step(action)
+        a_transformed = action #self.transform_a_vec(action)
+        observation, reward, done, info = self.env.step(a_transformed)
         self.prev_obs_unprocessed = observation
-        observation = self.preprocess_obs(observation)
+        observation = self.preprocess_obs(observation, action)
         #stacked_obs = np.concatenate((observation, self.prev_obs))
         self.prev_obs = observation
+        self.prev_act = action
         return self.observation(observation), reward, done, info
 
     def observation(self, observation):
@@ -53,7 +69,7 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         return observation
 
 
-    def preprocess_obs(self, obs):
+    def preprocess_obs(self, obs, action):
         ###--------- Ordered obs ----------###
         # acc = obs['accelerometer']
         # goal_dist = obs['goal_dist']
@@ -85,6 +101,8 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         # acc[1] = acc_y_filt
         ### --------- acc-y approx ----------### 
 
+
+
         flat_obs = np.zeros(self.obs_flat_size)
         for key, index in self.obs_indices.items():
             if key not in self.remove_obs:
@@ -93,5 +111,50 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
             if key == 'goal_dist':
                 flat_obs[index] = self.env.dist_goal()
         obs = flat_obs
-        
+        #additional obs
+        #flat_obs[-1]=spike_2(action[0], self.prev_act[0])
         return obs
+
+def transform_a(ax):
+    e_x = 0.8             # edge_x
+    e_y = 0.008            # edge_y
+    c_1 = (1-e_y)/(1-e_x) # steepness before edge
+    c_2 = e_y/e_x         # steepness after edge
+    e_s = 15              # smoothness
+    a = c_1*ax+1/e_s*log(e(e_s*(ax+e_x))+1)*(c_2-c_1)+ \
+            1/e_s*log(e(e_s*e_x)+e(e_s*ax))*(c_1-c_2)
+    return a
+
+def _delta(x):
+    a = 0.03
+    return 2/math.sqrt(math.pi)*e(-((x-0.05)/a)**8)-2/math.sqrt(math.pi)*e(-((x+0.05)/a)**8)
+def spike(x1,x2):
+    if x1>=x2:    
+        delta = _delta(x1)-_delta(x2)
+    elif x1<x2:
+        delta = _delta(x2)-_delta(x1)
+    elif ((x1>0.05)and(x2>0.05)):
+        delta = _delta(0.05)-delta(x2)
+    elif ((x1<0.05)and(x2<0.05)):
+        delta = _delta(0.05)-_delta(x2)
+    delta = np.clip(delta, -2, 2)
+    return delta
+
+def spike_2(x1, x2):
+    '''
+    Predicts a spike based on 0-transition between actions
+    !! very specifically designed for x-acceleration spike detection
+    returns a normalized prediction signal for y-acceleration in mujoco envs
+    a shape (1,) np array
+    
+    '''
+    acc_spike = 0
+    ### acc
+    if x1==x2:
+        acc_spike=0
+    else:
+        if x2<=0<=x1 or x1<=0<=x2:
+            #pass
+            acc_spike = x1-x2
+            acc_spike = acc_spike/abs(acc_spike) #normalize
+    return acc_spike

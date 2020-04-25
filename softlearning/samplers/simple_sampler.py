@@ -23,7 +23,6 @@ class SimpleSampler(BaseSampler):
         self._current_observation = None
         self._total_samples = 0
         self._last_action = None
-        self.process_act_vec = np.vectorize(self.process_act)    ###vectorize elementwise function process_act to work for np arrays
 
     def _process_observations(self,
                               observation,
@@ -33,15 +32,9 @@ class SimpleSampler(BaseSampler):
                               next_observation,
                               info):
 
-        if self._obs_process_type in ACTION_PROCESS_ENVS:
-            #### concatenate act, last act and an acc_spike prediction signal based on these
-            action_proc = np.concatenate((action, self._last_action, np.array([self.process_act(action[0], self._last_action[0])])))
-        else:
-            action_proc = action
-
         processed_observation = {
             'observations': observation,
-            'actions': action_proc,
+            'actions': action,
             'rewards': [reward],
             'terminals': [terminal],
             'next_observations': next_observation,
@@ -49,29 +42,6 @@ class SimpleSampler(BaseSampler):
         }
 
         return processed_observation
-
-    def process_act(self, act, last_act):
-        '''
-        Predicts a spike based on 0-transition between actions
-        !! very specifically designed for x-acceleration spike detection
-        returns a normalized prediction signal for y-acceleration in mujoco envs
-        a shape (1,) np array
-        
-        '''
-        act_x = act
-        last_act_x = last_act
-        acc_spike = 0
-        ### acc
-        if last_act_x==act_x:
-            acc_spike=0
-        else:
-            if last_act_x<=0<=act_x or act_x<=0<=last_act_x:
-                #pass
-                acc_spike = act_x-last_act_x
-                acc_spike = acc_spike/abs(acc_spike) #normalize
-        return acc_spike
-
-
 
     def sample(self):
         if self._current_observation is None:
@@ -152,3 +122,4 @@ class SimpleSampler(BaseSampler):
         })
 
         return diagnostics
+    

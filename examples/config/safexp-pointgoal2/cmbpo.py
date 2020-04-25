@@ -9,13 +9,16 @@ params = {
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
-    #'preprocessing_type':'Safexp-PointGoal2',
     
-    'max_pool_size':int(5e7),           # maximum pool size, if memory is an issue (for on-policy buffers, epoch_length 
+    'archive_size':int(5e6),           # maximum pool size, if memory is an issue (for on-policy buffers, epoch_length 
                                         #    predetermines size, so max_pool_size is without effect)
 
+    'vf_lr':2.5e-4,
+    'cvf_lr':5e-4,
+    'ent_reg':0.0,
+
     'kwargs': {
-        'epoch_length': 2000, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 12000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
@@ -41,7 +44,7 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
-        'real_ratio': 1.0,#0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 0.05,#0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'rollout_schedule': [15, 150, 2, 4], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule

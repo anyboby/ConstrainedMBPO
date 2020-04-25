@@ -4,7 +4,9 @@ from itertools import islice
 
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 
+from softlearning.samplers.cpo_sampler import CpoSampler
 from softlearning.policies.safe_utils.logx import EpochLogger
 from softlearning.policies.safe_utils.mpi_tools import mpi_sum
 
@@ -13,18 +15,20 @@ ACTION_PROCESS_ENVS = [
     'Safexp-PointGoal2',
     ]
 
-class CpoSampler():
+class ModelSampler(CpoSampler):
     def __init__(self,
                  max_path_length,
                  min_pool_size,
-                 batch_size,
+                 batch_size=1000,
                  store_last_n_paths = 10,
                  preprocess_type='default',
                  logger = None):
         self._max_path_length = max_path_length
-        self._path_length = 0
-        self._path_return = 0
-        self._path_cost = 0
+        self._path_length = np.zeros(batch_size)
+        self._path_return = np.zeros(batch_size)
+        self._path_cost = np.zeros(batch_size)
+
+        self._alive_paths = np.ones(batch_size, dtype=np.bool)
 
         if logger:
             self.logger = logger
@@ -43,6 +47,8 @@ class CpoSampler():
         self._last_action = None
         self.cum_cost = 0
 
+        self.batch_size = batch_size
+
         self._obs_process_type = preprocess_type
         self.env = None
         self.policy = None
@@ -52,6 +58,9 @@ class CpoSampler():
         self.env = env
         self.policy = policy
         self.pool = pool
+
+    def set_debug_buf(self, pool):
+        self.pool_debug = pool
 
     def set_policy(self, policy):
         self.policy = policy
@@ -123,25 +132,32 @@ class CpoSampler():
         processed_observation = {
             'observations': observation,
             'actions': action,
-            'rewards': [reward],
-            'cost'   : [cost],
-            'terminals': [terminal],
+            'rewards': reward,
+            'cost'   : cost,
+            'terminals': terminal,
             'next_observations': next_observation,
             'infos': info,
         }
 
         return processed_observation
 
+
     def sample(self):
         if self._current_observation is None:
             # Reset environment
-            self._current_observation, reward, terminal, c = np.squeeze(self.env.reset()), 0, False, 0
-            self._last_action = np.zeros(shape=self.env.action_space.shape)
+            self._current_observation, reward, terminal, c = \
+                        np.squeeze(self.env.reset()), \
+                        np.zeros(self.batch_size), \
+                        np.zeros(self.batch_size, dtype=np.bool), \
+                        np.zeros(self.batch_size)
 
+        self._n_episodes += 1
+
+        batch_size = self.batch_size
         # Get outputs from policy
-        # test_obs = [self._current_observation[np.newaxis] for i in range(100)]
-        # test_obs = np.concatenate(test_obs, axis=0)
-        get_action_outs = self.policy.get_action_outs(self._current_observation)
+        test_obs = [self._current_observation[np.newaxis] for i in range(batch_size)]
+        test_obs = np.concatenate(test_obs, axis=0)
+        get_action_outs = self.policy.get_action_outs(test_obs)
         #get_action_outs = self.policy.get_action_outs(self._current_observation)
 
         a = get_action_outs['pi']
@@ -150,80 +166,110 @@ class CpoSampler():
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
-        next_observation, reward, terminal, info = self.env.step(a)
+        next_observation, reward, terminal, info = self.env.step(a[0])
+
         next_observation = np.squeeze(next_observation)
-        reward = np.squeeze(reward)
-        terminal = np.squeeze(terminal)
-        info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
+        test_nextobs = np.squeeze(next_observation)
+        test_nextobs = [test_nextobs[np.newaxis] for i in range(batch_size)]
+        test_nextobs = np.concatenate(test_nextobs, axis=0)
+
+        test_rew = np.squeeze(reward)
+        test_rew = [test_rew[np.newaxis] for i in range(batch_size)]
+        test_rew = np.concatenate(test_rew, axis=0)
+
+        test_term = np.squeeze(terminal)
+        test_term = [test_term[np.newaxis] for i in range(batch_size)]
+        test_term = np.concatenate(test_term, axis=0)
+        random_terms = 50000*np.random.rand(*test_term[self._alive_paths].shape)>49999
+        test_term[self._alive_paths] += random_terms
+
+        #info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
+        #info = np.squeeze(info)
+        test_info = [info for i in range(batch_size)]
+        test_info= np.concatenate(test_info, axis=0)
         
-        c = info.get('cost', 0)
-        self.cum_cost += c
+        c = info[0].get('cost', 0)
+        test_c = np.array(c)
+        test_c = [test_c[np.newaxis] for i in range(batch_size)]
+        test_c= np.concatenate(test_c, axis=0)
+        self.cum_cost += test_c.sum()
 
         #save and log
-        self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
+        self.pool.store_multiple(test_obs, a, test_nextobs, test_rew, v_t, test_c, vc_t, logp_t, pi_info_t, test_term)
         self.logger.store(VVals=v_t, CostVVals=vc_t)
         
-        self._path_length += 1
-        self._path_return += reward
-        self._path_cost += c
-        self._total_samples += 1
+        # # debug !
+        # self.pool_debug.store(self._current_observation, a[0], next_observation, reward, v_t[0], c, vc_t[0], logp_t[0], {k:v[0] for k,v in pi_info_t.items()}, terminal)
+        # if terminal:
+        #     last_val = self.policy.get_v(self._current_observation)
+        #     last_cval = self.policy.get_vc(self._current_observation)
+        #     self.pool_debug.finish_path(last_val, last_cval)
 
-        processed_sample = self._process_observations(
-            observation=self._current_observation,
-            action=a,
-            reward=reward,
-            cost=c,
-            terminal=terminal,
-            next_observation=next_observation,
-            info=info,
-        )
 
-        for key, value in processed_sample.items():
-            self._current_path[key].append(value)
+        self._path_length[self._alive_paths] += 1
+        self._path_return[self._alive_paths] += reward
+        self._path_cost[self._alive_paths] += c
+        self._total_samples += self._alive_paths.sum()
 
         #### add to pool only after full epoch or terminal path
-        if terminal or self._path_length >= self._max_path_length:
-            self._current_observation = next_observation
+        ## working with masks for ending trajectories
+        path_end_mask = self._path_length >= self._max_path_length
+        if test_term.any() or path_end_mask.any():
+
+            # init final values and quantify according to termination type
+            last_val, last_cval = np.zeros(self.batch_size), np.zeros(self.batch_size)
 
             # If trajectory didn't reach terminal state, bootstrap value target(s)
-            if terminal and not(self._path_length >= self._max_path_length):
-                # Note: we do not count env time out as true terminal state
-                last_val, last_cval = 0, 0
-            else:
+            prem_term_mask = np.logical_not(path_end_mask)*test_term
+            mat_term_mask = np.logical_or(test_term, path_end_mask) * np.logical_not(prem_term_mask)
+
+            # Note: we do not count env time out as true terminal state
+            last_val[prem_term_mask] = np.zeros(last_val[prem_term_mask].shape)
+            last_cval[prem_term_mask] = np.zeros(last_cval[prem_term_mask].shape)
+            
+            # mature termination upon path end or env episode end
+            if mat_term_mask.any():
                 if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(self._current_observation)
-                    last_cval = 0
+                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(test_obs[mat_term_mask]))
+                    last_cval[mat_term_mask] = np.zeros(last_cval[mat_term_mask].shape)
                 else:
-                    last_val, last_cval = self.policy.get_v(self._current_observation), self.policy.get_vc(self._current_observation)
-            self.pool.finish_path(last_val, last_cval)
+                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(test_obs[mat_term_mask]))
+                    last_cval[mat_term_mask] = np.squeeze(self.policy.get_vc(test_obs[mat_term_mask]))
+
+            
+            term_mask = np.logical_or(prem_term_mask, mat_term_mask)
+            non_term_mask = np.logical_not(term_mask)
+            self._alive_paths = self._alive_paths*non_term_mask
+            
+            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+            
 
             # Only save EpRet / EpLen if trajectory finished
-            if terminal:
-                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
+            if not self._alive_paths.any():
+                #@anyboby TODO handle logger /diagnostics for model
+                # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
+                print('debug')
             else:
-                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
-
-            self.last_path = {
-                field_name: np.array(values)
-                for field_name, values in self._current_path.items()
-            }
-            self._last_n_paths.appendleft(self.last_path)
+                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length[term_mask][0])
 
             self._max_path_return = max(self._max_path_return,
-                                        self._path_return)
-            self._last_path_return = self._path_return
-
+                                        max(self._path_return))
             self.policy.reset() #does nohing for cpo policy atm
-            self._current_observation = None
-            self._path_length = 0
-            self._path_return = 0
-            self._path_cost = 0
-            self._current_path = defaultdict(list)
-            self._last_action = np.zeros(shape=self.env.action_space.shape)
-            self._n_episodes += 1
+            self._current_observation = next_observation
+
+            # reset if all paths have died
+            if not self._alive_paths.any():
+                self._current_observation = None
+                self._path_length = np.zeros(self.batch_size)
+                self._path_return = np.zeros(batch_size)
+                self._path_cost = np.zeros(batch_size)
+                self._alive_paths = np.ones(batch_size, dtype=np.bool)
+                self._n_episodes = 0
+            else:
+                self._current_observation = next_observation
+
         else:
             self._current_observation = next_observation
-            self._last_action = a
 
         return next_observation, reward, terminal, info
 

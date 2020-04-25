@@ -21,6 +21,9 @@ from tensorflow.python.training import training_util
 from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
+from softlearning.replay_pools.modelbuffer import ModelBuffer
+from softlearning.replay_pools.cpobuffer import CPOBuffer
+from softlearning.samplers.model_sampler import ModelSampler
 from softlearning.policies.safe_utils.logx import EpochLogger
 
 from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
@@ -81,7 +84,6 @@ class CMBPO(RLAlgorithm):
 
             use_mjc_state_model = False,
             model_std_inc = 0.02,
-            preprocessing_type = None,
 
             **kwargs,
     ):
@@ -113,15 +115,7 @@ class CMBPO(RLAlgorithm):
         self.act_space = training_environment.action_space
         self.obs_dim = np.prod(training_environment.observation_space.shape)
         
-        # if hasattr(training_environment, 'action_space_ext'):
-        #     self.act_dim = np.prod(training_environment.action_space_ext.shape)
-        #     self.process_actions = True
-        # else:
-        #     self.act_dim = np.prod(training_environment.action_space.shape)
-        #     self.process_actions = False
-
         self.act_dim = np.prod(training_environment.action_space.shape)
-        self.process_actions = False
 
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
@@ -210,6 +204,37 @@ class CMBPO(RLAlgorithm):
         assert len(action_shape) == 1, action_shape
         self._action_shape = action_shape
 
+        ### model sampler and buffer
+        self.model_pool = ModelBuffer(batch_size=1000, 
+                                        max_path_length=1000, 
+                                        observation_space = self.obs_space, 
+                                        action_space = self.act_space)
+        self.model_pool.initialize(pi_info_shapes,
+                                gamma = self._policy.gamma,
+                                lam = self._policy.lam,
+                                cost_gamma = self._policy.cost_gamma,
+                                cost_lam = self._policy.cost_lam)        
+        
+        # self.model_pool_debug = CPOBuffer(size=1000, 
+        #                 archive_size=100000, 
+        #                 observation_space = self.obs_space, 
+        #                 action_space = self.act_space)
+        
+        # self.model_pool_debug.initialize(pi_info_shapes,
+        #                 gamma = self._policy.gamma,
+        #                 lam = self._policy.lam,
+        #                 cost_gamma = self._policy.cost_gamma,
+        #                 cost_lam = self._policy.cost_lam)     
+
+        
+        self.model_sampler = ModelSampler(max_path_length=1000,
+                                            min_pool_size=2000,
+                                            batch_size=1000,
+                                            store_last_n_paths=10,
+                                            preprocess_type='default',
+                                            logger=None,
+                                            )
+
         # provide session to policy and agent
         self._policy.prepare_session(self._session)
 
@@ -217,6 +242,7 @@ class CMBPO(RLAlgorithm):
         self.logger = EpochLogger()
         self._policy.set_logger(self.logger)
         self.sampler.set_logger(self.logger)
+        #self.model_sampler.set_logger(self.logger)
 
 
     def _build(self):
@@ -254,12 +280,15 @@ class CMBPO(RLAlgorithm):
             ######  fills pool with _n_initial_exploration_steps samples
             self._initial_exploration_hook(
                 training_environment, self._initial_exploration_policy, pool)
+            pool.dump_to_archive() # move old policy samples to archive
 
         
         
         #### set up sampler with train env and actual policy (may be different from initial exploration policy)
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
+        self.model_sampler.initialize(evaluation_environment, policy, self.model_pool)
+        # self.model_sampler.set_debug_buf(self.model_pool_debug)
 
         #### reset gtimer (for coverage of project development)
         gt.reset_root()
@@ -308,8 +337,8 @@ class CMBPO(RLAlgorithm):
                     )
 
                     #### train the model with input:(obs, act), outputs: (rew, delta_obs), inputs are divided into sets with holdout_ratio
-                    # self._model.reset()        #@anyboby debug
-                    model_train_metrics = self._train_model(batch_size=256, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
+                    self._model.reset()        #@anyboby debug
+                    model_train_metrics = self._train_model(batch_size=1024, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
                     
@@ -329,12 +358,19 @@ class CMBPO(RLAlgorithm):
                 self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
+                if self.model_pool.has_room:
+                    self.model_sampler.sample()
+
                 # @anyboby TODO: clean this up, and make a proper timer for updates
                 ### n_train_repeat from config ###
                 finished_training = False
                 if self.ready_to_train:
                     self._policy.update(self._pool.get())
                     finished_training = True
+                    res = self.model_pool.get()
+                    #res_debug = self.model_pool_debug.get()
+                    #test_samples = self._pool.get_batch_from_archive(batch_size=1000000)
+                    print('debug')
                 
 
                 gt.stamp('train')
@@ -509,7 +545,7 @@ class CMBPO(RLAlgorithm):
 
     def _train_model(self, **kwargs):
 
-        env_samples = self._pool.get_model_samples()
+        env_samples = self._pool.get_archive()
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
         train_inputs, train_outputs = format_samples_for_training(env_samples, safe_config=self.safe_config, add_noise=True)
@@ -522,10 +558,6 @@ class CMBPO(RLAlgorithm):
         ))
         batch = self.sampler.random_batch(rollout_batch_size)
         obs = batch['observations']
-        if self.process_actions:
-            last_actions = batch['actions'][:,2:4]
-            last_actions_x = last_actions[:,0]
-
         steps_added = []
 
         if self.use_mjc_state_model:
@@ -595,11 +627,6 @@ class CMBPO(RLAlgorithm):
             log_obs.append(obs)
             for i in range(self._rollout_length):
                 act = self._policy.actions_np(obs[:,-self.active_obs_dim:])
-                
-                if self.process_actions:
-                    actions_x = act[:,0]
-                    act_spikes = np.expand_dims(self.sampler.process_act_vec(actions_x,last_actions_x), axis=1)
-                    act = np.concatenate((act,last_actions,act_spikes), axis=1)
                 ##### here we're dreaming in the agents model #####
                 next_obs, rew, term, info = self.fake_env.step(obs, act, **kwargs)  
                 log_a.append(act)
@@ -618,10 +645,6 @@ class CMBPO(RLAlgorithm):
                     break
 
                 obs = next_obs[nonterm_mask]
-                if self.process_actions:
-                    last_actions = act[nonterm_mask, 0:2]
-                    last_actions_x = last_actions[:,0]
-
 
 
         mean_rollout_length = sum(steps_added) / rollout_batch_size
@@ -898,22 +921,13 @@ class CMBPO(RLAlgorithm):
         """Construct TensorFlow feed_dict from sample batch."""
         ### unstack for sac
 
-        if self.process_actions:
-            feed_dict = {
-                self._observations_ph: batch['observations'][:,-self.active_obs_dim:], 
-                self._actions_ph: batch['actions'][:,0:2],
-                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:], 
-                self._rewards_ph: batch['rewards'],
-                self._terminals_ph: batch['terminals'],
-            }
-        else:
-            feed_dict = {
-                self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
-                self._actions_ph: batch['actions'],
-                self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
-                self._rewards_ph: batch['rewards'],
-                self._terminals_ph: batch['terminals'],
-            }
+        feed_dict = {
+            self._observations_ph: batch['observations'][:,-self.active_obs_dim:],
+            self._actions_ph: batch['actions'],
+            self._next_observations_ph: batch['next_observations'][:,-self.active_obs_dim:],
+            self._rewards_ph: batch['rewards'],
+            self._terminals_ph: batch['terminals'],
+        }
 
         if self._store_extra_policy_info:
             feed_dict[self._log_pis_ph] = batch['log_pis']

@@ -29,12 +29,7 @@ def get_replay_pool_from_variant(variant, env, *args, **kwargs):
     preprocess_type = replay_pool_params['preprocess_type']
     replay_pool_kwargs = deepcopy(replay_pool_params['kwargs'])
 
-    ### check if env has extended action space
-    if 'Safexp' in preprocess_type:
-        assert hasattr(env, 'action_space_ext')
-        action_space = env.action_space_ext
-    else: 
-        action_space = env.action_space
+    action_space = env.action_space
 
     replay_pool = POOL_CLASSES[replay_pool_type](
         *args,

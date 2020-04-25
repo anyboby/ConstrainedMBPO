@@ -214,12 +214,15 @@ def run_example_local(example_module_name, example_argv, local_mode=False):
         resources=example_args.resources or {},
         local_mode=local_mode,
         include_webui=example_args.include_webui,
-        temp_dir=example_args.temp_dir)
+        temp_dir=example_args.temp_dir,
+        #object_store_memory=200 * 1024 * 1024,  #@anyboby TODO: test the memory config 
+        )
 
     tune.run_experiments(
         experiments,
         with_server=example_args.with_server,
         server_port=4321,
+
         scheduler=None)
 
 

@@ -9,6 +9,13 @@ REPARAMETERIZE = True
 
 NUM_COUPLING_LAYERS = 2
 
+DEFAULT_MAX_PATH_LENGTH = 1000
+MAX_PATH_LENGTH_PER_DOMAIN = {
+    'Point2DEnv': 50,
+    'Pendulum': 200,
+}
+
+
 GAUSSIAN_POLICY_PARAMS_BASE = {
     'type': 'GaussianPolicy',
     'kwargs': {
@@ -22,17 +29,27 @@ CPO_POLICY_PARAMS_BASE = {
     'kwargs': {
         'hidden_layer_sizes':   (M, M),
         'squash': True,
-        'vf_lr':                1e-3,
+        'vf_lr':                3e-4,
+        'cvf_lr':               5e-4,
         'vf_iters':             80,                 
-        'target_kl':            0.01,
+        'target_kl':            0.01,            # @anyboby maybe remove ?
+        'ent_reg':              0.0,
         'cost_lim_end':         25,
         'cost_lim':             25,
         'cost_lam':             0.97,
-        'cost_gamma':           0.99,
+        'cost_gamma':           0.96,
         'lam':                  0.97,
         'gamma':                0.99,
         'rollout_batch_size':   10000,
-        'target_entropy':       0,
+        'epoch_length': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['algorithm_params']['kwargs']['epoch_length'] 
+            )),
+        'max_path_length': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['sampler_params']['kwargs']['max_path_length']
+            )),
+        'target_entropy':       0,              # @anyboby maybe remove ?
     }
 }
 
@@ -60,12 +77,6 @@ POLICY_PARAMS_FOR_DOMAIN.update({
     'cpopolicy': POLICY_PARAMS_FOR_DOMAIN['CPOPolicy'],
 })
 
-DEFAULT_MAX_PATH_LENGTH = 1000
-MAX_PATH_LENGTH_PER_DOMAIN = {
-    'Point2DEnv': 50,
-    'Pendulum': 200,
-}
-
 ALGORITHM_PARAMS_ADDITIONAL = {
     'MBPO': {
         'type': 'MBPO',
@@ -76,7 +87,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(1000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'CMBPO': {
@@ -88,7 +99,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(1000), #5000
+            'n_initial_exploration_steps': int(3000), #5000
         }
     },
     'SQL': {
@@ -247,19 +258,19 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
         'type': 'CPOBuffer',
         'preprocess_type': 'default',
         'kwargs': {
-            'max_size': tune.sample_from(lambda spec: (
+            'size': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['algorithm_params']['kwargs']['epoch_length'] 
+            )),
+            'archive_size': tune.sample_from(lambda spec: (
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(1e5),
+                    'CPOBuffer':int(5e6),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
                     int(1e6))
-            )),
-            'size': tune.sample_from(lambda spec: (
-               spec.get('config', spec)
-               ['algorithm_params']['kwargs']['epoch_length'] 
             )),
         }
     },
@@ -350,15 +361,6 @@ def get_variant_spec(args, env_params):
         variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = True
     else:
         variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = False
-
-    if 'preprocessing_type' in env_params and env_params.preprocessing_type:
-        variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = env_params.preprocessing_type
-        variant_spec['sampler_params']['kwargs']['preprocess_type'] = env_params.preprocessing_type
-        variant_spec['replay_pool_params']['preprocess_type'] = env_params.preprocessing_type
-
-    else:
-        variant_spec['algorithm_params']['kwargs']['preprocessing_type'] = None
-
 
     #if env_params.kwargs['max_pool_size'] is not None:
     #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']

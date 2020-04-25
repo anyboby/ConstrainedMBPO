@@ -47,10 +47,11 @@ class BNN:
         print('[ BNN ] Initializing model: {} | {} networks | {} elites'.format(params['name'], params['num_networks'], params['num_elites']))
         if params.get('sess', None) is None:
             config = tf.ConfigProto()
-            # config.gpu_options.allow_growth = True
+            #config.gpu_options.allow_growth = True
             self._sess = tf.Session(config=config)
         else:
             self._sess = params.get('sess')
+
 
         # Instance variables
         self.finalized = False
@@ -137,7 +138,7 @@ class BNN:
 
         return self.layers.pop()
 
-    def finalize(self, optimizer, optimizer_args=None, weighted=False, *args, **kwargs):
+    def finalize(self, optimizer, optimizer_args=None, weights=None, *args, **kwargs):
         """Finalizes the network.
 
         Arguments:
@@ -187,11 +188,11 @@ class BNN:
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
-            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weighted=weighted))
+            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weighted=weighted)
-            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weighted=weighted)
+            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
+            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
 
         # Initialize all variables
@@ -283,8 +284,8 @@ class BNN:
         # Initialize all variables
         
         #### @anyboby debug: trying different initializer since this thing below doesn't seem to reset
-        #[layer.reset(self.sess) for layer in self.layers]
-        self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
+        [layer.reset(self.sess) for layer in self.layers]
+        #self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
     
     
     def validate(self, inputs, targets):
@@ -305,7 +306,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=3,
+              batch_size=32, max_epochs=None, max_epochs_since_update=15,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 
@@ -581,7 +582,7 @@ class BNN:
         else:
             return mean, tf.exp(logvar)
 
-    def _compile_losses(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weighted=False):
+    def _compile_losses(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weights=None):
         """Helper method for compiling the loss function.
 
         The loss function is obtained from the log likelihood, assuming that the output
@@ -598,20 +599,17 @@ class BNN:
         mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
         inv_var = tf.exp(-log_var)
 
-        if weighted:
-        #### @anyboby, this is not well done do this tomorrow !!
-            mse_weights = np.ones(shape=(56), dtype='float32')
-            mse_weights[0]=20
-            mse_weights_tensor = tf.constant(mse_weights)
+        if weights is not None:
+            mse_weights_tensor = tf.convert_to_tensor(weights, np.float32)
         else:
             mse_weights_tensor = 1
 
         if inc_var_loss:
             mse_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)
-            var_losses = tf.reduce_mean(tf.reduce_mean(log_var, axis=-1), axis=-1)
+            var_losses = tf.reduce_mean(tf.reduce_mean(log_var * mse_weights_tensor, axis=-1), axis=-1)
             total_losses = mse_losses + var_losses
         else:
-            total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
+            total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * mse_weights_tensor, axis=-1), axis=-1)
 
         if tensor_loss: 
             total_losses = tf.reduce_mean(tf.square(mean - targets)*mse_weights_tensor, axis=-2)
