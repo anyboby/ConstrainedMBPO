@@ -9,6 +9,11 @@ import itertools
 from collections import OrderedDict
 
 import tensorflow as tf
+from tensorflow.python.ops import math_ops
+from tensorflow.python.framework import ops
+
+import tensorflow.contrib.losses as tf_losses
+
 import numpy as np
 from tqdm import trange
 from scipy.io import savemat, loadmat
@@ -188,11 +193,13 @@ class BNN:
             self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
-            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
+            
+            train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights, delta=0.01))
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
-            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)
+            self.mse_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.01)
+            self.tensor_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.01)
+                        
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
 
         # Initialize all variables
@@ -306,7 +313,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=15,
+              batch_size=32, max_epochs=None, max_epochs_since_update=8, min_epoch_before_break = 100,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 
@@ -404,6 +411,7 @@ class BNN:
                                 self.sy_train_targ: holdout_targets
                             }
                         )
+
                     ### just to debug, which parts of the output generate most losses ###
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     named_holdout_losses = [['V{}'.format(i), holdout_losses[i]] for i in range(len(holdout_losses))]
@@ -417,7 +425,7 @@ class BNN:
 
             progress.update()
             t = time.time() - t0
-            if break_train or (max_grad_updates and grad_updates > max_grad_updates):
+            if (break_train and epoch>min_epoch_before_break) or (max_grad_updates and grad_updates > max_grad_updates):
                 break
             if max_t and t > max_t:
                 descr = 'Breaking because of timeout: {}! (max: {})'.format(t, max_t)
@@ -605,13 +613,79 @@ class BNN:
             mse_weights_tensor = 1
 
         if inc_var_loss:
-            mse_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)
-            var_losses = tf.reduce_mean(tf.reduce_mean(log_var * mse_weights_tensor, axis=-1), axis=-1)
+            mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)
+            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var * mse_weights_tensor, axis=-1), axis=-1)
             total_losses = mse_losses + var_losses
         else:
-            total_losses = tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets) * mse_weights_tensor, axis=-1), axis=-1)
+            total_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * mse_weights_tensor, axis=-1), axis=-1)
 
         if tensor_loss: 
-            total_losses = tf.reduce_mean(tf.square(mean - targets)*mse_weights_tensor, axis=-2)
+            total_losses = tf.reduce_mean(0.5 * tf.square(mean - targets)*mse_weights_tensor, axis=-2)
 
         return total_losses
+    
+
+    def _huber_loss(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weights=None, delta=1.0, scope=None):
+        """Define a huber loss  https://en.wikipedia.org/wiki/Huber_loss
+        Args:
+            inputs: The input placeholders
+            targets: The targets to hit
+            inc_var_loss: True/False whether to include loss for variance
+            tensor_loss: True/False whether to reduce losses over batch size. mainly for 
+                debugging purposes to see which target parts generate most losses
+            weights: a weight array with same dims as targets. if None, weights will be set to 1
+            delta: The cutoff at which Huber loss turns linear
+            scope: Optional scope for op_scope
+
+        Returns: The huber loss op
+
+        Huber loss:
+        f(x) = if |x| <= delta:
+                0.5 * x^2
+            else:
+                delta * |x| - 0.5 * delta^2
+        
+        """
+        mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
+        inv_var = tf.exp(-log_var)
+
+        if weights is not None:
+            weights_tensor = tf.convert_to_tensor(weights, np.float32)
+        else:
+            weights_tensor = 1
+
+        with ops.name_scope(scope, "HuberL",
+                            [mean, targets]) as scope:
+
+            mean.get_shape().assert_is_compatible_with(targets.get_shape())
+            # mean = math_ops.to_float(mean)
+            # targets = math_ops.to_float(targets)
+            #diff = math_ops.subtract(mean, targets)
+            #abs_diff = tf.abs(diff)
+
+            if tensor_loss: 
+                total_losses = tf.reduce_mean(tf.where(tf.abs(targets-mean) < delta , 
+                                                    0.5*tf.square(mean - targets),
+                                                    delta*tf.abs(targets - mean) - 0.5*(delta**2)) * weights_tensor,
+                                                axis=-2)
+                return total_losses
+
+            if inc_var_loss:
+                mean_losses = tf.reduce_mean(tf.reduce_mean(tf.where(tf.abs(targets-mean) < delta , 
+                                                    0.5*tf.square(mean - targets),
+                                                    delta*tf.abs(targets - mean) - 0.5*(delta**2)) * inv_var * weights_tensor,
+                                                axis=-1), axis=-1)
+                var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var * weights_tensor, axis=-1), axis=-1)
+                total_losses = mean_losses + var_losses
+            else:
+                total_losses = tf.reduce_mean(tf.reduce_mean(tf.where(tf.abs(targets-mean) < delta , 
+                                                    0.5*tf.square(mean - targets),
+                                                    delta*tf.abs(targets - mean) - 0.5*(delta**2)) * weights_tensor,
+                                                axis=-1), axis=-1)
+
+            return total_losses
+
+# huber loss
+def huber(true, pred, delta):
+    loss = tf.where(tf.abs(true-pred) < delta , 0.5*((true-pred)**2), delta*tf.abs(true - pred) - 0.5*(delta**2))
+    return np.sum(loss)

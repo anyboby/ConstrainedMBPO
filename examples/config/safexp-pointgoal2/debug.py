@@ -41,7 +41,7 @@ params = {
         'real_ratio': 0.05,#0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
-        'rollout_schedule': [15, 150, 1, 4], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_schedule': [15, 150, 15, 15], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
     }
