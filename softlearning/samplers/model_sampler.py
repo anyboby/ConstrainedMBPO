@@ -26,6 +26,8 @@ class ModelSampler(CpoSampler):
         self._path_length = np.zeros(batch_size)
         self._path_return = np.zeros(batch_size)
         self._path_cost = np.zeros(batch_size)
+        self._path_uncertainty = np.zeros(batch_size)
+
 
         self._alive_paths = np.ones(batch_size, dtype=np.bool)
 
@@ -45,6 +47,7 @@ class ModelSampler(CpoSampler):
         self._total_samples = 0
         self._last_action = None
         self.cum_cost = 0
+        self._max_uncertainty = 0.005
 
         self.batch_size = batch_size
 
@@ -145,6 +148,7 @@ class ModelSampler(CpoSampler):
         self._path_length = np.zeros(self.batch_size)
         self._path_return = np.zeros(self.batch_size)
         self._path_cost = np.zeros(self.batch_size)
+        self._path_uncertainty = np.zeros(self.batch_size)
         self._n_episodes = 0
 
 
@@ -173,8 +177,6 @@ class ModelSampler(CpoSampler):
         c = info.get('cost', np.zeros(reward.shape))
         self.cum_cost += c.sum()
 
-        en_disag = info.get('ensemble_disagreement', 0)
-        en_disag_max = 0.001
 
         #save and log
         self.pool.store_multiple(current_obs, a, next_obs, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
@@ -187,7 +189,9 @@ class ModelSampler(CpoSampler):
         #     last_cval = self.policy.get_vc(self._current_observation)
         #     self.pool_debug.finish_path(last_val, last_cval)
 
+        en_disag = info.get('ensemble_disagreement', 0)
 
+        self._path_uncertainty[alive_paths] += en_disag
         self._path_length[alive_paths] += 1
         self._path_return[alive_paths] += reward
         self._path_cost[alive_paths] += c
@@ -196,7 +200,7 @@ class ModelSampler(CpoSampler):
         #### add to pool only after full epoch or terminal path
         ## working with masks for ending trajectories
         path_end_mask = (self._path_length >= self._max_path_length)[alive_paths]
-        too_uncertain_mask = en_disag > en_disag_max
+        too_uncertain_mask = self._path_uncertainty[alive_paths] > self._max_uncertainty
         path_end_mask = np.logical_or(path_end_mask, too_uncertain_mask)
         if terminal.any() or path_end_mask.any():
 
@@ -243,6 +247,7 @@ class ModelSampler(CpoSampler):
                 self._current_observation = None
                 self._path_length = np.zeros(batch_size)
                 self._path_return = np.zeros(batch_size)
+                self._path_uncertainty = np.zeros(batch_size)
                 self._path_cost = np.zeros(batch_size)
                 self._alive_paths = np.ones(batch_size, dtype=np.bool)
                 self._n_episodes = 0
@@ -292,6 +297,7 @@ class ModelSampler(CpoSampler):
         self._current_observation = None
         self._path_length = np.zeros(self.batch_size)
         self._path_return = np.zeros(self.batch_size)
+        self._path_uncertainty = np.zeros(self.batch_size)
         self._path_cost = np.zeros(self.batch_size)
         self._alive_paths = np.ones(self.batch_size, dtype=np.bool)
         self._n_episodes = 0

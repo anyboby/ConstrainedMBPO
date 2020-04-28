@@ -314,16 +314,17 @@ class CMBPO(RLAlgorithm):
             #### util class Progress, e.g. for plotting a progress bar
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
-            start_samples = self.sampler._total_samples                     
+
+            train_samples = None
+            min_samples = 100e3
+            max_samples = 200e3
+            samples_added = 0
+            max_rollout_length = 0
 
             ### samples collection loop
             for s_round in count():
-
-                train_samples = None
-                min_samples = 100e3
-                max_samples = 200e3
-                samples_added = 0
-                max_rollout_length = 0
+                
+                start_samples = self.sampler._total_samples                     
 
                 ### train for epoch_length ###
                 for i in count():           
@@ -360,7 +361,7 @@ class CMBPO(RLAlgorithm):
                     )
 
                     samples = self._pool.get_archive()
-                    self.fake_env.reset_model()
+                    #self.fake_env.reset_model()    # this behaves weirdly
                     model_train_metrics = self.fake_env.train(samples, batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
                     model_metrics.update(model_train_metrics)
                     gt.stamp('epoch_train_model')
@@ -383,15 +384,15 @@ class CMBPO(RLAlgorithm):
                         samples_added += alive_ratio*self._rollout_batch_size
                 
                         if alive_ratio<0.2 or samples_added>=max_samples: 
-                            print(f'Stopping Rollout at step {i}')
-                            max_rollout_length = max(max_rollout_length, i)
+                            print(f'Stopping Rollout at step {i+1}')
+                            max_rollout_length = max(max_rollout_length, i+1)
                             break
                     
                     self.model_sampler.finish_all_paths()
                 
                 model_samples = self.model_pool.get()
                 real_samples= self._pool.get()
-                
+
                 if train_samples is None:
                     train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
                 else: 

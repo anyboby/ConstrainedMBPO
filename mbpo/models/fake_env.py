@@ -91,8 +91,8 @@ class FakeEnv:
         ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
 
         ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
-        ensemble_disagreement_vars = np.nanvar(ensemble_model_vars, axis=0)*self.target_weights
-        ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_vars, axis=-1)
+        ensemble_disagreement_stds = np.sqrt(np.nanvar(ensemble_model_vars, axis=0)*self.target_weights)
+        ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
         
         ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
