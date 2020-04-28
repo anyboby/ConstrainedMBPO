@@ -89,9 +89,14 @@ class FakeEnv:
             inputs = np.concatenate((obs, act), axis=-1)
 
         ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+
+        ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
+        ensemble_disagreement_vars = np.nanvar(ensemble_model_vars, axis=0)*self.target_weights
+        ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_vars, axis=-1)
+        
         ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
-
+        
         ### directly use means, if deterministic
         if deterministic:
             ensemble_samples = ensemble_model_means                     
@@ -147,7 +152,7 @@ class FakeEnv:
             rewards = rewards[0]
             terminals = terminals[0]
 
-        info = {'mean': return_means, 'std': return_stds, 'log_prob': log_prob, 'dev': dev}
+        info = {'mean': return_means, 'std': return_stds, 'log_prob': log_prob, 'dev': dev, 'ensemble_disagreement':ensemble_disagreement}
         return next_obs, rewards, terminals, info
 
     def train(self, samples, **kwargs):
@@ -160,19 +165,6 @@ class FakeEnv:
                                             train_outputs, 
                                             **kwargs)
         return model_metrics
-
-    # def reset(self, obs):
-    #     obs_depth = len(obs.shape)
-    #     if obs_depth == 1:
-    #         self._current_obs = obs[None]
-    #         self._last_act = np.zeros(shape=self.act_dim)[None]
-    #         self.return_single = True
-    #     else:
-    #         self._current_obs = obs
-    #         self._last_act = np.zeros(shape=(obs.shape[0], self.act_dim))
-    #         self.return_single = False
-        
-    #     return obs
 
 
     def reset_model(self):

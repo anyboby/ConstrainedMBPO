@@ -183,7 +183,6 @@ class CpoSampler():
 
         #### add to pool only after full epoch or terminal path
         if terminal or self._path_length >= self._max_path_length:
-            self._current_observation = next_observation
 
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if terminal and not(self._path_length >= self._max_path_length):
@@ -191,10 +190,10 @@ class CpoSampler():
                 last_val, last_cval = 0, 0
             else:
                 if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(self._current_observation)
+                    last_val = self.policy.get_v(next_observation)
                     last_cval = 0
                 else:
-                    last_val, last_cval = self.policy.get_v(self._current_observation), self.policy.get_vc(self._current_observation)
+                    last_val, last_cval = self.policy.get_v(next_observation), self.policy.get_vc(next_observation)
             self.pool.finish_path(last_val, last_cval)
 
             # Only save EpRet / EpLen if trajectory finished

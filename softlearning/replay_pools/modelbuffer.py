@@ -77,22 +77,28 @@ class ModelBuffer(CPOBuffer):
 
         return room_mask.all()
 
+    @property
+    def alive_paths(self):
+        return np.logical_not(self.terminated_paths_mask)
+
     def store_multiple(self, obs, act, next_obs, rew, val, cost, cval, logp, pi_info, term):
         assertion_mask = self.ptr < self.max_size
-        not_term_mask = np.logical_not(self.terminated_paths_mask)
+        alive_paths = self.alive_paths
         assert assertion_mask.all()     # buffer has to have room so you can store
-        self.obs_buf[not_term_mask, self.ptr] = obs[not_term_mask]
-        self.act_buf[not_term_mask, self.ptr] = act[not_term_mask]
-        self.nextobs_buf[not_term_mask, self.ptr] = next_obs[not_term_mask]
-        self.rew_buf[not_term_mask, self.ptr] = rew[not_term_mask]
-        self.val_buf[not_term_mask, self.ptr] = val[not_term_mask]
-        self.cost_buf[not_term_mask, self.ptr] = cost[not_term_mask]
-        self.cval_buf[not_term_mask, self.ptr] = cval[not_term_mask]
-        self.logp_buf[not_term_mask, self.ptr] = logp[not_term_mask]
-        self.term_buf[not_term_mask, self.ptr] = term[not_term_mask]
+        assert len(obs)==alive_paths.sum()   # mismatch of alive paths and input obs ! call alive_paths !
+
+        self.obs_buf[alive_paths, self.ptr] = obs
+        self.act_buf[alive_paths, self.ptr] = act
+        self.nextobs_buf[alive_paths, self.ptr] = next_obs
+        self.rew_buf[alive_paths, self.ptr] = rew
+        self.val_buf[alive_paths, self.ptr] = val
+        self.cost_buf[alive_paths, self.ptr] = cost
+        self.cval_buf[alive_paths, self.ptr] = cval
+        self.logp_buf[alive_paths, self.ptr] = logp
+        self.term_buf[alive_paths, self.ptr] = term
         for k in self.sorted_pi_info_keys:
-            self.pi_info_bufs[k][not_term_mask,self.ptr] = pi_info[k][not_term_mask]
-        self.populated_mask[not_term_mask, self.ptr] = True
+            self.pi_info_bufs[k][alive_paths,self.ptr] = pi_info[k]
+        self.populated_mask[alive_paths, self.ptr] = True
         
         self.ptr += 1
 
@@ -135,33 +141,43 @@ class ModelBuffer(CPOBuffer):
         self.path_start_idx = self.ptr
 
     def finish_path_multiple(self, term_mask, 
-                                last_val=None, 
-                                last_cval=None):
-        assert term_mask.any()
+                                last_val, 
+                                last_cval):
+        """
+        finished multiple paths according to term_mask.
+        Args:
+            term_mask: a bool mask that indicates which paths should be terminated. 
+                has to be of same length as currently alive paths.
+            last_val: value of the last state in the paths that are to be finished.
+                has to be of same length as the number of paths to be terminated (term_mask.sum())
+            last_cval: cost value of the last state in the paths that are to be finished.
+                has to be of same length as the number of paths to be terminated (term_mask.sum())
+        """
+        assert term_mask.any()                              ### finishing paths without terminals !
+        assert self.alive_paths.sum() == len(term_mask)   ### terminating a non-alive path!
+        assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
 
-        if last_cval is None:
-            last_cval = np.zeros(self.batch_size)
-        if last_val is None:
-            last_val = np.zeros(self.batch_size)
+        alive_paths = self.alive_paths
 
-        ### @anyboby TODO we're doing a lot of unnecessary calcs here, 
-        # try to find a nicer way
-
+        ## concat masks for fancy indexing. (expand term_mask to buf dim)
+        finish_mask = np.zeros(len(self.alive_paths), dtype=np.bool)
+        finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
         path_slice = slice(self.path_start_idx, self.ptr)
-        rews = np.append(self.rew_buf[:, path_slice], last_val[:, np.newaxis], axis=1)
-        vals = np.append(self.val_buf[:, path_slice], last_val[:, np.newaxis], axis=1)
+        
+        rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[:, np.newaxis], axis=1)
+        vals = np.append(self.val_buf[finish_mask, path_slice], last_val[:, np.newaxis], axis=1)
         deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
-        self.adv_buf[term_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)[term_mask]
-        self.ret_buf[term_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[term_mask, :-1]
+        self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)
+        self.ret_buf[finish_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[:, :-1]
 
-        costs = np.append(self.cost_buf[:, path_slice], last_cval[:, np.newaxis], axis=1)
-        cvals = np.append(self.cval_buf[:, path_slice], last_cval[:, np.newaxis], axis=1)
+        costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[:, np.newaxis], axis=1)
+        cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[:, np.newaxis], axis=1)
         cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
-        self.cadv_buf[term_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)[term_mask]
-        self.cret_buf[term_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[term_mask,:-1]
+        self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)
+        self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
 
         # mark terminated paths
-        self.terminated_paths_mask += term_mask
+        self.terminated_paths_mask += finish_mask
 
     def get(self):
         """

@@ -7,6 +7,7 @@ from softlearning.policies.safe_utils.utils import combined_shape, \
                              EPS
 
 import warnings
+import random
 
 class CPOBuffer:
 
@@ -314,7 +315,9 @@ class CPOBuffer:
         """
         returns np array of random indices limited to current archive size.
         """
+
         if self.arch_size == 0: return np.arange(0, 0)
+        #return random.sample(range(0, self.arch_size), batch_size)
         return np.random.randint(0, self.arch_size, batch_size)
 
 

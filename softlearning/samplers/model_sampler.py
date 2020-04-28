@@ -18,7 +18,6 @@ ACTION_PROCESS_ENVS = [
 class ModelSampler(CpoSampler):
     def __init__(self,
                  max_path_length,
-                 min_pool_size,
                  batch_size=1000,
                  store_last_n_paths = 10,
                  preprocess_type='default',
@@ -141,24 +140,25 @@ class ModelSampler(CpoSampler):
 
         return processed_observation
 
+    def reset(self, observations):
+        self._current_observation = observations
+        self._path_length = np.zeros(self.batch_size)
+        self._path_return = np.zeros(self.batch_size)
+        self._path_cost = np.zeros(self.batch_size)
+        self._n_episodes = 0
+
 
     def sample(self):
-        if self._current_observation is None:
-            # Reset environment
-            self._current_observation, reward, terminal, c = \
-                        np.squeeze(self.env.reset()), \
-                        np.zeros(self.batch_size), \
-                        np.zeros(self.batch_size, dtype=np.bool), \
-                        np.zeros(self.batch_size)
+        assert self.pool.has_room           #pool full! empty before sampling.
+        assert self._current_observation is not None # reset before sampling !
 
         self._n_episodes += 1
-
         batch_size = self.batch_size
+        alive_paths = self.pool.alive_paths
+        current_obs = self._current_observation
+
         # Get outputs from policy
-        test_obs = [self._current_observation[np.newaxis] for i in range(batch_size)]
-        test_obs = np.concatenate(test_obs, axis=0)
-        get_action_outs = self.policy.get_action_outs(test_obs)
-        #get_action_outs = self.policy.get_action_outs(self._current_observation)
+        get_action_outs = self.policy.get_action_outs(current_obs)
 
         a = get_action_outs['pi']
         v_t = get_action_outs['v']
@@ -166,36 +166,18 @@ class ModelSampler(CpoSampler):
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
-        next_observation, reward, terminal, info = self.env.step(a[0])
-
-        next_observation = np.squeeze(next_observation)
-        test_nextobs = np.squeeze(next_observation)
-        test_nextobs = [test_nextobs[np.newaxis] for i in range(batch_size)]
-        test_nextobs = np.concatenate(test_nextobs, axis=0)
-
-        test_rew = np.squeeze(reward)
-        test_rew = [test_rew[np.newaxis] for i in range(batch_size)]
-        test_rew = np.concatenate(test_rew, axis=0)
-
-        test_term = np.squeeze(terminal)
-        test_term = [test_term[np.newaxis] for i in range(batch_size)]
-        test_term = np.concatenate(test_term, axis=0)
-        random_terms = 50000*np.random.rand(*test_term[self._alive_paths].shape)>49999
-        test_term[self._alive_paths] += random_terms
-
-        #info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
-        #info = np.squeeze(info)
-        test_info = [info for i in range(batch_size)]
-        test_info= np.concatenate(test_info, axis=0)
+        next_obs, reward, terminal, info = self.env.step(current_obs, a)
+        reward = np.squeeze(reward)
+        terminal = np.squeeze(terminal)
         
-        c = info[0].get('cost', 0)
-        test_c = np.array(c)
-        test_c = [test_c[np.newaxis] for i in range(batch_size)]
-        test_c= np.concatenate(test_c, axis=0)
-        self.cum_cost += test_c.sum()
+        c = info.get('cost', np.zeros(reward.shape))
+        self.cum_cost += c.sum()
+
+        en_disag = info.get('ensemble_disagreement', 0)
+        en_disag_max = 0.001
 
         #save and log
-        self.pool.store_multiple(test_obs, a, test_nextobs, test_rew, v_t, test_c, vc_t, logp_t, pi_info_t, test_term)
+        self.pool.store_multiple(current_obs, a, next_obs, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
         self.logger.store(VVals=v_t, CostVVals=vc_t)
         
         # # debug !
@@ -206,72 +188,114 @@ class ModelSampler(CpoSampler):
         #     self.pool_debug.finish_path(last_val, last_cval)
 
 
-        self._path_length[self._alive_paths] += 1
-        self._path_return[self._alive_paths] += reward
-        self._path_cost[self._alive_paths] += c
-        self._total_samples += self._alive_paths.sum()
+        self._path_length[alive_paths] += 1
+        self._path_return[alive_paths] += reward
+        self._path_cost[alive_paths] += c
+        self._total_samples += alive_paths.sum()
 
         #### add to pool only after full epoch or terminal path
         ## working with masks for ending trajectories
-        path_end_mask = self._path_length >= self._max_path_length
-        if test_term.any() or path_end_mask.any():
+        path_end_mask = (self._path_length >= self._max_path_length)[alive_paths]
+        too_uncertain_mask = en_disag > en_disag_max
+        path_end_mask = np.logical_or(path_end_mask, too_uncertain_mask)
+        if terminal.any() or path_end_mask.any():
 
-            # init final values and quantify according to termination type
-            last_val, last_cval = np.zeros(self.batch_size), np.zeros(self.batch_size)
 
             # If trajectory didn't reach terminal state, bootstrap value target(s)
-            prem_term_mask = np.logical_not(path_end_mask)*test_term
-            mat_term_mask = np.logical_or(test_term, path_end_mask) * np.logical_not(prem_term_mask)
-
-            # Note: we do not count env time out as true terminal state
-            last_val[prem_term_mask] = np.zeros(last_val[prem_term_mask].shape)
-            last_cval[prem_term_mask] = np.zeros(last_cval[prem_term_mask].shape)
-            
-            # mature termination upon path end or env episode end
-            if mat_term_mask.any():
-                if self.policy.agent.reward_penalized:
-                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(test_obs[mat_term_mask]))
-                    last_cval[mat_term_mask] = np.zeros(last_cval[mat_term_mask].shape)
-                else:
-                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(test_obs[mat_term_mask]))
-                    last_cval[mat_term_mask] = np.squeeze(self.policy.get_vc(test_obs[mat_term_mask]))
-
-            
+            prem_term_mask = np.logical_not(path_end_mask)*terminal
+            mat_term_mask = np.logical_or(terminal, path_end_mask) * np.logical_not(prem_term_mask)
             term_mask = np.logical_or(prem_term_mask, mat_term_mask)
             non_term_mask = np.logical_not(term_mask)
-            self._alive_paths = self._alive_paths*non_term_mask
-            
+
+            # init final values and quantify according to termination type
+            last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
+
+            # We do not count env time out (mature termination) as true terminal state, append values
+            if mat_term_mask.any():
+                if self.policy.agent.reward_penalized:
+                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(next_obs[mat_term_mask]))
+                else:
+                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(next_obs[mat_term_mask]))
+                    last_cval[mat_term_mask] = np.squeeze(self.policy.get_vc(next_obs[mat_term_mask]))
+
+            ## rebase last_val and last_cval to paths that are terminated
+            last_val = last_val[term_mask]
+            last_cval = last_cval[term_mask]
+
             self.pool.finish_path_multiple(term_mask, last_val, last_cval)
-            
+
+            alive_paths = self.pool.alive_paths
 
             # Only save EpRet / EpLen if trajectory finished
-            if not self._alive_paths.any():
+            if not alive_paths.any():
                 #@anyboby TODO handle logger /diagnostics for model
                 # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-                print('debug')
+                print('All trajectories dead. @anyboby implement some logging magic here')
             else:
-                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length[term_mask][0])
+                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length[alive_paths][0])
 
             self._max_path_return = max(self._max_path_return,
                                         max(self._path_return))
             self.policy.reset() #does nohing for cpo policy atm
-            self._current_observation = next_observation
 
             # reset if all paths have died
-            if not self._alive_paths.any():
+            if not alive_paths.any():
                 self._current_observation = None
-                self._path_length = np.zeros(self.batch_size)
+                self._path_length = np.zeros(batch_size)
                 self._path_return = np.zeros(batch_size)
                 self._path_cost = np.zeros(batch_size)
                 self._alive_paths = np.ones(batch_size, dtype=np.bool)
                 self._n_episodes = 0
             else:
-                self._current_observation = next_observation
+                self._current_observation = next_obs[non_term_mask]
 
         else:
-            self._current_observation = next_observation
+            self._current_observation = next_obs
 
-        return next_observation, reward, terminal, info
+        info['alive_ratio'] = alive_paths.sum()/self.batch_size
+
+        return next_obs, reward, terminal, info
+
+    def finish_all_paths(self):
+
+        alive_paths=self.pool.alive_paths ##any paths that are still alive did not terminate by env
+        # init final values and quantify according to termination type
+        # Note: we do not count env time out as true terminal state
+        if self._current_observation is None: return
+        assert len(self._current_observation) == alive_paths.sum()
+        current_obs = self._current_observation
+
+        if alive_paths.any():
+            last_val, last_cval = np.zeros(shape=alive_paths.sum()), np.zeros(shape=alive_paths.sum())
+            term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
+            if self.policy.agent.reward_penalized:
+                last_val = np.squeeze(self.policy.get_v(current_obs))
+            else:
+                last_val = np.squeeze(self.policy.get_v(current_obs))
+                last_cval = np.squeeze(self.policy.get_vc(current_obs))
+
+            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+
+        alive_paths = self.pool.alive_paths
+        assert alive_paths.sum()==0   ## check if all paths have been finished
+
+        # Only save EpRet / EpLen if trajectory finished
+        if not alive_paths.any():
+            #@anyboby TODO handle logger /diagnostics for model
+            # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
+            print('All trajectories finished. @anyboby implement some logging magic here')
+
+        self._max_path_return = max(self._max_path_return,
+                                    max(self._path_return))
+        self.policy.reset() #does nohing for cpo policy atm
+
+        self._current_observation = None
+        self._path_length = np.zeros(self.batch_size)
+        self._path_return = np.zeros(self.batch_size)
+        self._path_cost = np.zeros(self.batch_size)
+        self._alive_paths = np.ones(self.batch_size, dtype=np.bool)
+        self._n_episodes = 0
+
 
     def log(self):
         """
