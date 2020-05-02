@@ -3,7 +3,7 @@
 This package exposes the functions in examples.instrument module to the user
 through a cli, which allows seamless runs of examples in different modes (e.g.
 locally, in google compute engine, or ec2).
-
+    
 
 There are two types of cli commands in this file (each have their corresponding
 function in examples.instrument):

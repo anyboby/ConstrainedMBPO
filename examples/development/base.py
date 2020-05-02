@@ -34,8 +34,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_iters':             80,                 
         'target_kl':            0.01,            # @anyboby maybe remove ?
         'ent_reg':              0.0,
-        'cost_lim_end':         800,
-        'cost_lim':             800,
+        'cost_lim_end':         50,
+        'cost_lim':             50,
         'cost_lam':             0.97,
         'cost_gamma':           0.96,
         'lam':                  0.97,
@@ -246,7 +246,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(1e4),
+                    'CPOBuffer':int(6e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
@@ -266,7 +266,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(6e4),
+                    'CPOBuffer':int(2e5),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

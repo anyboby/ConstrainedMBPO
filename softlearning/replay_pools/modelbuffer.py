@@ -144,7 +144,10 @@ class ModelBuffer(CPOBuffer):
                                 last_val, 
                                 last_cval):
         """
-        finished multiple paths according to term_mask.
+        finished multiple paths according to term_mask. 
+        Note: if the term_mask indicates to terminate a path that has not yet been populated,
+        it will terminate, but samples won't be marked as terminated (they won't be included 
+        in get())
         Args:
             term_mask: a bool mask that indicates which paths should be terminated. 
                 has to be of same length as currently alive paths.
@@ -153,9 +156,14 @@ class ModelBuffer(CPOBuffer):
             last_cval: cost value of the last state in the paths that are to be finished.
                 has to be of same length as the number of paths to be terminated (term_mask.sum())
         """
-        assert term_mask.any()                              ### finishing paths without terminals !
+        if not term_mask.any(): return                    ### skip if not terminating anything
         assert self.alive_paths.sum() == len(term_mask)   ### terminating a non-alive path!
-        assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
+        if len(last_val.shape)>0 and len(last_val.shape)>0:
+            assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
+        else:
+            assert term_mask.sum()==1
+            last_val = last_val[..., np.newaxis]
+            last_cval = last_cval[..., np.newaxis]
 
         alive_paths = self.alive_paths
 
@@ -164,14 +172,14 @@ class ModelBuffer(CPOBuffer):
         finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
         path_slice = slice(self.path_start_idx, self.ptr)
         
-        rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[:, np.newaxis], axis=1)
-        vals = np.append(self.val_buf[finish_mask, path_slice], last_val[:, np.newaxis], axis=1)
+        rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
+        vals = np.append(self.val_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
         deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
         self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)
         self.ret_buf[finish_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[:, :-1]
 
-        costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[:, np.newaxis], axis=1)
-        cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[:, np.newaxis], axis=1)
+        costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
+        cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
         cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
         self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)
         self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
@@ -215,31 +223,3 @@ class ModelBuffer(CPOBuffer):
         self.terminated_paths_mask = np.zeros(shape=self.terminated_paths_mask.shape, dtype=np.bool)
 
         return res
-
-    # def get_model_samples(self):
-    #     # buffer does not have to be full for model samples
-    #     # self.ptr, self.path_start_idx = 0, 0
-
-    #     # Advantage normalizing trick for policy gradient
-    #     adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
-    #     self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
-
-    #     # Center, but do NOT rescale advantages for cost gradient
-    #     cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
-    #     self.cadv_buf -= cadv_mean
-
-    #     obs = self.obs_buf[:self.ptr-1]
-    #     next_obs = self.obs_buf[1:self.ptr]
-    #     acts = self.act_buf[:self.ptr-1]
-    #     rews = self.rew_buf[:self.ptr-1, np.newaxis]
-    #     costs = self.cost_buf[:self.ptr-1, np.newaxis]
-    #     terms = self.term_buf[:self.ptr-1, np.newaxis]
-    #     samples = {
-    #         'observations':obs,
-    #         'next_observations':next_obs,
-    #         'actions':acts,
-    #         'rewards':rews,
-    #         'costs':costs,
-    #         'terminals':terms,
-    #     }
-    #     return samples

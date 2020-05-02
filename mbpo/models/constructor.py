@@ -24,13 +24,13 @@ def construct_model(obs_dim_in=11,
 	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim+prior_dim, activation="swish", weight_decay=0.000025))	#0.000025))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim+prior_dim, activation="swish", weight_decay=0.000015))	#0.000025))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))			#0.00005))
+	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000075))		#0.000075))
-	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.0001))							#0.0001
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000055))		#0.000075))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000055))		#0.000075))
+	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.00005))							#0.0001
 
 	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001}, weights=weights, )
 
@@ -47,7 +47,7 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 	inputs, outputs:
 
 	inputs = np.concatenate((observations, act, priors), axis=-1)
-	outputs = np.concatenate((delta_observations, rewards), axis=-1)
+	outputs = np.concatenate((delta_observations, rewards (,costs)), axis=-1)
 
 	"""
 	obs = np.squeeze(samples['observations'])
@@ -55,6 +55,13 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 	next_obs = np.squeeze(samples['next_observations'])
 	rew = np.squeeze(samples['rewards'])
 	terms = np.squeeze(samples['terminals'])
+
+	include_cost = samples.get('costs', None) is not None
+	if include_cost:
+		cost = np.squeeze(samples['costs'])
+
+
+
 	#### ---- preprocess samples for model training in safety gym -----####
 	if safe_config:
 		stacks = safe_config['stacks']
@@ -73,6 +80,9 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 		next_obs=next_obs[mask]
 		rew = rew[mask]
 		delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
+		
+		if include_cost:
+			cost = cost[mask]
 		# delta_obs = np.clip(delta_obs,-outlier_threshold, outlier_threshold)		## clip delta_obs
 
 	else: 
@@ -82,8 +92,11 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 		inputs = np.concatenate((obs, act, priors[mask]), axis=-1)
 	else:
 		inputs = np.concatenate((obs, act), axis=-1)
-	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)		###@anyboby testing
 
+	if include_cost:
+		outputs = np.concatenate((delta_obs, cost[:, np.newaxis], rew[:, np.newaxis]), axis=-1)		
+	else: 
+		outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
 	# add noise
 	if add_noise:
 		inputs = _add_noise(inputs, 0.0001)		### noise helps 

@@ -54,11 +54,12 @@ def post_safety_gym(obs, acts):
 
 def safety_gym_weights(obs_dim):
     # loss weights for dyn model. Set manually
-    mse_weights = np.ones(obs_dim+1, dtype='float32')
-    mse_weights[0:2] = 0
-    mse_weights[3:19]=2 # goal lidar
-    mse_weights[2]=10   # goal dist.
-    mse_weights[-1]=0   #manual rew function
+    mse_weights = np.ones(obs_dim+2, dtype='float32') # +2 for rew and costs
+    mse_weights[0:2] = 1e-6    # predicting prev action given the action should be easy, but has very high unnormalized target values. 
+    mse_weights[3:19]=1 # goal lidar
+    mse_weights[2]=5   # goal dist.
+    mse_weights[-2]=1   # cost
+    mse_weights[-1]=1e-6   #manual rew function
 
     return mse_weights
 
