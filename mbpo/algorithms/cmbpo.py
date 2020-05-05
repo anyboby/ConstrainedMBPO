@@ -290,6 +290,7 @@ class CMBPO(RLAlgorithm):
             ######  fills pool with _n_initial_exploration_steps samples
             self._initial_exploration_hook(
                 training_environment, self._policy, pool)
+            self.sampler.finish_all_paths(append_val=True)
             pool.dump_to_archive() # move old policy samples to archive
 
         
@@ -337,7 +338,7 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('timestep_before_hook')
 
                 ##### śampling from the real world ! #####
-                self._do_sampling(timestep=self._total_timestep)
+                _,_, _, _ = self._do_sampling(timestep=self._total_timestep)
                 gt.stamp('sample')
 
                 self._timestep_after_hook()
@@ -345,6 +346,7 @@ class CMBPO(RLAlgorithm):
 
                 
                 if self.ready_to_train:
+                    self.sampler.finish_all_paths(append_val=True)
                     break
 
             #=====================================================================#
@@ -366,7 +368,7 @@ class CMBPO(RLAlgorithm):
                                                         'costs',
                                                         'terminals'])
                 #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples, batch_size=2048, max_epochs=1500, holdout_ratio=0.2,min_epoch_before_break = 100, max_t=self._max_model_t)
+                model_train_metrics = self.fake_env.train(samples, batch_size=1024, max_epochs=1500, holdout_ratio=0.2,min_epoch_before_break = 150, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
 

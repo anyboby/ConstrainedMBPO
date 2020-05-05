@@ -181,26 +181,54 @@ class CpoSampler():
         for key, value in processed_sample.items():
             self._current_path[key].append(value)
 
+
+        #### update current obs before finishing
+        self._current_observation = next_observation
+        self._last_action = a
+
         #### add to pool only after full epoch or terminal path
         if terminal or self._path_length >= self._max_path_length:
 
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if terminal and not(self._path_length >= self._max_path_length):
                 # Note: we do not count env time out as true terminal state
+                self.finish_all_paths(append_val=False)
+            else:
+                self.finish_all_paths(append_val=True)
+            
+        return next_observation, reward, terminal, info
+
+
+    def finish_all_paths(self, append_val=False):
+            if self._current_observation is None:   #return if already finished
+                return
+
+            # If trajectory didn't reach terminal state, bootstrap value target(s)
+            if not append_val:
+                # Note: we do not count env time out as true terminal state
                 last_val, last_cval = 0, 0
             else:
                 if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(next_observation)
+                    last_val = self.policy.get_v(self._current_observation)
                     last_cval = 0
                 else:
-                    last_val, last_cval = self.policy.get_v(next_observation), self.policy.get_vc(next_observation)
+                    last_val, last_cval = self.policy.get_v(self._current_observation), \
+                                            self.policy.get_vc(self._current_observation)
             self.pool.finish_path(last_val, last_cval)
 
             # Only save EpRet / EpLen if trajectory finished
-            if terminal:
-                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-            else:
-                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
+            
+            #@anyboby TODO, this is original:
+            # if not append_val:
+            #     self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
+            # else:
+            #     print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
+
+            #if not append_val:
+            self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
+            
+            # else:
+            #     print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
 
             self.last_path = {
                 field_name: np.array(values)
@@ -220,11 +248,7 @@ class CpoSampler():
             self._current_path = defaultdict(list)
             self._last_action = np.zeros(shape=self.env.action_space.shape)
             self._n_episodes += 1
-        else:
-            self._current_observation = next_observation
-            self._last_action = a
-
-        return next_observation, reward, terminal, info
+            
 
     def log(self):
         """

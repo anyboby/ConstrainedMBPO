@@ -14,6 +14,7 @@ from .base_sampler import BaseSampler
 ACTION_PROCESS_ENVS = [
     'Safexp-PointGoal2',
     ]
+EPS = 1e-8
 
 class ModelSampler(CpoSampler):
     def __init__(self,
@@ -84,13 +85,13 @@ class ModelSampler(CpoSampler):
 
     def get_diagnostics(self):
         diagnostics = OrderedDict({'pool-size': self.pool.size})
-        mean_rollout_length = self._total_samples / self.batch_size
+        mean_rollout_length = self._total_samples / (self.batch_size+EPS)
         mean_ensemble_dkl_cum = np.mean(self._path_uncertainty)
-        mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+1e-8))
-        cost_rate = self._cum_cost/self._total_samples
-        return_rate = self._path_return.sum()/self._total_samples
-        VVals_mean = self._total_Vs / self._total_samples
-        CostVVals = self._total_CVs / self._total_samples
+        mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+EPS))
+        cost_rate = self._cum_cost/(self._total_samples+EPS)
+        return_rate = self._path_return.sum()/(self._total_samples+EPS)
+        VVals_mean = self._total_Vs / (self._total_samples+EPS)
+        CostVVals = self._total_CVs / (self._total_samples+EPS)
 
         diagnostics.update({
             'samples_added': self._total_samples,

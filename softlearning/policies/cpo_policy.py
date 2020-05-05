@@ -402,7 +402,7 @@ class CPOPolicy(BasePolicy):
         with tf.variable_scope('logp_old_ph'):
             self.logp_old_ph = placeholders(*(None for _ in range(1)))[0]
 
-        with tf.variable_scope('old_vc_ph'):
+        with tf.variable_scope('old_v_ph'):
             self.old_v_ph = placeholders(*(None for _ in range(1)))[0]
         with tf.variable_scope('ret_ph'):
             self.ret_ph = placeholders(*(None for _ in range(1)))[0]
@@ -639,7 +639,7 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
 
         inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
-        inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
+        #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
         inputs[self.cur_cost_ph] = cur_cost
 
         #=====================================================================#

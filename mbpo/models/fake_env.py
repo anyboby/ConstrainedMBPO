@@ -110,7 +110,7 @@ class FakeEnv:
         ### calc disagreement of elites
         elite_means = ensemble_model_means[self._model.elite_inds]
         elite_stds = ensemble_model_stds[self._model.elite_inds]
-        average_dkl_per_output = average_dkl(elite_means, elite_stds)
+        average_dkl_per_output = average_dkl(elite_means, elite_stds)*self.target_weights
         average_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
         ensemble_disagreement = average_dkl_mean
 

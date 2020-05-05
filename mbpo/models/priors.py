@@ -35,7 +35,6 @@ def prior_safety_gym(obs, acts):
     #last_act = np.concatenate((np.zeros_like(acts[0])[np.newaxis], acts[:-1,:]), axis=0)
 
     acc_spikes = process_act_vec(acts, last_acts)
-
     return acc_spikes
 
 def post_safety_gym(obs, acts):
@@ -55,11 +54,11 @@ def post_safety_gym(obs, acts):
 def safety_gym_weights(obs_dim):
     # loss weights for dyn model. Set manually
     mse_weights = np.ones(obs_dim+2, dtype='float32') # +2 for rew and costs
-    mse_weights[0:2] = 1e-6    # predicting prev action given the action should be easy, but has very high unnormalized target values. 
+    mse_weights[0:2] = 1    # predicting prev action given the action should be easy, but has very high unnormalized target values. 
     mse_weights[3:19]=1 # goal lidar
-    mse_weights[2]=5   # goal dist.
+    mse_weights[2]=1   # goal dist.
     mse_weights[-2]=1   # cost
-    mse_weights[-1]=1e-6   #manual rew function
+    mse_weights[-1]=1   # rew function
 
     return mse_weights
 

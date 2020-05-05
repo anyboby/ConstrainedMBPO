@@ -24,13 +24,13 @@ def construct_model(obs_dim_in=11,
 	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim+prior_dim, activation="swish", weight_decay=0.000015))	#0.000025))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim+prior_dim, activation="swish", weight_decay=0.00002))	#0.000025))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00004))			#0.00005))
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000055))		#0.000075))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.000055))		#0.000075))
-	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.00005))							#0.0001
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00006))		#0.000075))
+	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00006))		#0.000075))
+	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.00008))							#0.0001
 
 	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001}, weights=weights, )
 
@@ -80,6 +80,7 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 		next_obs=next_obs[mask]
 		rew = rew[mask]
 		delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
+		delta_obs[:,:2] = 0 ### @anyboby TODO fix this its stupid
 		
 		if include_cost:
 			cost = cost[mask]
