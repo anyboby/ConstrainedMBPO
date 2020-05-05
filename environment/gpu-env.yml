@@ -9,5 +9,6 @@ dependencies:
 - pip>=18.0
 - conda>=4.5.9
 - patchelf=0.9
+- swig
 - pip:
     - -r requirements.txt
