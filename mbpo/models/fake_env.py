@@ -4,12 +4,14 @@ import pdb
 
 from mbpo.models.constructor import construct_model, format_samples_for_training
 from mbpo.models.priors import WEIGHTS_PER_DOMAIN, PRIORS_BY_DOMAIN, PRIOR_DIMS, POSTS_BY_DOMAIN
+from mbpo.models.utils import average_dkl
 
 class FakeEnv:
 
     def __init__(self, true_environment, 
                     static_fns, num_networks=7, 
-                    num_elites = 5, hidden_dim = 220, 
+                    num_elites = 5, hidden_dim = 220,
+                    cares_about_cost=False, 
                     safe_config=None,
                     session = None):
         
@@ -19,6 +21,8 @@ class FakeEnv:
         self.act_dim = np.prod(self.env.action_space.shape)
         self.active_obs_dim = int(self.obs_dim/self.env.stacks)
         self._session = session
+        self.cares_about_cost = cares_about_cost
+        self.rew_dim = 2 if cares_about_cost else 1
 
         self.static_fns = static_fns
         self.safe_config = safe_config
@@ -40,6 +44,7 @@ class FakeEnv:
                                         obs_dim_out=self.active_obs_dim,
                                         prior_dim=prior_dim,
                                         act_dim=self.act_dim, 
+                                        rew_dim= self.rew_dim,
                                         hidden_dim=hidden_dim, 
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
@@ -90,13 +95,25 @@ class FakeEnv:
 
         ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
 
-        ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
-        ensemble_disagreement_vars = np.nanvar(ensemble_model_vars, axis=0)*self.target_weights
-        ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_vars, axis=-1)
+        ####@anyboby TODO only as an example, do a better disagreement measurement later
+        # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
+        # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))*self.target_weights
+        # ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
+        # ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
         
-        ensemble_model_means[:,:,:-1] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
+        
+
+
+        ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
         
+        ### calc disagreement of elites
+        elite_means = ensemble_model_means[self._model.elite_inds]
+        elite_stds = ensemble_model_stds[self._model.elite_inds]
+        average_dkl_per_output = average_dkl(elite_means, elite_stds)
+        average_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
+        ensemble_disagreement = average_dkl_mean
+
         ### directly use means, if deterministic
         if deterministic:
             ensemble_samples = ensemble_model_means                     
@@ -105,7 +122,7 @@ class FakeEnv:
 
         #### choose one model from ensemble randomly
         num_models, batch_size, _ = ensemble_model_means.shape
-        model_inds = self._model.random_inds(batch_size)
+        model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
         batch_inds = np.arange(0, batch_size)
         samples = ensemble_samples[model_inds, batch_inds]
         model_means = ensemble_model_means[model_inds, batch_inds]
@@ -115,8 +132,15 @@ class FakeEnv:
         log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         #### retrieve r and done for new state
-        rewards, next_obs = samples[:,-1:], samples[:,:-1]
-
+        rew_a_costs, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
+        if self.cares_about_cost:
+            rewards = rew_a_costs[:,1]
+            #@anyboby TODO fix this
+            #costs = rew_a_costs[:,0]
+            costs = model_means[:,-2]
+        else:
+            rewards = rew_a_costs[0]
+            costs = np.zeros[rewards]
 
         #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
@@ -125,6 +149,7 @@ class FakeEnv:
             unstacked_obs = obs[:,-unstacked_obs_size:]
             rewards = self.static_fns.reward_np(unstacked_obs, act, next_obs, self.safe_config)
             terminals = self.static_fns.termination_fn(unstacked_obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
+            #costs = self.static_fns.cost_fn(costs)
             next_obs = self.static_fns.rebuild_goal(unstacked_obs, act, next_obs, unstacked_obs, self.safe_config)  ### rebuild goal if goal was met
             if self.stacks > 1:
                 next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
@@ -138,6 +163,7 @@ class FakeEnv:
             next_obs = self.post_f(next_obs, act)
 
         batch_size = model_means.shape[0]
+        ###@anyboby TODO this calculation seems a bit suspicious to me
         return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
         return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
 
@@ -151,8 +177,16 @@ class FakeEnv:
             return_stds = return_stds[0]
             rewards = rewards[0]
             terminals = terminals[0]
-
-        info = {'mean': return_means, 'std': return_stds, 'log_prob': log_prob, 'dev': dev, 'ensemble_disagreement':ensemble_disagreement}
+            costs = costs[0]
+        
+        info = {'return_mean': return_means,
+                'return_std': return_stds,
+                'log_prob': log_prob,
+                'dev': dev,
+                'ensemble_disagreement':ensemble_disagreement,
+                'cost':costs,
+                'cost_mean': costs.mean(),
+                }
         return next_obs, rewards, terminals, info
 
     def train(self, samples, **kwargs):
@@ -199,4 +233,5 @@ class FakeEnv:
 
     def close(self):
         pass
+
 

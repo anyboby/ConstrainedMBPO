@@ -626,9 +626,8 @@ class CPOPolicy(BasePolicy):
         self.agent.set_logger(logger) #share logger with agent
 
     #@anyboby todo: buf_inputs has to be delivered to update. implement when buffer (or pool) is done
-    def update(self, buf_inputs):
+    def update(self, buf_inputs, ):
         cur_cost = self.logger.get_stats('CostEp')[0]
-        rand_cost = 0
         #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
         cur_cost_lim = self.cost_lim
         c = cur_cost - cur_cost_lim
@@ -778,10 +777,17 @@ class CPOPolicy(BasePolicy):
     def log(self):
         logger = self.logger
         self.agent.log()
+
+
+        # V loss and change
+        logger.log_tabular('LossV', average_only=True)
+        logger.log_tabular('LossVDelta', average_only=True)
+        
         # Vc loss and change, if applicable (reward_penalized agents don't use vc)
         if not(self.agent.reward_penalized):
             logger.log_tabular('LossVC', average_only=True)
             logger.log_tabular('LossVCDelta', average_only=True)
+
 
         if self.agent.use_penalty or self.agent.save_penalty:
             logger.log_tabular('Penalty', average_only=True)
@@ -790,9 +796,18 @@ class CPOPolicy(BasePolicy):
             logger.log_tabular('Penalty', 0)
             logger.log_tabular('PenaltyDelta', 0)
 
+        # Surr cost and change
+        logger.log_tabular('SurrCost', average_only=True)
+        logger.log_tabular('SurrCostDelta', average_only=True)
+
         # Policy stats
         logger.log_tabular('Entropy', average_only=True)
         logger.log_tabular('KL', average_only=True)
+
+        # Pi loss and change
+        logger.log_tabular('LossPi', average_only=True)
+        logger.log_tabular('LossPiDelta', average_only=True)
+
 
     def get_diagnostics(self, obs):
         """Return diagnostic information of the policy.

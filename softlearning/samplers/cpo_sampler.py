@@ -246,19 +246,6 @@ class CpoSampler():
         logger.log_tabular('VVals', with_min_and_max=True)
         logger.log_tabular('CostVVals', with_min_and_max=True)
 
-        # Pi loss and change
-        logger.log_tabular('LossPi', average_only=True)
-        logger.log_tabular('LossPiDelta', average_only=True)
-
-        # Surr cost and change
-        logger.log_tabular('SurrCost', average_only=True)
-        logger.log_tabular('SurrCostDelta', average_only=True)
-
-        # V loss and change
-        logger.log_tabular('LossV', average_only=True)
-        logger.log_tabular('LossVDelta', average_only=True)
-
         # Time and steps elapsed
         logger.log_tabular('TotalEnvInteracts', self._total_samples)
-        #logger.log_tabular('Time', time.time()-start_time)
         

@@ -21,13 +21,13 @@ class ModelSampler(CpoSampler):
                  batch_size=1000,
                  store_last_n_paths = 10,
                  preprocess_type='default',
+                 max_uncertainty = 1e8,
                  logger = None):
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
         self._path_return = np.zeros(batch_size)
         self._path_cost = np.zeros(batch_size)
-
-        self._alive_paths = np.ones(batch_size, dtype=np.bool)
+        self._path_uncertainty = np.zeros(batch_size)
 
         if logger:
             self.logger = logger
@@ -44,7 +44,11 @@ class ModelSampler(CpoSampler):
         self._current_observation = None
         self._total_samples = 0
         self._last_action = None
-        self.cum_cost = 0
+        self._cum_cost = 0
+        self._max_uncertainty = max_uncertainty
+        self._total_Vs = 0
+        self._total_CVs = 0
+
 
         self.batch_size = batch_size
 
@@ -80,11 +84,24 @@ class ModelSampler(CpoSampler):
 
     def get_diagnostics(self):
         diagnostics = OrderedDict({'pool-size': self.pool.size})
+        mean_rollout_length = self._total_samples / self.batch_size
+        mean_ensemble_dkl_cum = np.mean(self._path_uncertainty)
+        mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+1e-8))
+        cost_rate = self._cum_cost/self._total_samples
+        return_rate = self._path_return.sum()/self._total_samples
+        VVals_mean = self._total_Vs / self._total_samples
+        CostVVals = self._total_CVs / self._total_samples
+
         diagnostics.update({
-            'max-path-return': self._max_path_return,
-            'last-path-return': self._last_path_return,
-            'episodes': self._n_episodes,
-            'total-samples': self._total_samples,
+            'samples_added': self._total_samples,
+            'rollout_length_max': self._n_episodes,
+            'rollout_length_mean': mean_rollout_length,
+            'ensemble_dkl_mean': mean_ensemble_dkl,
+            'ensemble_dkl_cum_mean' : mean_ensemble_dkl_cum,
+            'cost_rate': cost_rate,
+            'return_rate': return_rate,
+            'VVals':VVals_mean,
+            'CostVVals':CostVVals,
         })
 
         return diagnostics
@@ -142,18 +159,25 @@ class ModelSampler(CpoSampler):
 
     def reset(self, observations):
         self._current_observation = observations
+        self.policy.reset() #does nohing for cpo policy atm
         self._path_length = np.zeros(self.batch_size)
         self._path_return = np.zeros(self.batch_size)
         self._path_cost = np.zeros(self.batch_size)
+        self._path_uncertainty = np.zeros(self.batch_size)
+        self._total_samples = 0
         self._n_episodes = 0
+        self._total_Vs = 0
+        self._total_CVs = 0
+        self._cum_cost = 0
+
 
 
     def sample(self):
         assert self.pool.has_room           #pool full! empty before sampling.
         assert self._current_observation is not None # reset before sampling !
+        assert self.pool.alive_paths.any()  # reset before sampling !
 
         self._n_episodes += 1
-        batch_size = self.batch_size
         alive_paths = self.pool.alive_paths
         current_obs = self._current_observation
 
@@ -169,17 +193,60 @@ class ModelSampler(CpoSampler):
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)
-        
         c = info.get('cost', np.zeros(reward.shape))
-        self.cum_cost += c.sum()
-
         en_disag = info.get('ensemble_disagreement', 0)
-        en_disag_max = 0.001
 
-        #save and log
-        self.pool.store_multiple(current_obs, a, next_obs, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
-        self.logger.store(VVals=v_t, CostVVals=vc_t)
+        ## ____________________________________________ ##
+        ##    Check Uncertainty f. each Trajectory      ##
+        ## ____________________________________________ ##
+
+
+        ### check if too uncertain before storing info of the taken step
+        path_uncertainty = self._path_uncertainty[alive_paths] + en_disag
+        too_uncertain_mask = path_uncertainty > self._max_uncertainty
+
+        ### finish too uncertain paths before storing info of the taken step
+        # remaining_paths refers to the paths we have finished and has the same shape 
+        # as our terminal mask (too_uncertain_mask)
+        # alive_paths refers to all original paths and therefore has shape batch_size
+        remaining_paths = self._finish_paths(too_uncertain_mask, append_vals=True)
+        alive_paths = self.pool.alive_paths
         
+        
+
+        ## ____________________________________________ ##
+        ##    Store Info of the remaining paths         ##
+        ## ____________________________________________ ##
+
+        
+        current_obs = current_obs[remaining_paths]
+        a = a[remaining_paths]
+        next_obs = next_obs[remaining_paths]
+        reward = reward[remaining_paths]
+        v_t = v_t[remaining_paths]
+        c = c[remaining_paths]
+        vc_t = vc_t[remaining_paths]
+        logp_t = logp_t[remaining_paths]
+        pi_info_t = {k:v[remaining_paths] for k,v in pi_info_t.items()}
+        terminal = terminal[remaining_paths]
+        en_disag = en_disag[remaining_paths]
+
+        ### Store info in pool
+        self.pool.store_multiple(current_obs,
+                                a,
+                                next_obs,
+                                reward,
+                                v_t,
+                                c,
+                                vc_t,
+                                logp_t,
+                                pi_info_t,
+                                terminal)
+
+        self.logger.store(VVals=v_t, CostVVals=vc_t)
+        self._total_Vs += v_t.sum()
+        self._total_CVs += vc_t.sum()
+
         # # debug !
         # self.pool_debug.store(self._current_observation, a[0], next_observation, reward, v_t[0], c, vc_t[0], logp_t[0], {k:v[0] for k,v in pi_info_t.items()}, terminal)
         # if terminal:
@@ -187,75 +254,82 @@ class ModelSampler(CpoSampler):
         #     last_cval = self.policy.get_vc(self._current_observation)
         #     self.pool_debug.finish_path(last_val, last_cval)
 
-
+        #### update some sampler infos
+        self._path_uncertainty[alive_paths] += en_disag
         self._path_length[alive_paths] += 1
         self._path_return[alive_paths] += reward
         self._path_cost[alive_paths] += c
         self._total_samples += alive_paths.sum()
+        self._cum_cost += c.sum()
+        self._max_path_return = max(self._max_path_return,
+                            max(self._path_return))
 
-        #### add to pool only after full epoch or terminal path
-        ## working with masks for ending trajectories
+        #### terminate mature termination due to path length
+        ## update obs before finishing paths (_finish_paths() uses current obs)
+        self._current_observation = next_obs
         path_end_mask = (self._path_length >= self._max_path_length)[alive_paths]
-        too_uncertain_mask = en_disag > en_disag_max
-        path_end_mask = np.logical_or(path_end_mask, too_uncertain_mask)
-        if terminal.any() or path_end_mask.any():
+        remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True)
+        
+        ## update remaining paths and obs
+        self._current_observation = self._current_observation[remaining_paths]
 
+        #### terminate real termination due to env end
+        prem_term_mask = terminal[remaining_paths]
+        remaining_paths = self._finish_paths(term_mask=prem_term_mask, append_vals=False)
 
-            # If trajectory didn't reach terminal state, bootstrap value target(s)
-            prem_term_mask = np.logical_not(path_end_mask)*terminal
-            mat_term_mask = np.logical_or(terminal, path_end_mask) * np.logical_not(prem_term_mask)
-            term_mask = np.logical_or(prem_term_mask, mat_term_mask)
-            non_term_mask = np.logical_not(term_mask)
+        ### update alive paths
+        alive_paths = self.pool.alive_paths
+        self._current_observation = self._current_observation[remaining_paths]
 
-            # init final values and quantify according to termination type
-            last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-
-            # We do not count env time out (mature termination) as true terminal state, append values
-            if mat_term_mask.any():
-                if self.policy.agent.reward_penalized:
-                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(next_obs[mat_term_mask]))
-                else:
-                    last_val[mat_term_mask] = np.squeeze(self.policy.get_v(next_obs[mat_term_mask]))
-                    last_cval[mat_term_mask] = np.squeeze(self.policy.get_vc(next_obs[mat_term_mask]))
-
-            ## rebase last_val and last_cval to paths that are terminated
-            last_val = last_val[term_mask]
-            last_cval = last_cval[term_mask]
-
-            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
-
-            alive_paths = self.pool.alive_paths
-
-            # Only save EpRet / EpLen if trajectory finished
-            if not alive_paths.any():
-                #@anyboby TODO handle logger /diagnostics for model
-                # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-                print('All trajectories dead. @anyboby implement some logging magic here')
-            else:
-                print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length[alive_paths][0])
-
-            self._max_path_return = max(self._max_path_return,
-                                        max(self._path_return))
-            self.policy.reset() #does nohing for cpo policy atm
-
-            # reset if all paths have died
-            if not alive_paths.any():
-                self._current_observation = None
-                self._path_length = np.zeros(batch_size)
-                self._path_return = np.zeros(batch_size)
-                self._path_cost = np.zeros(batch_size)
-                self._alive_paths = np.ones(batch_size, dtype=np.bool)
-                self._n_episodes = 0
-            else:
-                self._current_observation = next_obs[non_term_mask]
-
-        else:
-            self._current_observation = next_obs
-
-        info['alive_ratio'] = alive_paths.sum()/self.batch_size
+        alive_ratio = sum(alive_paths)/self.batch_size
+        info['alive_ratio'] = alive_ratio
 
         return next_obs, reward, terminal, info
 
+
+    def _finish_paths(self, term_mask, append_vals=False):
+        """
+        terminates paths that are indicated in term_mask. Append_vals should be set to 
+        True/False to indicate, whether values of the current states of those paths should 
+        be appended (Note: Premature termination due to environment term should not 
+        include appended values, while Mature termination upon path length excertion should 
+        include appended values)
+
+        Warning! throws error if trying to terminate an already terminated path. 
+
+        Args:
+            term_mask: Mask with the shape of the currently alive paths that indicates which 
+                paths should be termianted
+            append_vals: True/False whether values of the current state should be appended
+        
+        Returns: 
+            remaining_mask: A Mask that indicates the remaining alive paths. Has the same shape 
+                as the arg term_mask
+        """
+
+        # init final values
+        last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
+
+        ## rebase last_val and last_cval to terminating paths
+        last_val = last_val[term_mask]
+        last_cval = last_cval[term_mask]
+
+        cur_obs = self._current_observation
+
+        # We do not count env time out (mature termination) as true terminal state, append values
+        if append_vals:
+            if self.policy.agent.reward_penalized:
+                last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
+            else:
+                last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
+                last_cval = np.squeeze(self.policy.get_vc(cur_obs[term_mask]))
+
+
+        self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+        remaining_path_mask = np.logical_not(term_mask)
+
+        return remaining_path_mask
+        
     def finish_all_paths(self):
 
         alive_paths=self.pool.alive_paths ##any paths that are still alive did not terminate by env
@@ -277,25 +351,14 @@ class ModelSampler(CpoSampler):
             self.pool.finish_path_multiple(term_mask, last_val, last_cval)
 
         alive_paths = self.pool.alive_paths
-        assert alive_paths.sum()==0   ## check if all paths have been finished
+        assert alive_paths.sum()==0   ## something went wrong with finishing all paths
 
-        # Only save EpRet / EpLen if trajectory finished
         if not alive_paths.any():
             #@anyboby TODO handle logger /diagnostics for model
             # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
             print('All trajectories finished. @anyboby implement some logging magic here')
-
-        self._max_path_return = max(self._max_path_return,
-                                    max(self._path_return))
-        self.policy.reset() #does nohing for cpo policy atm
-
-        self._current_observation = None
-        self._path_length = np.zeros(self.batch_size)
-        self._path_return = np.zeros(self.batch_size)
-        self._path_cost = np.zeros(self.batch_size)
-        self._alive_paths = np.ones(self.batch_size, dtype=np.bool)
-        self._n_episodes = 0
-
+        
+        return self.get_diagnostics()
 
     def log(self):
         """
@@ -303,7 +366,7 @@ class ModelSampler(CpoSampler):
         flush (such as epCost, totalCost etc.)
         """
         logger = self.logger
-        cumulative_cost = mpi_sum(self.cum_cost)    
+        cumulative_cost = mpi_sum(self._cum_cost)    
         cost_rate = cumulative_cost / self._total_samples
 
         # Performance stats
@@ -331,5 +394,4 @@ class ModelSampler(CpoSampler):
 
         # Time and steps elapsed
         logger.log_tabular('TotalEnvInteracts', self._total_samples)
-        #logger.log_tabular('Time', time.time()-start_time)
-        
+        #

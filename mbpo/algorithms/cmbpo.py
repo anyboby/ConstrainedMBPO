@@ -79,6 +79,7 @@ class CMBPO(RLAlgorithm):
             rollout_batch_size=100e3,
             real_ratio=0.1,
             rollout_schedule=[20,100,1,1],
+            max_uncertainty = None,
             hidden_dim=200,
             max_model_t=None,
 
@@ -141,6 +142,7 @@ class CMBPO(RLAlgorithm):
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
                                     num_elites=5, hidden_dim=hidden_dim, 
+                                    cares_about_cost=True,
                                     safe_config=self.safe_config,
                                     session = self._session)
 
@@ -157,6 +159,7 @@ class CMBPO(RLAlgorithm):
 
         self._model_train_freq = model_train_freq
         self._rollout_batch_size = int(rollout_batch_size)
+        self._max_uncertainty = max_uncertainty
         self._deterministic = deterministic
         self._real_ratio = real_ratio
 
@@ -238,6 +241,7 @@ class CMBPO(RLAlgorithm):
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
+                                            max_uncertainty = self._max_uncertainty,
                                             logger=None,
                                             )
 
@@ -303,6 +307,7 @@ class CMBPO(RLAlgorithm):
 
         #### not implemented, could train policy before hook
         self._training_before_hook()
+        train_samples = None 
 
         #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
@@ -314,125 +319,126 @@ class CMBPO(RLAlgorithm):
             #### util class Progress, e.g. for plotting a progress bar
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
+
+            min_samples = 70e3
+            max_samples = 220e3
+                
             start_samples = self.sampler._total_samples                     
 
-            ### samples collection loop
-            for s_round in count():
+            ### train for epoch_length ###
+            for i in count():           
 
-                train_samples = None
-                min_samples = 100e3
-                max_samples = 200e3
-                samples_added = 0
-                max_rollout_length = 0
+                #### _timestep is within an epoch
+                samples_now = self.sampler._total_samples
+                self._timestep = samples_now - start_samples
 
-                ### train for epoch_length ###
-                for i in count():           
+                #### not implemented atm
+                self._timestep_before_hook()
+                gt.stamp('timestep_before_hook')
 
-                    #### _timestep is within an epoch
-                    samples_now = self.sampler._total_samples
-                    self._timestep = samples_now - start_samples
+                ##### śampling from the real world ! #####
+                self._do_sampling(timestep=self._total_timestep)
+                gt.stamp('sample')
 
-                    #### not implemented atm
-                    self._timestep_before_hook()
-                    gt.stamp('timestep_before_hook')
+                self._timestep_after_hook()
+                gt.stamp('timestep_after_hook')
 
-                    ##### śampling from the real world ! #####
-                    self._do_sampling(timestep=self._total_timestep)
-                    gt.stamp('sample')
-
-                    self._timestep_after_hook()
-                    gt.stamp('timestep_after_hook')
-
-                    
-                    if self.ready_to_train:
-                        break
-
-                #=====================================================================#
-                #  Train and Rollout model                                            #
-                #=====================================================================#
-                model_samples = None
-                #### start model rollout
-                if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
-                    self._training_progress.pause()
-                    print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
-                    print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
-                        self._epoch, self._model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
-                    )
-
-                    samples = self._pool.get_archive()
-                    self.fake_env.reset_model()
-                    model_train_metrics = self.fake_env.train(samples, batch_size=512, max_epochs=None, holdout_ratio=0.2, max_t=self._max_model_t)
-                    model_metrics.update(model_train_metrics)
-                    gt.stamp('epoch_train_model')
-
-                    #=====================================================================#
-                    #  Rollout Model                                            #
-                    #=====================================================================#
-                    self._set_rollout_length()
-                    print('[ Model Rollout ] Starting | Epoch: {} | Rollout length: {} | Batch size: {}'.format(
-                        self._epoch, 'auto', self._rollout_batch_size #self._epoch, self._rollout_length, self._rollout_batch_size
-                    ))                
-                    
-                    ### set initial states
-                    start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-                    self.model_sampler.reset(start_states)
-                    
-                    for i in count():
-                        _,_,_,info = self.model_sampler.sample()
-                        alive_ratio = info.get('alive_ratio', 1)
-                        samples_added += alive_ratio*self._rollout_batch_size
                 
-                        if alive_ratio<0.2 or samples_added>=max_samples: 
-                            print(f'Stopping Rollout at step {i}')
-                            max_rollout_length = max(max_rollout_length, i)
-                            break
-                    
-                    self.model_sampler.finish_all_paths()
-                
-                model_samples = self.model_pool.get()
-                real_samples= self._pool.get()
-                
-                if train_samples is None:
-                    train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                else: 
-                    new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
-
-                if len(train_samples[0])>min_samples:
-                    sampling_rounds = s_round+1
+                if self.ready_to_train:
                     break
-                    
-            #### ---  diagnostics --- ####
-            mean_rollout_length = samples_added / (self._rollout_batch_size*sampling_rounds)
-            rollout_stats = {'mean_rollout_length': mean_rollout_length, 
-                                'max_rollout_length':max_rollout_length,
-                                'model_samples_added':samples_added,
-                                'sampling_rounds':sampling_rounds
-                                }
-            model_metrics.update(rollout_stats)
-            gt.stamp('epoch_rollout_model')
+
+            #=====================================================================#
+            #  Train and Rollout model                                            #
+            #=====================================================================#
+            model_samples = None
+            #### start model rollout
+            if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+                self._training_progress.pause()
+                print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
+                print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
+                    self._epoch, self._model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
+                )
+
+                samples = self._pool.get_archive(['observations',
+                                                        'actions',
+                                                        'next_observations',
+                                                        'rewards',
+                                                        'costs',
+                                                        'terminals'])
+                #self.fake_env.reset_model()    # this behaves weirdly
+                model_train_metrics = self.fake_env.train(samples, batch_size=2048, max_epochs=1500, holdout_ratio=0.2,min_epoch_before_break = 100, max_t=self._max_model_t)
+                model_metrics.update(model_train_metrics)
+                gt.stamp('epoch_train_model')
+
+                #=====================================================================#
+                #  Rollout Model                                                      #
+                #=====================================================================#
+                self._set_rollout_length()
+                print('[ Model Rollout ] Starting | Epoch: {} | Rollout length: {} | Batch size: {}'.format(
+                    self._epoch, 'auto', self._rollout_batch_size #self._epoch, self._rollout_length, self._rollout_batch_size
+                ))                
+                
+                ### set initial states
+                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                self.model_sampler.reset(start_states)
+                
+                for i in count():
+                    print(f'Sampling step Nr. {i+1}')
+
+                    _,_,_,info = self.model_sampler.sample()
+                    alive_ratio = info.get('alive_ratio', 1)
+
+                    if alive_ratio<0.2 or \
+                        self.model_sampler._total_samples >= max_samples-alive_ratio*self._rollout_batch_size: 
+                        #samples a bit more than it should
+                        
+                        print(f'Stopping Rollout at step {i+1}')
+                        break
+                
+                ### diagnostics for rollout ###
+                gt.stamp('epoch_rollout_model')
+                rollout_diagnostics = self.model_sampler.finish_all_paths()
+                model_metrics.update(rollout_diagnostics)
+
+                ### get model_samples after rollout
+                model_samples = self.model_pool.get()
+            
+            real_samples= self._pool.get()
+
+            if train_samples is None:
+                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+            else: 
+                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+
             self._training_progress.resume()
-            ####----------------------####
 
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            self._policy.update(train_samples)
-            gt.stamp('train')
+            if len(train_samples[0])>min_samples or self._epoch<5:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+                self._policy.update(train_samples)
+                gt.stamp('train')
+
+                #### empty train_samples
+                train_samples = None
+
+                #### log policy diagnostics
+                self._policy.log()
+                model_metrics.update({'Policy Update?':1})
+            else: 
+                model_metrics.update({'Policy Update?':0})
 
             #=====================================================================#
             #  Log performance and stats                                          #
             #=====================================================================#
 
-            self.logger.log_tabular('Epoch', self._epoch)
-            self._policy.log()
             self.sampler.log()
-            
+            self.logger.log_tabular('Epoch', self._epoch)
             # write results to file, ray prints for us, so no need to print from logger
             logger_diagnostics = self.logger.dump_tabular(output_dir=self._log_dir, print_out=False)
 
             #=====================================================================#
-
 
             training_paths = self.sampler.get_last_n_paths(
                 math.ceil(self._epoch_length / self.sampler._max_path_length))

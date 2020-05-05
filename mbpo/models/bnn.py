@@ -194,11 +194,18 @@ class BNN:
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
             
-            train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights, delta=0.01))
+            # train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights, delta=0.01))
+            # train_loss += tf.add_n(self.decays)
+            # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+            # self.mse_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.01)
+            # self.tensor_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.01)
+                        
+            train_loss = tf.reduce_sum(self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
             train_loss += tf.add_n(self.decays)
             train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-            self.mse_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.01)
-            self.tensor_loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.01)
+            self.mse_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
+            self.tensor_loss = self._compile_losses(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)
+
                         
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
 
@@ -282,6 +289,10 @@ class BNN:
         self._model_inds = sorted_inds[:self.num_elites].tolist()
         print('Using {} / {} models: {}'.format(self.num_elites, self.num_nets, self._model_inds))
 
+    @property
+    def elite_inds(self):
+        return self._model_inds
+
     def random_inds(self, batch_size):
         inds = np.random.choice(self._model_inds, size=batch_size)
         return inds
@@ -313,7 +324,7 @@ class BNN:
     #################
 
     def train(self, inputs, targets,
-              batch_size=32, max_epochs=None, max_epochs_since_update=8, min_epoch_before_break = 100,
+              batch_size=32, max_epochs=None, max_epochs_since_update=15, min_epoch_before_break = 50,
               hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
         """Trains/Continues network training
 

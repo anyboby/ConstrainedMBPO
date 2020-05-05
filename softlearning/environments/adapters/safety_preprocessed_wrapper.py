@@ -32,7 +32,7 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
             'gyro',
             #'ctrl',
         ]
-        self.add_obs = 0
+        self.add_obs = 3
         self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])+self.add_obs
         self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
@@ -111,6 +111,13 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
             if key == 'goal_dist':
                 flat_obs[index] = self.env.dist_goal()
         obs = flat_obs
+
+        # pos = self.env.world.robot_pos()
+        # vel = self.env.world.robot_vel()
+
+        obs[-3:] = self.env.world.robot_pos()
+        #self.obs_indices['pos']=slice(self.obs_flat_size-3,self.obs_flat_size)
+        
         #additional obs
         #flat_obs[-1]=spike_2(action[0], self.prev_act[0])
         return obs

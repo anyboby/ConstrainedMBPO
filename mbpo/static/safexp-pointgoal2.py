@@ -19,10 +19,8 @@ class StaticFns:
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
         assert StaticFns.task == safe_config['task']
         obs_indices = safe_config['obs_indices']
-        stacks = safe_config['stacks']
-        stacking_axis = safe_config['stacking_axis']
 
-        if safe_config['continue_goal'] == True:
+        if safe_config['continue_goal'] == False:
             goal_dist = next_obs[:,obs_indices['goal_dist']]
             goal_met_vec = np.vectorize(StaticFns._goal_met)
             goal_met_vec.excluded.add(1)
@@ -32,6 +30,25 @@ class StaticFns:
             done = done[:,None]
         return done
     
+    #@anyboby  TODO this is bullshit :/
+    @staticmethod
+    def cost_fn(costs):
+        """
+        interprets model ensemble regression output as probability and converts to binary cost between 1 and 0
+        Args:
+            costs: expects samples along axis 0
+        """
+
+        #clip to 0 and 1
+        cost_clipped = np.clip(costs, 0, 1)
+        cost_rounded = np.around(cost_clipped)
+        #cost_rounded = cost_clipped
+    
+        return cost_rounded
+        #
+
+    
+
     @staticmethod
     def rebuild_goal(obs, act, next_obs, new_obs_pool, safe_config):
         '''
