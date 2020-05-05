@@ -56,6 +56,7 @@ def rollout(env,
 
     sampler.initialize(env, policy, pool)
 
+    cum_cost = 0
     images = []
     infos = []
 
@@ -63,6 +64,7 @@ def rollout(env,
     for t in range(path_length):
         observation, reward, terminal, info = sampler.sample()
         infos.append(info)
+        cum_cost += info.get('cost', 0)
 
         if callback is not None:
             callback(observation)
@@ -84,6 +86,7 @@ def rollout(env,
         np.arange(pool._size),
         observation_keys=getattr(env, 'observation_keys', None))
     path['infos'] = infos
+    path['cost'] = cum_cost
 
     if render_mode == 'rgb_array':
         path['images'] = np.stack(images, axis=0)

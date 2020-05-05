@@ -28,6 +28,7 @@ class SimpleSampler(BaseSampler):
                               observation,
                               action,
                               reward,
+                              cost,
                               terminal,
                               next_observation,
                               info):
@@ -36,6 +37,7 @@ class SimpleSampler(BaseSampler):
             'observations': observation,
             'actions': action,
             'rewards': [reward],
+            'cost'     : [cost],
             'terminals': [terminal],
             'next_observations': next_observation,
             'infos': info,
@@ -58,7 +60,7 @@ class SimpleSampler(BaseSampler):
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)
         info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
-
+        cost = info.get('cost', 0)
         # just for testing
         #self.env.render()
         
@@ -70,6 +72,7 @@ class SimpleSampler(BaseSampler):
             observation=self._current_observation,
             action=action,
             reward=reward,
+            cost=cost,
             terminal=terminal,
             next_observation=next_observation,
             info=info,

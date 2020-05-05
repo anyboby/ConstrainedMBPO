@@ -41,7 +41,21 @@ class CpoSampler():
         self._current_observation = None
         self._total_samples = 0
         self._last_action = None
+        
+        #### cost options        
         self.cum_cost = 0
+        self.cost_lim_at1000 = 25
+        gamma = 0.99
+        ep_len = 1000
+        self.cost_lim = self.cost_lim_at1000/ep_len*(1-gamma**(ep_len+1))/(1-gamma)
+        self.penalty_coeff = 0
+        self.penalty_lr = 0.05
+        self.penalty_clip = 0.01
+        #self.penalty_dic = 0.99
+        self.learn_penalty = True
+
+
+
 
         self._obs_process_type = preprocess_type
         self.env = None
@@ -159,6 +173,9 @@ class CpoSampler():
         c = info.get('cost', 0)
         self.cum_cost += c
 
+        if self.learn_penalty:
+            reward = reward - self.penalty_coeff*c
+
         #save and log
         self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
         self.logger.store(VVals=v_t, CostVVals=vc_t)
@@ -226,7 +243,7 @@ class CpoSampler():
 
             #if not append_val:
             self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-            
+
             # else:
             #     print('Warning: trajectory cut off by epoch at %d steps.'%self._path_length)
 
@@ -248,7 +265,17 @@ class CpoSampler():
             self._current_path = defaultdict(list)
             self._last_action = np.zeros(shape=self.env.action_space.shape)
             self._n_episodes += 1
-            
+
+            #### adjust penalty if needed
+            if self.learn_penalty and self.batch_ready():
+                cur_cost_margin = self.logger.get_stats('CostEp')[0]-self.cost_lim_at1000
+                old_penalty_coeff = self.penalty_coeff
+                new_penalty_coeff = self.penalty_lr * cur_cost_margin
+                #self.penalty_coeff += np.clip(new_penalty_coeff-old_penalty_coeff, -self.penalty_clip, self.penalty_clip)
+                self.penalty_coeff += new_penalty_coeff
+                self.penalty_coeff = max(self.penalty_coeff, 0)
+                print(f'new penalty coeff: {self.penalty_coeff}')
+
 
     def log(self):
         """

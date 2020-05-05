@@ -29,17 +29,13 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
 
         ###@anyboby testing
         self._cum_cost = 1e-8
-        self.cost_lim_at1000 = 50
-        gamma = 0.99
-        ep_len = 1000
-        self.cost_lim = self.cost_lim_at1000/ep_len*(1-gamma**(ep_len+1))/(1-gamma)
 
         self.remove_obs = [
             'accelerometer',
             'gyro',
             #'ctrl',
         ]
-        self.add_obs = 4
+        self.add_obs = 3
         self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])+self.add_obs
         self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
@@ -58,7 +54,6 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         #self.obs_replay_vy = [observation[58]]
         observation = self.preprocess_obs(observation, action=np.zeros(self.action_space.shape))
         self.prev_obs = observation
-        self._cum_cost = 0
         #stacked_obs = np.concatenate((observation, self.prev_obs))
         return self.observation(observation)
 
@@ -70,9 +65,6 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         #stacked_obs = np.concatenate((observation, self.prev_obs))
         self.prev_obs = observation
         self.prev_act = action
-        self._cum_cost += info.get('cost', 0)
-        if self._cum_cost >= self.cost_lim:
-            done = True
         return self.observation(observation), reward, done, info
 
     def observation(self, observation):
@@ -126,8 +118,9 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         # pos = self.env.world.robot_pos()
         # vel = self.env.world.robot_vel()
 
-        obs[-4:-1] = self.env.world.robot_pos()
-        obs[-1] = self._cum_cost/self.cost_lim
+        obs[-3:] = self.env.world.robot_pos()
+        #obs[-1] = self._cum_cost/self.cost_lim
+
         #self.obs_indices['pos']=slice(self.obs_flat_size-3,self.obs_flat_size)
         
         #additional obs
