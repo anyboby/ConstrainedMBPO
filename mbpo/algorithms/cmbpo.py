@@ -321,7 +321,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 70e3
+            min_samples = 50e3
             max_samples = 220e3
                 
             start_samples = self.sampler._total_samples                     
@@ -418,7 +418,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>min_samples or self._epoch<5:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if len(train_samples[0])>=min_samples or self._epoch<5:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
 

@@ -48,12 +48,12 @@ class CpoSampler():
         gamma = 0.99
         ep_len = 1000
         self.cost_lim = self.cost_lim_at1000/ep_len*(1-gamma**(ep_len+1))/(1-gamma)
-        self.penalty_coeff = 0
-        self.penalty_lr = 0.05
+        self.penalty_coeff = 5
+        self.penalty_lr = 0.0005
         self.penalty_clip = 0.01
         #self.penalty_dic = 0.99
-        self.learn_penalty = True
-
+        self.learn_penalty = False
+        self.learn_penalty_mult = False
 
 
 
@@ -125,6 +125,10 @@ class CpoSampler():
     def batch_ready(self):
         return self.pool.size >= self.pool.max_size
 
+    def penalty_mult(self, cur_cost):
+        penalty_mult = 0.99**(self.penalty_coeff*cur_cost)
+        return penalty_mult
+
     def _process_observations(self,
                               observation,
                               action,
@@ -175,6 +179,8 @@ class CpoSampler():
 
         if self.learn_penalty:
             reward = reward - self.penalty_coeff*c
+        if self.learn_penalty_mult:
+            reward = reward * self.penalty_mult(self.cum_cost)
 
         #save and log
         self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
@@ -275,6 +281,12 @@ class CpoSampler():
                 self.penalty_coeff += new_penalty_coeff
                 self.penalty_coeff = max(self.penalty_coeff, 0)
                 print(f'new penalty coeff: {self.penalty_coeff}')
+
+            if self.learn_penalty_mult and self.batch_ready():
+                cur_cost_margin = self.logger.get_stats('CostEp')[0]-self.cost_lim_at1000
+                self.penalty_coeff += self.penalty_lr * cur_cost_margin
+                print(f'new penalty coeff: {self.penalty_coeff}')
+
 
 
     def log(self):
