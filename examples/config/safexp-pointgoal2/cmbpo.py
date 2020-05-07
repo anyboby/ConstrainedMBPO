@@ -23,7 +23,7 @@ params = {
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
-        'eval_n_episodes': 8,
+        'eval_n_episodes': 10,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -51,7 +51,7 @@ params = {
         'rollout_schedule': [15, 250, 35, 40], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
-        'max_uncertainty' : 0.5,
+        'max_uncertainty' : 0.9,
     }
 }
 

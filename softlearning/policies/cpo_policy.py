@@ -280,11 +280,13 @@ class CPOAgent(TrustRegionAgent):
 
         # save intermediates for diagnostic purposes
         self.logger.store(Optim_A=A, Optim_B=B, Optim_c=c,
+                          Optim_c_debug=c_debug, ###@anyboby TODO remove
                           Optim_q=q, Optim_r=r, Optim_s=s,
                           Optim_Lam=lam, Optim_Nu=nu, 
                           Penalty=nu, PenaltyDelta=0,
                           Margin=self.margin,
-                          OptimCase=optim_case)
+                          OptimCase=optim_case,
+                          )
 
         def set_and_eval(step):
             self.sess.run(set_pi_params, feed_dict={v_ph: old_params - step * x})
@@ -315,6 +317,7 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('Optim_A', average_only=True)
         self.logger.log_tabular('Optim_B', average_only=True)
         self.logger.log_tabular('Optim_c', average_only=True)
+        self.logger.log_tabular('Optim_c_debug', average_only=True) ### @anyboby TODO remove
         self.logger.log_tabular('Optim_q', average_only=True)
         self.logger.log_tabular('Optim_r', average_only=True)
         self.logger.log_tabular('Optim_s', average_only=True)
