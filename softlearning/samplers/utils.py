@@ -64,7 +64,7 @@ def rollout(env,
     for t in range(path_length):
         observation, reward, terminal, info = sampler.sample()
         infos.append(info)
-        cum_cost += info.get('cost', 0)
+        cum_cost += np.squeeze(info.get('cost', 0)).sum()
 
         if callback is not None:
             callback(observation)

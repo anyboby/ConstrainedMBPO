@@ -44,15 +44,16 @@ class CpoSampler():
         
         #### cost options        
         self.cum_cost = 0
-        self.cost_lim_at1000 = 25
+        self.cost_lim_at1000 = 50
         gamma = 0.99
         ep_len = 1000
-        self.cost_lim = self.cost_lim_at1000/ep_len*(1-gamma**(ep_len+1))/(1-gamma)
+        self.cost_lim_disc = self.cost_lim_at1000/ep_len*(1-gamma**(ep_len+1))/(1-gamma)
         self.penalty_coeff = 0
         self.penalty_lr = 0.05
         self.penalty_clip = 0.01
         #self.penalty_dic = 0.99
-        self.learn_penalty = True
+        self.learn_penalty = False
+        self.term_on_costlim = True
 
 
 
@@ -173,8 +174,13 @@ class CpoSampler():
         c = info.get('cost', 0)
         self.cum_cost += c
 
+
+        #### @anyboby do some testing
         if self.learn_penalty:
             reward = reward - self.penalty_coeff*c
+        if self.term_on_costlim:
+            if self._path_cost + c > self.cost_lim_disc:
+                terminal = True
 
         #save and log
         self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)

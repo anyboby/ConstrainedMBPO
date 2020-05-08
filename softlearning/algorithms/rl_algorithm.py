@@ -287,7 +287,7 @@ class RLAlgorithm(tf.contrib.checkpoint.Checkpointable):
 
         total_returns = [path['rewards'].sum() for path in paths]
         episode_lengths = [len(p['rewards']) for p in paths]
-        total_cost = [path['cost'] for path in paths]
+        total_cost = [path['cost'].sum() for path in paths]
         diagnostics = OrderedDict((
             ('return-average', np.mean(total_returns)),
             ('return-min', np.min(total_returns)),
