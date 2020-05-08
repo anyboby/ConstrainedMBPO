@@ -23,7 +23,7 @@ from softlearning.models.ac_network import mlp_actor_critic, \
                                             placeholders, \
                                             placeholders_from_spaces
 from softlearning.policies.safe_utils.logx import EpochLogger, setup_logger_kwargs, \
-                                                save_state, save_tf, save_config
+                                                Saver
 
 from .base_policy import BasePolicy
 
@@ -280,11 +280,13 @@ class CPOAgent(TrustRegionAgent):
 
         # save intermediates for diagnostic purposes
         self.logger.store(Optim_A=A, Optim_B=B, Optim_c=c,
+                          Optim_c_debug=c_debug, ###@anyboby TODO remove
                           Optim_q=q, Optim_r=r, Optim_s=s,
                           Optim_Lam=lam, Optim_Nu=nu, 
                           Penalty=nu, PenaltyDelta=0,
                           Margin=self.margin,
-                          OptimCase=optim_case)
+                          OptimCase=optim_case,
+                          )
 
         def set_and_eval(step):
             self.sess.run(set_pi_params, feed_dict={v_ph: old_params - step * x})
@@ -315,6 +317,7 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('Optim_A', average_only=True)
         self.logger.log_tabular('Optim_B', average_only=True)
         self.logger.log_tabular('Optim_c', average_only=True)
+        self.logger.log_tabular('Optim_c_debug', average_only=True) ### @anyboby TODO remove
         self.logger.log_tabular('Optim_q', average_only=True)
         self.logger.log_tabular('Optim_r', average_only=True)
         self.logger.log_tabular('Optim_s', average_only=True)
@@ -376,6 +379,8 @@ class CPOPolicy(BasePolicy):
             self.logger = EpochLogger()
             #self.logger.save_config(locals())
             self.agent.set_logger(self.logger)
+        
+        self.saver = Saver()
 
         self.ac = mlp_actor_critic
         self.act_space = act_space
@@ -385,221 +390,228 @@ class CPOPolicy(BasePolicy):
         # ___________________________________________ #
         #              Prepare ac network             #
         # ___________________________________________ #
-        
-        # kwargs for ac network
-        ac_kwargs=dict()
-        ac_kwargs['action_space'] = self.act_space
-        ac_kwargs['hidden_sizes'] = kwargs['hidden_layer_sizes']
-        # tf placeholders
-        with tf.variable_scope('inputs'):
-            self.obs_ph, self.a_ph = placeholders_from_spaces(self.obs_space, self.act_space)
+        scope = 'policy'
+        with tf.variable_scope(scope):
+            # kwargs for ac network
+            ac_kwargs=dict()
+            ac_kwargs['action_space'] = self.act_space
+            ac_kwargs['hidden_sizes'] = kwargs['hidden_layer_sizes']
+            # tf placeholders
+            with tf.variable_scope('obs_ph'):
+                self.obs_ph = placeholders_from_spaces(self.obs_space)[0]
+            with tf.variable_scope('a_ph'): 
+                self.a_ph = placeholders_from_spaces(self.act_space)[0]
 
-        # input placeholders to computation graph for batch data
-        with tf.variable_scope('adv_ph'):
-            self.adv_ph = placeholder(None)
-        with tf.variable_scope('cadv_ph'):
-            self.cadv_ph = placeholders(*(None for _ in range(1)))[0]
-        with tf.variable_scope('logp_old_ph'):
-            self.logp_old_ph = placeholders(*(None for _ in range(1)))[0]
+            # input placeholders to computation graph for batch data
+            with tf.variable_scope('adv_ph'):
+                self.adv_ph = placeholder(None)
+            with tf.variable_scope('cadv_ph'):
+                self.cadv_ph = placeholders(*(None for _ in range(1)))[0]
+            with tf.variable_scope('logp_old_ph'):
+                self.logp_old_ph = placeholders(*(None for _ in range(1)))[0]
 
-        with tf.variable_scope('old_v_ph'):
-            self.old_v_ph = placeholders(*(None for _ in range(1)))[0]
-        with tf.variable_scope('ret_ph'):
-            self.ret_ph = placeholders(*(None for _ in range(1)))[0]
+            with tf.variable_scope('old_v_ph'):
+                self.old_v_ph = placeholders(*(None for _ in range(1)))[0]
+            with tf.variable_scope('ret_ph'):
+                self.ret_ph = placeholders(*(None for _ in range(1)))[0]
 
-        with tf.variable_scope('old_vc_ph'):
-            self.old_vc_ph = placeholders(*(None for _ in range(1)))[0]
-        with tf.variable_scope('cret_ph'):
-            self.cret_ph = placeholders(*(None for _ in range(1)))[0]
-        with tf.variable_scope('surr_cost_rescale_ph'):
-            # phs for cpo specific inputs to comp graph
-            self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
-        with tf.variable_scope('cur_cost_ph'):
-            self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
+            with tf.variable_scope('old_vc_ph'):
+                self.old_vc_ph = placeholders(*(None for _ in range(1)))[0]
+            with tf.variable_scope('cret_ph'):
+                self.cret_ph = placeholders(*(None for _ in range(1)))[0]
+            with tf.variable_scope('surr_cost_rescale_ph'):
+                # phs for cpo specific inputs to comp graph
+                self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
+            with tf.variable_scope('cur_cost_ph'):
+                self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
 
-        # unpack actor critic outputs
-        ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
-        self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc \
-            = ac_outs
+            # unpack actor critic outputs
+            ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
+            self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc \
+                = ac_outs
 
-        # Organize placeholders for zipping with data from buffer on updates
-        self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, \
-                            self.cadv_ph, self.ret_ph, self.cret_ph,\
-                            self.logp_old_ph, self.old_v_ph, self.old_vc_ph]
-        self.buf_phs += values_as_sorted_list(self.pi_info_phs)
+            # Organize placeholders for zipping with data from buffer on updates
+            self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, \
+                                self.cadv_ph, self.ret_ph, self.cret_ph,\
+                                self.logp_old_ph, self.old_v_ph, self.old_vc_ph]
+            self.buf_phs += values_as_sorted_list(self.pi_info_phs)
 
-        # organize tf ops required for generation of actions
-        self.ops_for_action = dict(pi=self.pi, 
-                              v=self.v, 
-                              logp_pi=self.logp_pi,
-                              pi_info=self.pi_info)
-        self.ops_for_action['vc'] = self.vc
+            # organize tf ops required for generation of actions
+            self.ops_for_action = dict(pi=self.pi, 
+                                v=self.v, 
+                                logp_pi=self.logp_pi,
+                                pi_info=self.pi_info)
+            self.ops_for_action['vc'] = self.vc
 
-        # organize tf ops for diagnostics
-        self.ops_for_diagnostics = dict(pi=self.pi,
-                                        v=self.v,
-                                        vc=self.vc,
-                                        logp_pi=self.logp_pi,
-                                        pi_info=self.pi_info,
-                                        # d_kl=self.d_kl,
-                                        # ent=self.ent,
-                                        )
+            # organize tf ops for diagnostics
+            self.ops_for_diagnostics = dict(pi=self.pi,
+                                            v=self.v,
+                                            vc=self.vc,
+                                            logp_pi=self.logp_pi,
+                                            pi_info=self.pi_info,
+                                            # d_kl=self.d_kl,
+                                            # ent=self.ent,
+                                            )
 
-        # Count variables
-        var_counts = tuple(count_vars(scope) for scope in ['pi', 'vf', 'vc'])
-        self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
+            # Count variables
+            var_counts = tuple(count_vars(scope) for scope in ['pi', 'vf', 'vc'])
+            self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
 
-        # Make a sample estimate for entropy to use as sanity check
-        approx_ent = tf.reduce_mean(-self.logp)
+            # Make a sample estimate for entropy to use as sanity check
+            approx_ent = tf.reduce_mean(-self.logp)
 
-        # @anyboby borrowed from sac maybe for later ######
-        target_entropy = kwargs['target_entropy']
-        self._target_entropy = (
-            -np.prod(self.act_space.shape)
-            if target_entropy == 'auto'
-            else target_entropy)
+            # @anyboby borrowed from sac maybe for later ######
+            target_entropy = kwargs['target_entropy']
+            self._target_entropy = (
+                -np.prod(self.act_space.shape)
+                if target_entropy == 'auto'
+                else target_entropy)
 
-        self.ent_reg=0.01
-        ##### ---------------- #####
+            self.ent_reg=0.01
+            ##### ---------------- #####
 
-        # ________________________________ #        
-        #    Computation graph for policy  #
-        # ________________________________ #
-        ratio = tf.exp(self.logp-self.logp_old_ph)
-        # Surrogate advantage / clipped surrogate advantage
-        if self.agent.clipped_adv:
-            min_adv = tf.where(self.adv_ph>0, 
-                            (1+self.agent.clip_ratio)*self.adv_ph, 
-                            (1-self.agent.clip_ratio)*self.adv_ph
-                            )
-            surr_adv = tf.reduce_mean(tf.minimum(ratio * self.adv_ph, min_adv))
-        else:
-            surr_adv = tf.reduce_mean(ratio * self.adv_ph)
+            # ________________________________ #        
+            #    Computation graph for policy  #
+            # ________________________________ #
+            ratio = tf.exp(self.logp-self.logp_old_ph)
+            # Surrogate advantage / clipped surrogate advantage
+            if self.agent.clipped_adv:
+                min_adv = tf.where(self.adv_ph>0, 
+                                (1+self.agent.clip_ratio)*self.adv_ph, 
+                                (1-self.agent.clip_ratio)*self.adv_ph
+                                )
+                surr_adv = tf.reduce_mean(tf.minimum(ratio * self.adv_ph, min_adv))
+            else:
+                surr_adv = tf.reduce_mean(ratio * self.adv_ph)
 
-        # Surrogate cost (advantage)
-        self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
+            # Surrogate cost (advantage)
+            self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
 
-        # Cret
-        self.c_disc_ret = tf.reduce_mean(self.cret_ph)
+            # Cret
+            self.c_disc_ret = tf.reduce_mean(self.cret_ph)
 
-        # cost_lim if it were discounted
-        # self.disc_cost_lim = (self.cost_lim/self.ep_len)
+            # cost_lim if it were discounted
+            # self.disc_cost_lim = (self.cost_lim/self.ep_len)
 
-        # Create policy objective function, including entropy regularization
-        pi_objective = surr_adv + self.ent_reg * self.ent
+            # Create policy objective function, including entropy regularization
+            pi_objective = surr_adv + self.ent_reg * self.ent
 
-        # Loss function for pi is negative of pi_objective
-        self.pi_loss = -pi_objective
+            # Loss function for pi is negative of pi_objective
+            self.pi_loss = -pi_objective
 
-        # Optimizer-specific symbols
-        if self.agent.trust_region:              ### <------- CPO
-                        # Symbols needed for CG solver for any trust region method
-            pi_params = get_vars('pi')
-            flat_g = tro.flat_grad(self.pi_loss, pi_params)
-            v_ph, hvp = tro.hessian_vector_product(self.d_kl, pi_params)
-            if self.agent.damping_coeff > 0:
-                hvp += self.agent.damping_coeff * v_ph
+            # Optimizer-specific symbols
+            if self.agent.trust_region:              ### <------- CPO
+                            # Symbols needed for CG solver for any trust region method
+                pi_params = get_vars('pi')
+                flat_g = tro.flat_grad(self.pi_loss, pi_params)
+                v_ph, hvp = tro.hessian_vector_product(self.d_kl, pi_params)
+                if self.agent.damping_coeff > 0:
+                    hvp += self.agent.damping_coeff * v_ph
 
-            # Symbols needed for CG solver for CPO only
-            flat_b = tro.flat_grad(self.surr_cost, pi_params)
+                # Symbols needed for CG solver for CPO only
+                flat_b = tro.flat_grad(self.surr_cost, pi_params)
 
-            # Symbols for getting and setting params
-            get_pi_params = tro.flat_concat(pi_params)
-            set_pi_params = tro.assign_params_from_flat(v_ph, pi_params)
+                # Symbols for getting and setting params
+                get_pi_params = tro.flat_concat(pi_params)
+                set_pi_params = tro.assign_params_from_flat(v_ph, pi_params)
 
-            self.training_package = dict(flat_g=flat_g,
-                                    flat_b=flat_b,
-                                    v_ph=v_ph,
-                                    hvp=hvp,
-                                    get_pi_params=get_pi_params,
-                                    set_pi_params=set_pi_params)
+                self.training_package = dict(flat_g=flat_g,
+                                        flat_b=flat_b,
+                                        v_ph=v_ph,
+                                        hvp=hvp,
+                                        get_pi_params=get_pi_params,
+                                        set_pi_params=set_pi_params)
 
-        elif self.agent.first_order:
+            elif self.agent.first_order:
 
-            # Optimizer for first-order policy optimization
-            train_pi = MpiAdamOptimizer(learning_rate= self.agent.pi_lr).minimize(self.pi_loss)
+                # Optimizer for first-order policy optimization
+                train_pi = MpiAdamOptimizer(learning_rate= self.agent.pi_lr).minimize(self.pi_loss)
 
-            # Prepare training package for agent
-            self.training_package = dict(train_pi=train_pi)
+                # Prepare training package for agent
+                self.training_package = dict(train_pi=train_pi)
 
-        else:
-            raise NotImplementedError
+            else:
+                raise NotImplementedError
 
-        # Provide training package to agent
-        self.training_package.update(dict(pi_loss=self.pi_loss, 
-                                    surr_cost=self.surr_cost,
-                                    c_disc_ret = self.c_disc_ret,
-                                    d_kl=self.d_kl, 
-                                    target_kl=self.target_kl,
-                                    cost_lim=self.cost_lim))
-        self.agent.prepare_update(self.training_package)
+            # Provide training package to agent
+            self.training_package.update(dict(pi_loss=self.pi_loss, 
+                                        surr_cost=self.surr_cost,
+                                        c_disc_ret = self.c_disc_ret,
+                                        d_kl=self.d_kl, 
+                                        target_kl=self.target_kl,
+                                        cost_lim=self.cost_lim))
+            self.agent.prepare_update(self.training_package)
 
-        # ________________________________ #        
-        #    Computation graph for value   #
-        # ________________________________ #
+            # ________________________________ #        
+            #    Computation graph for value   #
+            # ________________________________ #
 
-        # Value losses
-        # @anyboby testing value clipping
-        old_vpred = self.old_v_ph
-        v_cliprange = 0.1
-        v_clipped = old_vpred + tf.clip_by_value(self.v-old_vpred, -v_cliprange, v_cliprange)
-        v_loss1 = tf.square(self.ret_ph-self.v)
-        v_loss2 = tf.square(self.ret_ph-v_clipped)
-        self.v_loss = .5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2))
-        #self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
+            # Value losses
+            # @anyboby testing value clipping
+            old_vpred = self.old_v_ph
+            v_cliprange = 0.1
+            v_clipped = old_vpred + tf.clip_by_value(self.v-old_vpred, -v_cliprange, v_cliprange)
+            v_loss1 = tf.square(self.ret_ph-self.v)
+            v_loss2 = tf.square(self.ret_ph-v_clipped)
+            self.v_loss = .5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2))
+            #self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
 
-        old_vcpred = self.old_v_ph
-        
-        vc_cliprange = 0.2 # tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
-        vc_clipped = old_vcpred + tf.clip_by_value(self.vc-old_vcpred, -vc_cliprange, vc_cliprange)
-        vc_loss1 = tf.square(self.cret_ph-self.vc)
-        vc_loss2 = tf.square(self.cret_ph-vc_clipped)
-        self.vc_loss = .5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2))
-        #self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
+            old_vcpred = self.old_v_ph
+            
+            vc_cliprange = 0.2 # tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
+            vc_clipped = old_vcpred + tf.clip_by_value(self.vc-old_vcpred, -vc_cliprange, vc_cliprange)
+            vc_loss1 = tf.square(self.cret_ph-self.vc)
+            vc_loss2 = tf.square(self.cret_ph-vc_clipped)
+            self.vc_loss = .5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2))
+            #self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
 
-        # If agent uses penalty directly in reward function, don't train a separate
-        # value function for predicting cost returns. (Only use one vf for r - p*c.)
-        total_value_loss = self.v_loss + self.vc_loss
+            # If agent uses penalty directly in reward function, don't train a separate
+            # value function for predicting cost returns. (Only use one vf for r - p*c.)
+            total_value_loss = self.v_loss + self.vc_loss
 
-        # Optimizer for value learning
-        #self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
-        #@anyboby testing: this shouldn't make a difference, but lets try it:
-        self.train_cvf = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_loss)
-        self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_loss)
+            # Optimizer for value learning
+            #self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
+            #@anyboby testing: this shouldn't make a difference, but lets try it:
+            self.train_cvf = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_loss)
+            self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_loss)
 
-        # # _____________________________________ #        
-        # #    Set up session, syncs and save     #
-        # # _____________________________________ #
 
-        # gpu = tf.test.is_gpu_available(
-        # cuda_only=False, min_cuda_compute_capability=None
-        # )
-        # if gpu:
-        #     ## --------------- allow dynamic memory growth to avoid cudnn init error ------------- ##
-        #     from keras.backend.tensorflow_backend import set_session #---------------------------- ##
-        #     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True,
-        #                                 per_process_gpu_memory_fraction = 0.9/num_procs()), 
-        #                             log_device_placement=False)
-        #     self.sess = tf.Session(config=config) #---------------------------------------------------- ##
-        #     set_session(self.sess) # set this TensorFlow session as the default session for Keras ----- ##
-        #     ## ----------------------------------------------------------------------------------- ##
-        # else:
-        #     self.sess = tf.Session()
+        ##### set up saver after all graph building is done
+        self.saver.init_saver(scope=scope)
 
-        # self.sess.run(tf.global_variables_initializer())
-        
-        # # Sync params across processes
-        # self.sess.run(sync_all_params())
+            # # _____________________________________ #        
+            # #    Set up session, syncs and save     #
+            # # _____________________________________ #
 
-        # # Setup model saving
-        # self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
+            # gpu = tf.test.is_gpu_available(
+            # cuda_only=False, min_cuda_compute_capability=None
+            # )
+            # if gpu:
+            #     ## --------------- allow dynamic memory growth to avoid cudnn init error ------------- ##
+            #     from keras.backend.tensorflow_backend import set_session #---------------------------- ##
+            #     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True,
+            #                                 per_process_gpu_memory_fraction = 0.9/num_procs()), 
+            #                             log_device_placement=False)
+            #     self.sess = tf.Session(config=config) #---------------------------------------------------- ##
+            #     set_session(self.sess) # set this TensorFlow session as the default session for Keras ----- ##
+            #     ## ----------------------------------------------------------------------------------- ##
+            # else:
+            #     self.sess = tf.Session()
 
-        # # _____________________________________ #        
-        # #    Provide session to agent           #
-        # # _____________________________________ #
-        # self.agent.prepare_session(self.sess)
+            # self.sess.run(tf.global_variables_initializer())
+            
+            # # Sync params across processes
+            # self.sess.run(sync_all_params())
 
-        # #### -------------------------------- ####
+            # # Setup model saving
+            # self.logger.setup_tf_saver(self.sess, inputs={'obs': self.obs_ph}, outputs={'pi': self.pi, 'v': self.v, 'vc': self.vc})
+
+            # # _____________________________________ #        
+            # #    Provide session to agent           #
+            # # _____________________________________ #
+            # self.agent.prepare_session(self.sess)
+
+            # #### -------------------------------- ####
     
     
     def prepare_session(self, sess):
@@ -627,67 +639,68 @@ class CPOPolicy(BasePolicy):
 
     #@anyboby todo: buf_inputs has to be delivered to update. implement when buffer (or pool) is done
     def update(self, buf_inputs, ):
-        cur_cost = self.logger.get_stats('CostEp')[0]
-        #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
-        cur_cost_lim = self.cost_lim
-        c = cur_cost - cur_cost_lim
-        if c > 0 and self.agent.cares_about_cost:
-            self.logger.log('Warning! Safety constraint is already violated.', 'red')
+        with tf.Graph().as_default():  # Performs training in a new, empty graph.
+            cur_cost = self.logger.get_stats('CostEp')[0]
+            #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
+            cur_cost_lim = self.cost_lim
+            c = cur_cost - cur_cost_lim
+            if c > 0 and self.agent.cares_about_cost:
+                self.logger.log('Warning! Safety constraint is already violated.', 'red')
 
-        #=====================================================================#
-        #  Prepare feed dict                                                  #
-        #=====================================================================#
+            #=====================================================================#
+            #  Prepare feed dict                                                  #
+            #=====================================================================#
 
-        inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
-        #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
-        inputs[self.cur_cost_ph] = cur_cost
+            inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
+            #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
+            inputs[self.cur_cost_ph] = cur_cost
 
-        #=====================================================================#
-        #  Make some measurements before updating                             #
-        #=====================================================================#
+            #=====================================================================#
+            #  Make some measurements before updating                             #
+            #=====================================================================#
 
-        measures = dict(LossPi=self.pi_loss,
-                        SurrCost=self.surr_cost,
-                        LossV=self.v_loss,
-                        Entropy=self.ent)
-        if not(self.agent.reward_penalized):
-            measures['LossVC'] = self.vc_loss
+            measures = dict(LossPi=self.pi_loss,
+                            SurrCost=self.surr_cost,
+                            LossV=self.v_loss,
+                            Entropy=self.ent)
+            if not(self.agent.reward_penalized):
+                measures['LossVC'] = self.vc_loss
 
-        pre_update_measures = self.sess.run(measures, feed_dict=inputs)
-        self.logger.store(**pre_update_measures)
+            pre_update_measures = self.sess.run(measures, feed_dict=inputs)
+            self.logger.store(**pre_update_measures)
 
-        #=====================================================================#
-        #  update cost_limit (@mo creation)                               #
-        #=====================================================================#
-        # Provide training package to agent
-        self.training_package["cost_lim"]= cur_cost_lim
-        self.agent.prepare_update(self.training_package)
+            #=====================================================================#
+            #  update cost_limit (@mo creation)                               #
+            #=====================================================================#
+            # Provide training package to agent
+            self.training_package["cost_lim"]= cur_cost_lim
+            self.agent.prepare_update(self.training_package)
 
-        #=====================================================================#
-        #  Update policy                                                      #
-        #=====================================================================#
-        self.agent.update_pi(inputs)
+            #=====================================================================#
+            #  Update policy                                                      #
+            #=====================================================================#
+            self.agent.update_pi(inputs)
 
-        #=====================================================================#
-        #  Update value function                                              #
-        #=====================================================================#
-        for _ in range(self.vf_iters):
-            self.sess.run(self.train_vf, feed_dict=inputs)
-            self.sess.run(self.train_cvf, feed_dict=inputs)
+            #=====================================================================#
+            #  Update value function                                              #
+            #=====================================================================#
+            for _ in range(self.vf_iters):
+                self.sess.run(self.train_vf, feed_dict=inputs)
+                self.sess.run(self.train_cvf, feed_dict=inputs)
 
-        #=====================================================================#
-        #  Make some measurements after updating                              #
-        #=====================================================================#
+            #=====================================================================#
+            #  Make some measurements after updating                              #
+            #=====================================================================#
 
-        del measures['Entropy']
-        measures['KL'] = self.d_kl
+            del measures['Entropy']
+            measures['KL'] = self.d_kl
 
-        post_update_measures = self.sess.run(measures, feed_dict=inputs)
-        deltas = dict()
-        for k in post_update_measures:
-            if k in pre_update_measures:
-                deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
-        self.logger.store(KL=post_update_measures['KL'], **deltas)
+            post_update_measures = self.sess.run(measures, feed_dict=inputs)
+            deltas = dict()
+            for k in post_update_measures:
+                if k in pre_update_measures:
+                    deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
+            self.logger.store(KL=post_update_measures['KL'], **deltas)
 
 
     def format_obs_for_tf(self, obs):
@@ -769,10 +782,10 @@ class CPOPolicy(BasePolicy):
         # return list(set(super(CPOPolicy, self).non_trainable_weights))
 
     def save(self, checkpoint_dir):
-        tf_path, model_info_path = save_tf(self.sess, inputs={'x':self.obs_ph},
+        tf_path, model_info_path, success = self.saver.save_tf(self.sess, inputs={'x':self.obs_ph},
                         outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc}, 
                         output_dir=checkpoint_dir)
-        return tf_path, model_info_path
+        return tf_path, model_info_path, success
 
     def log(self):
         logger = self.logger

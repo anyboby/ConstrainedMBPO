@@ -19,11 +19,11 @@ params = {
     'ent_reg':0.0,
 
     'kwargs': {
-        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 1000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
-        'eval_n_episodes': 5,
+        'eval_n_episodes': 1,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -45,13 +45,13 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
-        'real_ratio': 1,#0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 0.05,#0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'rollout_schedule': [15, 250, 35, 40], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
-        'max_uncertainty' : 0.5,
+        'max_uncertainty' : 2,
     }
 }
 

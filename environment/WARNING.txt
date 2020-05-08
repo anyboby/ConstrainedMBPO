@@ -9,3 +9,12 @@ building conda env from this repo doesn't work properly, currently you have to:
 3. pip install setup.py of constrained mbpo
 4. install safety-gym seperately
 5. install stable baselines seperately
+6. I also recently had trouble with serializable (softlearning uses hartikainen's version, not PyPi which seemed to be missing in the req.txt)
+	git clone https://github.com/hartikainen/serializable
+	cd serializable
+	pip install -e .
+7. Numpy also raised an error, that was easy to fix: unisntall numpy until not existing and pip isntall numpy
+8. GLFW error when rendering mujoco-py:
+	add 
+		export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+	to bashrc (in ssh this still doesn't work)
