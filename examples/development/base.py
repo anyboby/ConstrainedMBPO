@@ -36,7 +36,7 @@ CPO_POLICY_PARAMS_BASE = {
         'ent_reg':              0.0,
         'cost_lim_end':         25,
         'cost_lim':             25,
-        'cost_lam':             0.0,
+        'cost_lam':             0.96,
         'cost_gamma':           0.96,
         'lam':                  0.0,
         'gamma':                0.99,
