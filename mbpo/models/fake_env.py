@@ -189,7 +189,7 @@ class FakeEnv:
                 }
         return next_obs, rewards, terminals, info
 
-    def train(self, samples, **kwargs):
+    def train(self, samples, **kwargs):        
         # check priors
         priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 

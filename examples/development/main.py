@@ -98,12 +98,16 @@ class ExperimentRunner(tune.Trainable):
 
         initialize_tf_variables(self._session, only_uninitialized=True)
 
-        self._built = True
 
-        ## add graph since ray doesn't seem to automatically add that
+        # add graph since ray doesn't seem to automatically add that
         graph_writer = tf.summary.FileWriter(self.logdir, self._session.graph)
         graph_writer.flush()
         graph_writer.close()
+        
+        #### finalize graph
+        tf.get_default_graph().finalize()
+        self._built = True
+
 
 
     def _train(self):
@@ -225,7 +229,7 @@ class ExperimentRunner(tune.Trainable):
                 'mjc_model_environment': self.mjc_model_environment,
                 'sampler': self.sampler,    # logger in sampler is not pickable atm!
                 'algorithm': self.algorithm,
-                'Qs': self.Qs,
+                #'Qs': self.Qs,
                 #'policy_weights': self.policy.get_weights(),
                 }
         
@@ -236,7 +240,7 @@ class ExperimentRunner(tune.Trainable):
         if self._variant['run_params'].get('checkpoint_replay_pool', False):
             self._save_replay_pool(checkpoint_dir)
 
-        self.policy_path = self.policy.save(checkpoint_dir)
+        self.policy_path = self.policy.save(checkpoint_dir)     ### @anyboby: this saves all tf objects
         # tf_checkpoint = self._get_tf_checkpoint()
 
         # tf_checkpoint.save(

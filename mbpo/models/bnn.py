@@ -447,8 +447,8 @@ class BNN:
 
         progress.stamp()
         if timer: timer.stamp('bnn_train')
-        self._set_state()
-        if timer: timer.stamp('bnn_set_state')
+        # self._set_state()         ##@anyboby this keeps creating new nodes in tf graph. What is it necessary for ?
+        # if timer: timer.stamp('bnn_set_state')
 
         holdout_losses = self.sess.run(
             self.mse_loss,
