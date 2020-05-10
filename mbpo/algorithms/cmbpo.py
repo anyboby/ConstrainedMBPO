@@ -309,9 +309,10 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 50e3
+            min_samples = 80e3
             max_samples = 220e3
-                
+            samples_added = 0
+
             start_samples = self.sampler._total_samples                     
 
             ### train for epoch_length ###
@@ -379,9 +380,7 @@ class CMBPO(RLAlgorithm):
                     alive_ratio = info.get('alive_ratio', 1)
 
                     if alive_ratio<0.2 or \
-                        self.model_sampler._total_samples >= max_samples-alive_ratio*self._rollout_batch_size: 
-                        #samples a bit more than it should
-                        
+                        self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
                         print(f'Stopping Rollout at step {i+1}')
                         break
                 
@@ -389,7 +388,7 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
                 model_metrics.update(rollout_diagnostics)
-
+                samples_added += self.model_sampler._total_samples
                 ### get model_samples after rollout
                 model_samples = self.model_pool.get()
             
@@ -413,7 +412,7 @@ class CMBPO(RLAlgorithm):
 
                 #### empty train_samples
                 train_samples = None
-
+                samples_added = 0
                 #### log policy diagnostics
                 self._policy.log()
                 model_metrics.update({'Policy Update?':1})
