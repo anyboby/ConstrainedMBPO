@@ -412,7 +412,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>=min_samples:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if len(train_samples[0])>=min_samples or self._epoch<2:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
 

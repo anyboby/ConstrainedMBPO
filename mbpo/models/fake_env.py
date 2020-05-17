@@ -48,12 +48,12 @@ class FakeEnv:
                                         out_dim=output_dim_dyn,
                                         name='BNN',
                                         hidden_dim=hidden_dim,
-                                        lr=1e-4, 
+                                        lr=5e-4, 
                                         lr_decay=0.96,
                                         decay_steps=10000,  
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
-                                        weights=self.target_weights,
+                                        weights=self.target_weights,    
                                         session=self._session)
 
         if self.cares_about_cost:
@@ -63,7 +63,7 @@ class FakeEnv:
                                         name='CostNN',
                                         hidden_dim=128,
                                         output_activation='softmax',
-                                        lr=1e-4, 
+                                        lr=5e-5, 
                                         lr_decay=0.96,
                                         decay_steps=10000, 
                                         num_networks=num_networks, 
