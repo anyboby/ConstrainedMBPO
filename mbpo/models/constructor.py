@@ -6,37 +6,64 @@ import copy
 from mbpo.models.fc import FC
 from mbpo.models.bnn import BNN
 
-def construct_model(obs_dim_in=11, 
-					obs_dim_out=None, 
-					prior_dim=0,
-					act_dim=3, 
-					rew_dim=1, 
+def construct_model(in_dim, 
+					out_dim,
+					name='BNN',
 					hidden_dim=200, 
 					num_networks=7, 
-					num_elites=5, 
+					num_elites=5,
+					loss = 'NLL', 
+					activation = 'swish',
+					output_activation = None,
+					decay=True,
+					lr = 1e-3,
+					lr_decay = None,
+					decay_steps=None,
 					weights=None, 
 					session=None):
-	if not obs_dim_out:
-		obs_dim_out = obs_dim_in
-
-	print('[ BNN ] Observation dim in / out: {} / {} | Action dim: {} | Hidden dim: {}'.format(obs_dim_in, obs_dim_out, act_dim, hidden_dim))
-	print('[ BNN ] Input Layer dim: {} | Output Layer dim: {} '.format(obs_dim_in+act_dim+prior_dim, obs_dim_out+rew_dim))
-	params = {'name': 'BNN', 'num_networks': num_networks, 'num_elites': num_elites, 'sess': session}
+	"""
+	Constructs a tf model.
+	Args:
+		loss: Choose from 'NLL', 'MSE', 'Huber' or 'CE'. 
+				choosing NLL will construct a model with variance output
+	"""
+	print('[ BNN ] dim in / out: {} / {} | Hidden dim: {}'.format(in_dim, out_dim, hidden_dim))
+	#print('[ BNN ] Input Layer dim: {} | Output Layer dim: {} '.format(obs_dim_in+act_dim+prior_dim, obs_dim_out+rew_dim))
+	params = {'name': name, 
+				'loss':loss, 
+				'num_networks': num_networks, 
+				'num_elites': num_elites, 
+				'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=obs_dim_in+act_dim+prior_dim, activation="swish", weight_decay=0.00002))	#0.000025))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00004))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.000025))	#0.000025))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.00005))			#0.00005))
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00006))		#0.000075))
-	model.add(FC(hidden_dim, activation="swish", weight_decay=0.00006))		#0.000075))
-	model.add(FC(obs_dim_out+rew_dim, weight_decay=0.00008))							#0.0001
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
+	### output activation is determined by loss type
+	model.add(FC(out_dim, activation=output_activation, weight_decay=0.0001))									#0.0001
+	
+	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
+																"learning_rate_decay":lr_decay,
+																"decay_steps":decay_steps}
+	model.finalize(tf.train.AdamOptimizer, opt_params, weights=weights, lr_decay=lr_decay)
 
-	model.finalize(tf.train.AdamOptimizer, {"learning_rate": 0.001}, weights=weights, )
+	total_parameters = 0
+	for variable in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name):
+		# shape is an array of tf.Dimension
+		shape = variable.get_shape()
+		variable_parameters = 1
+		for dim in shape:
+			variable_parameters *= dim.value
+		total_parameters += variable_parameters
+	print('[ BNN ] Total trainable Parameteres: {} '.format(total_parameters))
+
 
 	return model
 
-def format_samples_for_training(samples, priors = None, safe_config=None, add_noise=False):
+def format_samples_for_dyn(samples, priors = None, safe_config=None, add_noise=False):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -55,10 +82,6 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 	next_obs = np.squeeze(samples['next_observations'])
 	rew = np.squeeze(samples['rewards'])
 	terms = np.squeeze(samples['terminals'])
-
-	include_cost = samples.get('costs', None) is not None
-	if include_cost:
-		cost = np.squeeze(samples['costs'])
 
 
 
@@ -82,9 +105,6 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 		delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
 		delta_obs[:,:2] = 0 ### @anyboby TODO fix this its stupid
 		
-		if include_cost:
-			cost = cost[mask]
-		# delta_obs = np.clip(delta_obs,-outlier_threshold, outlier_threshold)		## clip delta_obs
 
 	else: 
 		delta_obs = next_obs - obs
@@ -94,11 +114,57 @@ def format_samples_for_training(samples, priors = None, safe_config=None, add_no
 	else:
 		inputs = np.concatenate((obs, act), axis=-1)
 
-	if include_cost:
-		outputs = np.concatenate((delta_obs, cost[:, np.newaxis], rew[:, np.newaxis]), axis=-1)		
-	else: 
-		outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
+	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
 	# add noise
+	if add_noise:
+		inputs = _add_noise(inputs, 0.0001)		### noise helps 
+
+	return inputs, outputs
+
+def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = None, add_noise=False):
+	"""
+	formats samples to fit training for cost, specifically returns: 
+
+	if priors are given, they will be concatenated to the inputs. 
+	priors have to be the same length in the first dimension as the samples
+	given (that is, the number of samples)
+
+	Currently only uses next_obs for inputs of the cost, implying: C = f(s')
+
+	Args:
+		one_hot: determines whether targets are structured as classification or regression
+					one_hot: True will output targets with shape [batch_size, num_classes]
+					one_hot: False wil output targets with shape [batch_size,] and scalar targets
+	"""
+	next_obs = np.squeeze(samples['next_observations'])
+	cost = samples['costs']
+	if one_hot:
+		cost_one_hot = np.zeros(shape=(len(cost), num_classes))
+		batch_indcs = np.arange(0, len(cost))
+		costs = cost.astype(int)
+		cost_one_hot[(batch_indcs, costs)] = 1
+		outputs = cost_one_hot
+	else:
+		outputs = np.squeeze(cost)
+
+	if priors is not None:
+		inputs = np.concatenate((next_obs, priors), axis=-1)
+	else:
+		inputs = next_obs
+
+	
+	## ________________________________ ##
+	##      oversample cost classes     ##
+	## ________________________________ ##
+	if len(outputs[np.where(costs>0)[0]])>0:
+		imbalance_ratio = len(outputs[np.where(costs==0)[0]])//len(outputs[np.where(costs>0)[0]])
+		extra_outputs = np.tile(outputs[np.where(costs>0)[0]], (imbalance_ratio,1))
+		outputs = np.concatenate((outputs, extra_outputs), axis=0)
+		extra_inputs = np.tile(inputs[np.where(costs>0)[0]], (imbalance_ratio,1))
+		extra_inputs = _add_noise(extra_inputs, 0.0001)
+		inputs = np.concatenate((inputs, extra_inputs), axis=0)
+	
+	### ______ add noise _____ ###
 	if add_noise:
 		inputs = _add_noise(inputs, 0.0001)		### noise helps 
 

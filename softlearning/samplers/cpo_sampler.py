@@ -25,7 +25,8 @@ class CpoSampler():
         self._path_length = 0
         self._path_return = 0
         self._path_cost = 0
-
+        self.cum_cost = 0
+        
         if logger:
             self.logger = logger
         else: 

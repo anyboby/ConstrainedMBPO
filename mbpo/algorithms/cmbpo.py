@@ -26,7 +26,7 @@ from softlearning.replay_pools.cpobuffer import CPOBuffer
 from softlearning.samplers.model_sampler import ModelSampler
 from softlearning.policies.safe_utils.logx import EpochLogger
 
-from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
+from mbpo.models.constructor import construct_model, format_samples_for_dyn, reset_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.models.perturbed_env import PerturbedEnv
 from mbpo.utils.writer import Writer
@@ -173,9 +173,6 @@ class CMBPO(RLAlgorithm):
         self._policy = policy
         self._initial_exploration_policy = policy   #overwriting initial _exploration policy, not implemented for cpo yet
 
-        self._Qs = Qs
-        self._Q_targets = tuple(tf.keras.models.clone_model(Q) for Q in Qs)
-
         self._pool = pool
         self._plotter = plotter
         self._tf_summaries = tf_summaries
@@ -189,7 +186,6 @@ class CMBPO(RLAlgorithm):
                                 cost_lam = self._policy.cost_lam)
 
         self._policy_lr = lr
-        self._Q_lr = lr
 
         self._reward_scale = reward_scale
         self._target_entropy = (
@@ -309,7 +305,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 80e3
+            min_samples = 50e3
             max_samples = 220e3
             samples_added = 0
 
@@ -373,11 +369,22 @@ class CMBPO(RLAlgorithm):
                 start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
                 self.model_sampler.reset(start_states)
                 
+                ### debug
+                # self._pool.get()
+                # next_obs, rew, terminal, info = self.sampler.sample()
+                # self.model_sampler.reset(np.concatenate((next_obs[np.newaxis,:], next_obs[np.newaxis,:]), axis=0))
+                
                 for i in count():
                     print(f'Sampling step Nr. {i+1}')
 
                     _,_,_,info = self.model_sampler.sample()
                     alive_ratio = info.get('alive_ratio', 1)
+
+                    ### debug
+                    # mn_obs,mr,mt,minfo = self.model_sampler.sample()
+                    # mc = minfo.get
+                    # rn_obs,rr,rt,rinfo = self.sampler.sample()
+                    # alive_ratio = minfo.get('alive_ratio', 1)
 
                     if alive_ratio<0.2 or \
                         self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
@@ -401,12 +408,11 @@ class CMBPO(RLAlgorithm):
                 train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
 
             self._training_progress.resume()
-            #train_samples = [np.concatenate([t for i in range(35)], axis=0) for t in train_samples]
 
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>=min_samples or self._epoch<5:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if len(train_samples[0])>=min_samples:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
 

@@ -192,8 +192,8 @@ class ModelSampler(CpoSampler):
         pi_info_t = get_action_outs['pi_info']
 
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
-        reward = np.squeeze(reward)
-        terminal = np.squeeze(terminal)
+        reward = np.squeeze(reward, axis=-1)
+        terminal = np.squeeze(terminal, axis=-1)
         c = info.get('cost', np.zeros(reward.shape))
         en_disag = info.get('ensemble_disagreement', 0)
 

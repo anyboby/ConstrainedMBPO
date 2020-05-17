@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import pdb
 
-from mbpo.models.constructor import construct_model, format_samples_for_training
+from mbpo.models.constructor import construct_model, format_samples_for_dyn, format_samples_for_cost
 from mbpo.models.priors import WEIGHTS_PER_DOMAIN, PRIORS_BY_DOMAIN, PRIOR_DIMS, POSTS_BY_DOMAIN
 from mbpo.models.utils import average_dkl
 
@@ -22,7 +22,8 @@ class FakeEnv:
         self.active_obs_dim = int(self.obs_dim/self.env.stacks)
         self._session = session
         self.cares_about_cost = cares_about_cost
-        self.rew_dim = 2 if cares_about_cost else 1
+        self.rew_dim = 1
+        self.cost_classes = [0,1]
 
         self.static_fns = static_fns
         self.safe_config = safe_config
@@ -40,16 +41,37 @@ class FakeEnv:
         prior_dim = PRIOR_DIMS.get(self.domain, 0)
         #### create fake env from model 
 
-        self._model = construct_model(obs_dim_in=self.obs_dim, 
-                                        obs_dim_out=self.active_obs_dim,
-                                        prior_dim=prior_dim,
-                                        act_dim=self.act_dim, 
-                                        rew_dim= self.rew_dim,
-                                        hidden_dim=hidden_dim, 
+        input_dim_dyn = self.obs_dim + prior_dim + self.act_dim
+        input_dim_c = self.obs_dim + prior_dim
+        output_dim_dyn = self.active_obs_dim + self.rew_dim
+        self._model = construct_model(in_dim=input_dim_dyn, 
+                                        out_dim=output_dim_dyn,
+                                        name='BNN',
+                                        hidden_dim=hidden_dim,
+                                        lr=1e-4, 
+                                        lr_decay=0.96,
+                                        decay_steps=10000,  
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weights=self.target_weights,
                                         session=self._session)
+
+        if self.cares_about_cost:
+            self._cost_model = construct_model(in_dim=input_dim_c, 
+                                        out_dim=2,
+                                        loss='CE',
+                                        name='CostNN',
+                                        hidden_dim=128,
+                                        output_activation='softmax',
+                                        lr=1e-4, 
+                                        lr_decay=0.96,
+                                        decay_steps=10000, 
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites,
+                                        session=self._session)
+        else:
+            self._cost_model = None
+        
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
 
 
@@ -90,8 +112,10 @@ class FakeEnv:
         if self.prior_f:
             priors = self.prior_f(obs, act)
             inputs = np.concatenate((obs, act, priors), axis=-1)
+            inputs_cost = np.concatenate((obs, priors), axis=-1)
         else:
             inputs = np.concatenate((obs, act), axis=-1)
+            inputs_cost = obs
 
         ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
 
@@ -132,15 +156,16 @@ class FakeEnv:
         log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         #### retrieve r and done for new state
-        rew_a_costs, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
+        rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
+
         if self.cares_about_cost:
-            rewards = rew_a_costs[:,1]
-            #@anyboby TODO fix this
-            #costs = rew_a_costs[:,0]
-            costs = model_means[:,-2]
+            cost_prob = self._cost_model.predict(inputs_cost, factored=True)[0]
+            cost_model_inds = self._cost_model.random_inds(batch_size) 
+            cost_prob = cost_prob[cost_model_inds, batch_inds]
+            cost_batch = np.tile(self.cost_classes, (batch_size,1))
+            costs = cost_batch[(batch_inds, self._random_choice_prob_index(cost_prob, axis=1))]  ### chooses indices by p-dist
         else:
-            rewards = rew_a_costs[0]
-            costs = np.zeros[rewards]
+            costs = np.zeros_like(rewards)
 
         #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
@@ -149,7 +174,6 @@ class FakeEnv:
             unstacked_obs = obs[:,-unstacked_obs_size:]
             rewards = self.static_fns.reward_np(unstacked_obs, act, next_obs, self.safe_config)
             terminals = self.static_fns.termination_fn(unstacked_obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
-            #costs = self.static_fns.cost_fn(costs)
             next_obs = self.static_fns.rebuild_goal(unstacked_obs, act, next_obs, unstacked_obs, self.safe_config)  ### rebuild goal if goal was met
             if self.stacks > 1:
                 next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
@@ -194,15 +218,31 @@ class FakeEnv:
         priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        train_inputs, train_outputs = format_samples_for_training(samples, priors=priors, safe_config=self.safe_config, add_noise=True)
-        model_metrics = self._model.train(train_inputs, 
-                                            train_outputs, 
-                                            **kwargs)
+        train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
+                                                                    priors=priors,
+                                                                    safe_config=self.safe_config,
+                                                                    add_noise=False)
+        train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
+                                                                    one_hot=True,
+                                                                    num_classes=len(self.cost_classes),
+                                                                    priors=priors,
+                                                                    add_noise=False)
+        if self.cares_about_cost:
+            self._cost_model.train(train_inputs_cost,
+                                        train_outputs_cost,
+                                        **kwargs,
+                                        min_epoch_before_break=15)                                            
+        
+        model_metrics = self._model.train(train_inputs_dyn, 
+                                            train_outputs_dyn, 
+                                            **kwargs,
+                                            min_epoch_before_break=15,)
         return model_metrics
 
 
     def reset_model(self):
         self._model.reset()
+        
 
     ## for debugging computation graph
     def step_ph(self, obs_ph, act_ph, deterministic=False):
@@ -234,4 +274,7 @@ class FakeEnv:
     def close(self):
         pass
 
+    def _random_choice_prob_index(self, a, axis=1):
+        r = np.expand_dims(np.random.rand(a.shape[1-axis]), axis=axis)
+        return (a.cumsum(axis=axis) > r).argmax(axis=axis)
 

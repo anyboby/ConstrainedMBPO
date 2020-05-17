@@ -21,7 +21,7 @@ from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
 from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 
-from mbpo.models.constructor import construct_model, format_samples_for_training, reset_model
+from mbpo.models.constructor import construct_model, format_samples_for_dyn, reset_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.models.perturbed_env import PerturbedEnv
 from mbpo.utils.writer import Writer
