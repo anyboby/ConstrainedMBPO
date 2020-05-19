@@ -139,7 +139,7 @@ class FakeEnv:
         ensemble_disagreement = average_dkl_mean
 
         ### directly use means, if deterministic
-        if deterministic:
+        if deterministic:   
             ensemble_samples = ensemble_model_means                     
         else:
             ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
@@ -221,22 +221,22 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    add_noise=False)
+                                                                    noise=0.0005)
         train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
                                                                     one_hot=True,
                                                                     num_classes=len(self.cost_classes),
                                                                     priors=priors,
-                                                                    add_noise=False)
+                                                                    noise=0.005)
         if self.cares_about_cost:
             self._cost_model.train(train_inputs_cost,
                                         train_outputs_cost,
                                         **kwargs,
-                                        min_epoch_before_break=15)                                            
+                                        )                                            
         
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
                                             **kwargs,
-                                            min_epoch_before_break=15,)
+                                            )
         return model_metrics
 
 

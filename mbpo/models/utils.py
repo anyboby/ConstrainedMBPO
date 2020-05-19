@@ -14,13 +14,14 @@ def get_required_argument(dotmap, key, message, default=None):
 
 def gaussian_kl_np(mu0, log_std0, mu1, log_std1):
     """interprets each entry in mu_i and log_std_i as independent, 
-    preserves shape"""
-    log_std0 += EPS
-    log_std1 += EPS
+    preserves shape
+    output clipped to {0, 1e10}
+    """
     var0, var1 = np.exp(2 * log_std0), np.exp(2 * log_std1)
-    pre_sum = 0.5*(((mu1- mu0)**2 + var0)/(var1) - 1) +  log_std1 - log_std0
+    pre_sum = 0.5*(((mu1- mu0)**2 + var0)/(var1+EPS) - 1) +  log_std1 - log_std0
     all_kls = pre_sum
     #all_kls = np.mean(all_kls)
+    all_kls = np.clip(all_kls, 0, 1/EPS)        ### for stability
     return all_kls
 def gaussian_jsd_np(mu0, log_std0, mu1, log_std1):
     pass
@@ -50,7 +51,7 @@ def average_dkl(mu, std):
             if d_kl is None:
                 d_kl = gaussian_kl_np(mu[i], log_std[i], mu[j], log_std[j])
             else: d_kl+= gaussian_kl_np(mu[i], log_std[i], mu[j], log_std[j])
-    d_kl = d_kl/(num_models*(num_models-1))
+    d_kl = d_kl/(num_models*(num_models-1)+EPS)
     return d_kl
 
 

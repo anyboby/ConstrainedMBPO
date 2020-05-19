@@ -14,8 +14,8 @@ params = {
     # 'archive_size':int(2e3),           # maximum pool size, if memory is an issue (for on-policy buffers, epoch_length 
     #                                     #    predetermines size, so max_pool_size is without effect)
 
-    'vf_lr':2.5e-4,
-    'cvf_lr':5e-4,
+    'vf_lr':8e-4,
+    'cvf_lr':8e-4,
     'ent_reg':0.0,
 
     'kwargs': {
@@ -51,7 +51,7 @@ params = {
         'rollout_schedule': [15, 250, 35, 40], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
-        'max_uncertainty' : 100,
+        'max_uncertainty' : 2.5,
     }
 }
 

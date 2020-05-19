@@ -415,7 +415,7 @@ class CMBPO(RLAlgorithm):
             if len(train_samples[0])>=min_samples or self._epoch<2:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
-
+                surr_cost_delta = self.logger.get_stats('SurrCostDelta')
                 #### empty train_samples
                 train_samples = None
                 samples_added = 0
