@@ -186,3 +186,19 @@ def mlp_actor_critic(x, a, hidden_sizes=(64,64), activation=tf.tanh,
         vc = tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None), axis=1)
 
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc
+
+def mlp_actor(x, a, hidden_sizes=(64,64), activation=tf.tanh,
+                     output_activation=None, policy=None, action_space=None):
+
+    # default policy builder depends on action space
+    if policy is None and isinstance(action_space, Box):
+        policy = mlp_gaussian_policy
+    elif policy is None and isinstance(action_space, Discrete):
+        policy = mlp_categorical_policy
+
+    with tf.variable_scope('pi'):
+        policy_outs = policy(x, a, hidden_sizes, activation, output_activation, action_space)
+        pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent = policy_outs
+    
+    return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
+
