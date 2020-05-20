@@ -49,6 +49,7 @@ class ModelSampler(CpoSampler):
         self._max_uncertainty = max_uncertainty
         self._total_Vs = 0
         self._total_CVs = 0
+        self._cum_var = 0
 
 
         self.batch_size = batch_size
@@ -88,6 +89,7 @@ class ModelSampler(CpoSampler):
         mean_rollout_length = self._total_samples / (self.batch_size+EPS)
         mean_ensemble_dkl_cum = np.mean(self._path_uncertainty)
         mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+EPS))
+        mean_ensemble_var = self._cum_var/(self._total_samples+EPS)
         cost_rate = self._cum_cost/(self._total_samples+EPS)
         return_rate = self._path_return.sum()/(self._total_samples+EPS)
         VVals_mean = self._total_Vs / (self._total_samples+EPS)
@@ -99,6 +101,7 @@ class ModelSampler(CpoSampler):
             'rollout_length_mean': mean_rollout_length,
             'ensemble_dkl_mean': mean_ensemble_dkl,
             'ensemble_dkl_cum_mean' : mean_ensemble_dkl_cum,
+            'ensemble_var_mean' : mean_ensemble_var,
             'cost_rate': cost_rate,
             'return_rate': return_rate,
             'VVals':VVals_mean,
@@ -196,6 +199,7 @@ class ModelSampler(CpoSampler):
         terminal = np.squeeze(terminal, axis=-1)
         c = info.get('cost', np.zeros(reward.shape))
         en_disag = info.get('ensemble_disagreement', 0)
+        self._cum_var += info.get('ensemble_var', 0)*len(self.pool.alive_paths)
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##

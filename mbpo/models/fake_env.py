@@ -6,6 +6,8 @@ from mbpo.models.constructor import construct_model, format_samples_for_dyn, for
 from mbpo.models.priors import WEIGHTS_PER_DOMAIN, PRIORS_BY_DOMAIN, PRIOR_DIMS, POSTS_BY_DOMAIN
 from mbpo.models.utils import average_dkl
 
+import warnings
+
 class FakeEnv:
 
     def __init__(self, true_environment, 
@@ -129,8 +131,15 @@ class FakeEnv:
 
 
         ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
-        ensemble_model_stds = np.sqrt(ensemble_model_vars)                                          #### std = sqrt(variance)
-        
+        ensemble_model_stds = np.sqrt(ensemble_model_vars)
+        mean_ensemble_var = ensemble_model_vars.mean()
+
+        #### check for negative vars (can happen towards end of training)
+        if (ensemble_model_vars<=0).any():
+            neg_var = ensemble_model_vars.min()
+            np.clip(ensemble_model_vars, a_min=1e-8, a_max=None)
+            warnings.warn(f'Negative variance of {neg_var} encountered. Clipping...')
+
         ### calc disagreement of elites
         elite_means = ensemble_model_means[self._model.elite_inds]
         elite_stds = ensemble_model_stds[self._model.elite_inds]
@@ -208,6 +217,7 @@ class FakeEnv:
                 'log_prob': log_prob,
                 'dev': dev,
                 'ensemble_disagreement':ensemble_disagreement,
+                'ensemble_var':mean_ensemble_var,
                 'cost':costs,
                 'cost_mean': costs.mean(),
                 }
@@ -221,12 +231,12 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    noise=0.0005)
+                                                                    noise=0.001)
         train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
                                                                     one_hot=True,
                                                                     num_classes=len(self.cost_classes),
                                                                     priors=priors,
-                                                                    noise=0.005)
+                                                                    noise=0.01)
         if self.cares_about_cost:
             self._cost_model.train(train_inputs_cost,
                                         train_outputs_cost,
