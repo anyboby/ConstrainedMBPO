@@ -36,14 +36,14 @@ def construct_model(in_dim,
 				'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.000025))	#0.000025))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.00005))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.001))	#0.000025))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))			#0.00005))
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))		#0.000075))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))		#0.000075))
 	### output activation is determined by loss type
-	model.add(FC(out_dim, activation=output_activation, weight_decay=0.0001))									#0.0001
+	model.add(FC(out_dim, activation=output_activation, weight_decay=0.001))									#0.0001
 	
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,

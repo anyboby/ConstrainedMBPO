@@ -51,8 +51,8 @@ class FakeEnv:
                                         name='BNN',
                                         hidden_dim=hidden_dim,
                                         lr=5e-4, 
-                                        lr_decay=0.96,
-                                        decay_steps=10000,  
+                                        # lr_decay=0.96,
+                                        # decay_steps=10000,  
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weights=self.target_weights,    
@@ -65,9 +65,9 @@ class FakeEnv:
                                         name='CostNN',
                                         hidden_dim=128,
                                         output_activation='softmax',
-                                        lr=5e-5, 
-                                        lr_decay=0.96,
-                                        decay_steps=10000, 
+                                        lr=1e-5, 
+                                        # lr_decay=0.96,
+                                        # decay_steps=10000, 
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         session=self._session)
@@ -127,8 +127,6 @@ class FakeEnv:
         # ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
         # ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
         
-        
-
 
         ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)
@@ -223,7 +221,7 @@ class FakeEnv:
                 }
         return next_obs, rewards, terminals, info
 
-    def train(self, samples, **kwargs):        
+    def train_dyn_model(self, samples, **kwargs):        
         # check priors
         priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
@@ -232,26 +230,35 @@ class FakeEnv:
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
                                                                     noise=0.001)
-        train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
-                                                                    one_hot=True,
-                                                                    num_classes=len(self.cost_classes),
-                                                                    priors=priors,
-                                                                    noise=0.01)
-        if self.cares_about_cost:
-            self._cost_model.train(train_inputs_cost,
-                                        train_outputs_cost,
-                                        **kwargs,
-                                        )                                            
         
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
                                             **kwargs,
                                             )
+        
         return model_metrics
+
+    def train_cost_model(self, samples, **kwargs):        
+        # check priors
+        priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
+
+        #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
+        train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
+                                                                    one_hot=True,
+                                                                    num_classes=len(self.cost_classes),
+                                                                    priors=priors,
+                                                                    noise=0.01)
+        model_metrics_cost = self._cost_model.train(train_inputs_cost,
+                                    train_outputs_cost,
+                                    **kwargs,
+                                    )                                            
+        
+        return model_metrics_cost
 
 
     def reset_model(self):
         self._model.reset()
+        self._cost_model.reset()
         
 
     ## for debugging computation graph

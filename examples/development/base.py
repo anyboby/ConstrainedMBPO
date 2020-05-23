@@ -31,7 +31,7 @@ CPO_POLICY_PARAMS_BASE = {
         'squash': True,
         'vf_lr':                0.001,
         'cvf_lr':               0.001,
-        'vf_iters':             120,                 
+        'vf_iters':             80,                 
         'target_kl':            0.01,            # @anyboby maybe remove ?
         'ent_reg':              0.0,
         'cost_lim_end':         4000,
