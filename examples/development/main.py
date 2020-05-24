@@ -73,7 +73,7 @@ class ExperimentRunner(tune.Trainable):
         Qs = self.Qs = get_Q_function_from_variant(
             variant, training_environment)
         policy = self.policy = get_policy_from_variant(
-            variant, training_environment, Qs)
+            variant, training_environment, Qs, self._session)
         initial_exploration_policy = self.initial_exploration_policy = (
             get_policy('UniformPolicy', training_environment))
 

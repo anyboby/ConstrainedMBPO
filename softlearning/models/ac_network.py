@@ -24,9 +24,14 @@ def placeholder_from_space(space):
 def placeholders_from_spaces(*args):
     return [placeholder_from_space(space) for space in args]
 
-def mlp(x, hidden_sizes=(32,), activation=tf.tanh, output_activation=None):
+def mlp(x, hidden_sizes=(32,), activation=tf.tanh, output_activation=None, ensemble_size = 1):
     for h in hidden_sizes[:-1]:
-        x = tf.layers.dense(x, units=h, activation=activation)
+        if ensemble_size==1:
+            x = tf.layers.dense(x, units=h, activation=activation)
+        else:
+            x = tf.layers.dense(x, units=(ensemble_size,)+(h,), activation=activation)
+            x = tf.transpose(x)
+        
     return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
 
 def get_vars(scope=''):
@@ -166,7 +171,7 @@ def mlp_squashed_gaussian_policy(x, a, hidden_sizes, activation, output_activati
 """
 Actor-Critics
 """
-def mlp_actor_critic(x, a, hidden_sizes=(64,64), activation=tf.tanh,
+def mlp_actor_critic(x, a, hidden_sizes_a=(64,64), hidden_sizes_c=(64,64), critic_ensemble_size=1, activation=tf.tanh,
                      output_activation=None, policy=None, action_space=None):
 
     # default policy builder depends on action space
@@ -176,14 +181,14 @@ def mlp_actor_critic(x, a, hidden_sizes=(64,64), activation=tf.tanh,
         policy = mlp_categorical_policy
 
     with tf.variable_scope('pi'):
-        policy_outs = policy(x, a, hidden_sizes, activation, output_activation, action_space)
+        policy_outs = policy(x, a, hidden_sizes_a, activation, output_activation, action_space)
         pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent = policy_outs
 
     with tf.variable_scope('vf'):
-        v = tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None), axis=1)
+        v = tf.squeeze(mlp(x, list(hidden_sizes_c)+[1], activation, None, ensemble_size=critic_ensemble_size))
 
     with tf.variable_scope('vc'):
-        vc = tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None), axis=1)
+        vc = tf.squeeze(mlp(x, list(hidden_sizes_c)+[1], activation, None, ensemble_size=critic_ensemble_size))
 
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc
 

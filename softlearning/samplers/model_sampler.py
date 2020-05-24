@@ -49,6 +49,7 @@ class ModelSampler(CpoSampler):
         self._max_uncertainty = max_uncertainty
         self._total_Vs = 0
         self._total_CVs = 0
+        self._cum_var = 0
 
 
         self.batch_size = batch_size
@@ -88,6 +89,7 @@ class ModelSampler(CpoSampler):
         mean_rollout_length = self._total_samples / (self.batch_size+EPS)
         mean_ensemble_dkl_cum = np.mean(self._path_uncertainty)
         mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+EPS))
+        mean_ensemble_var = self._cum_var/(self._total_samples+EPS)
         cost_rate = self._cum_cost/(self._total_samples+EPS)
         return_rate = self._path_return.sum()/(self._total_samples+EPS)
         VVals_mean = self._total_Vs / (self._total_samples+EPS)
@@ -99,6 +101,7 @@ class ModelSampler(CpoSampler):
             'rollout_length_mean': mean_rollout_length,
             'ensemble_dkl_mean': mean_ensemble_dkl,
             'ensemble_dkl_cum_mean' : mean_ensemble_dkl_cum,
+            'ensemble_var_mean' : mean_ensemble_var,
             'cost_rate': cost_rate,
             'return_rate': return_rate,
             'VVals':VVals_mean,
@@ -191,11 +194,20 @@ class ModelSampler(CpoSampler):
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
+        ##### @anyboby temporary
+        v_var = np.var(v_t, axis=-1)
+        vc_var = np.var(vc_t, axis=-1)
+
+        v_t = np.mean(v_t, axis=-1)
+        vc_t = np.mean(vc_t, axis=-1)
+        #####
+
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
         reward = np.squeeze(reward, axis=-1)
         terminal = np.squeeze(terminal, axis=-1)
         c = info.get('cost', np.zeros(reward.shape))
         en_disag = info.get('ensemble_disagreement', 0)
+        self._cum_var += info.get('ensemble_var', 0)*len(self.pool.alive_paths)
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -244,7 +256,7 @@ class ModelSampler(CpoSampler):
                                 pi_info_t,
                                 terminal)
 
-        self.logger.store(VVals=v_t, CostVVals=vc_t)
+        #self.logger.store(VVals=v_t, CostVVals=vc_t, VVars=v_var)
         self._total_Vs += v_t.sum()
         self._total_CVs += vc_t.sum()
 
@@ -307,6 +319,8 @@ class ModelSampler(CpoSampler):
             remaining_mask: A Mask that indicates the remaining alive paths. Has the same shape 
                 as the arg term_mask
         """
+        if not term_mask.any():
+            return np.logical_not(term_mask)
 
         # init final values
         last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
@@ -320,11 +334,10 @@ class ModelSampler(CpoSampler):
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.policy.agent.reward_penalized:
-                last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
+                last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=-1))
             else:
-                last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
-                last_cval = np.squeeze(self.policy.get_vc(cur_obs[term_mask]))
-
+                last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=-1))
+                last_cval = np.squeeze(np.mean(self.policy.get_vc(cur_obs[term_mask]), axis=-1))
 
         self.pool.finish_path_multiple(term_mask, last_val, last_cval)
         remaining_path_mask = np.logical_not(term_mask)
@@ -344,10 +357,10 @@ class ModelSampler(CpoSampler):
             last_val, last_cval = np.zeros(shape=alive_paths.sum()), np.zeros(shape=alive_paths.sum())
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
             if self.policy.agent.reward_penalized:
-                last_val = np.squeeze(self.policy.get_v(current_obs))
+                last_val = np.squeeze(np.mean(self.policy.get_v(current_obs), axis=-1))
             else:
-                last_val = np.squeeze(self.policy.get_v(current_obs))
-                last_cval = np.squeeze(self.policy.get_vc(current_obs))
+                last_val = np.squeeze(np.mean(self.policy.get_v(current_obs), axis=-1))
+                last_cval = np.squeeze(np.mean(self.policy.get_vc(current_obs), axis=-1))
 
             self.pool.finish_path_multiple(term_mask, last_val, last_cval)
 

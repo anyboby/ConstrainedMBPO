@@ -169,6 +169,15 @@ class CpoSampler():
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
+
+        ##### @anyboby temporary
+        v_var = np.var(v_t)
+        vc_var = np.var(vc_t)
+
+        v_t = v_t.mean()
+        vc_t = vc_t.mean()
+        #####
+
         next_observation, reward, terminal, info = self.env.step(a)
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)
@@ -187,7 +196,7 @@ class CpoSampler():
 
         #save and log
         self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
-        self.logger.store(VVals=v_t, CostVVals=vc_t)
+        self.logger.store(VVals=v_t, CostVVals=vc_t, VVars = v_var, CostVVars=vc_var)
         
         self._path_length += 1
         self._path_return += reward
@@ -235,11 +244,11 @@ class CpoSampler():
                 last_val, last_cval = 0, 0
             else:
                 if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(self._current_observation)
+                    last_val = np.mean(self.policy.get_v(self._current_observation), axis=-1)
                     last_cval = 0
                 else:
-                    last_val, last_cval = self.policy.get_v(self._current_observation), \
-                                            self.policy.get_vc(self._current_observation)
+                    last_val, last_cval = np.mean(self.policy.get_v(self._current_observation), axis=-1), \
+                                            np.mean(self.policy.get_vc(self._current_observation), axis=-1)
             self.pool.finish_path(last_val, last_cval)
 
             # Only save EpRet / EpLen if trajectory finished

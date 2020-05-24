@@ -12,11 +12,13 @@ def get_gaussian_policy(env, Q, **kwargs):
 
     return policy
 
-def get_cpo_policy(env, Q, **kwargs):
+def get_cpo_policy(env, session, *args, **kwargs):
     from .cpo_policy import CPOPolicy
     policy = CPOPolicy(
         obs_space=env.observation_space,
         act_space=env.action_space,
+        session=session,
+        *args,
         **kwargs)
 
     return policy
