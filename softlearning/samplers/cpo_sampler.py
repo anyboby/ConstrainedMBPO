@@ -174,8 +174,8 @@ class CpoSampler():
         v_var = np.var(v_t)
         vc_var = np.var(vc_t)
 
-        v_t = v_t.mean()
-        vc_t = vc_t.mean()
+        v_t = np.mean(v_t)
+        vc_t = np.mean(vc_t)
         #####
 
         next_observation, reward, terminal, info = self.env.step(a)
@@ -244,11 +244,11 @@ class CpoSampler():
                 last_val, last_cval = 0, 0
             else:
                 if self.policy.agent.reward_penalized:
-                    last_val = np.mean(self.policy.get_v(self._current_observation), axis=-1)
+                    last_val = np.mean(self.policy.get_v(self._current_observation))
                     last_cval = 0
                 else:
-                    last_val, last_cval = np.mean(self.policy.get_v(self._current_observation), axis=-1), \
-                                            np.mean(self.policy.get_vc(self._current_observation), axis=-1)
+                    last_val, last_cval = np.mean(self.policy.get_v(self._current_observation)), \
+                                            np.mean(self.policy.get_vc(self._current_observation))
             self.pool.finish_path(last_val, last_cval)
 
             # Only save EpRet / EpLen if trajectory finished

@@ -501,7 +501,7 @@ class BNN:
 
         progress.stamp()
         if timer: timer.stamp('bnn_train')
-        # self._set_state()         ##@anyboby this keeps creating new nodes in tf graph. What is it necessary for ?
+        #self._set_state()         ##@anyboby this keeps creating new nodes in tf graph. What is it necessary for ?
         # if timer: timer.stamp('bnn_set_state')
 
         holdout_losses = self.sess.run(
@@ -568,17 +568,17 @@ class BNN:
             if len(inputs.shape) == 2:
                 if factored:
                     return self.sess.run(
-                        [self.sy_pred_mean2d_fac],
+                        self.sy_pred_mean2d_fac,
                         feed_dict={self.sy_pred_in2d: inputs}
                     )
                 else:
                     return self.sess.run(
-                        [self.sy_pred_mean2d],
+                        self.sy_pred_mean2d,
                         feed_dict={self.sy_pred_in2d: inputs}
                     )
             else:
                 return self.sess.run(
-                    [self.sy_pred_mean3d_fac],
+                    self.sy_pred_mean3d_fac,
                     feed_dict={self.sy_pred_in3d: inputs}
                 )
 
@@ -713,8 +713,11 @@ class BNN:
 
         #### just for debugging        
         if tensor_loss: 
-            mean, _ = self._compile_outputs(inputs)
-            return tf.reduce_mean(0.5 * tf.square(mean - targets)*mse_weights_tensor, axis=-2), tf.reduce_mean(mean, axis=-2)
+            if self.include_var:
+                mean, _ = self._compile_outputs(inputs)
+            else:
+                mean = self._compile_outputs(inputs)
+            return 0.5 * tf.square(mean - targets)*mse_weights_tensor, mean
 
         if inc_var_loss:
             assert self.include_var

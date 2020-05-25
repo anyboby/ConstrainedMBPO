@@ -80,7 +80,7 @@ class CMBPO(RLAlgorithm):
             real_ratio=0.1,
             rollout_schedule=[20,100,1,1],
             max_uncertainty = None,
-            hidden_dim=200,
+            hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
 
             use_mjc_state_model = False,
@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
-                                    num_elites=5, hidden_dim=hidden_dim, 
+                                    num_elites=5, hidden_dims=hidden_dims, 
                                     cares_about_cost=True,
                                     safe_config=self.safe_config,
                                     session = self._session)
@@ -302,7 +302,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 50e3
+            min_samples = 10e3
             max_samples = 220e3
             samples_added = 0
 
@@ -336,7 +336,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             model_samples = None
             #### start model rollout
-            if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+            if self._real_ratio<1.0 and self._epoch>40: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 self._training_progress.pause()
                 print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
                 print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
@@ -350,7 +350,7 @@ class CMBPO(RLAlgorithm):
                                                         'costs',
                                                         'terminals'])
                 #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples, batch_size=1024, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
+                model_train_metrics = self.fake_env.train(samples[-50000:], batch_size=1024, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
 
@@ -409,7 +409,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>=min_samples or self._epoch<2:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if len(train_samples[0])>=min_samples or self._epoch<10:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
                 surr_cost_delta = self.logger.get_stats('SurrCostDelta')

@@ -12,7 +12,7 @@ class FakeEnv:
 
     def __init__(self, true_environment, 
                     static_fns, num_networks=7, 
-                    num_elites = 5, hidden_dim = 220,
+                    num_elites = 5, hidden_dims = (220, 220, 220),
                     cares_about_cost=False, 
                     safe_config=None,
                     session = None):
@@ -49,7 +49,7 @@ class FakeEnv:
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
                                         name='BNN',
-                                        hidden_dim=hidden_dim,
+                                        hidden_dims=hidden_dims,
                                         lr=5e-4, 
                                         lr_decay=0.96,
                                         decay_steps=10000,  
@@ -63,7 +63,7 @@ class FakeEnv:
                                         out_dim=2,
                                         loss='CE',
                                         name='CostNN',
-                                        hidden_dim=128,
+                                        hidden_dims=(128, 128, 128),
                                         output_activation='softmax',
                                         lr=5e-5, 
                                         lr_decay=0.96,
@@ -168,7 +168,7 @@ class FakeEnv:
         rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
 
         if self.cares_about_cost:
-            cost_prob = self._cost_model.predict(inputs_cost, factored=True)[0]
+            cost_prob = self._cost_model.predict(inputs_cost, factored=True)
             cost_model_inds = self._cost_model.random_inds(batch_size) 
             cost_prob = cost_prob[cost_model_inds, batch_inds]
             cost_batch = np.tile(self.cost_classes, (batch_size,1))

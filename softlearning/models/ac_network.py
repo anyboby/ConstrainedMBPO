@@ -207,3 +207,12 @@ def mlp_actor(x, a, hidden_sizes=(64,64), activation=tf.tanh,
     
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
 
+def mlp_critic (x, hidden_sizes=(64,64), activation=tf.tanh,
+                     output_activation=None, policy=None, action_space=None, name='V'):
+    with tf.variable_scope(name+'f'):
+        v = tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None))
+
+    with tf.variable_scope(name+'c'):
+        vc = tf.squeeze(mlp(x, list(hidden_sizes)+[1], activation, None))
+    
+    return v, vc

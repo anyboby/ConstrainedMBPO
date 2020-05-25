@@ -18,6 +18,7 @@ from softlearning.policies.safe_utils.mpi_tools import mpi_avg, mpi_fork, proc_i
 from softlearning.policies.safe_utils.mpi_tf import MpiAdamOptimizer, sync_all_params
 from softlearning.models.ac_network import mlp_actor_critic, \
                                             mlp_actor, \
+                                            mlp_critic, \
                                             get_vars, \
                                             count_vars, \
                                             placeholder, \
@@ -25,8 +26,11 @@ from softlearning.models.ac_network import mlp_actor_critic, \
                                             placeholders_from_spaces
 from softlearning.policies.safe_utils.logx import EpochLogger, setup_logger_kwargs, \
                                                 Saver
-from mbpo.models.bnn import BNN
+from mbpo.models.bnn_chua import BNN
 from mbpo.models.constructor import construct_model
+from mbpo.models.fc import FC
+
+import mbpo.models.nn as nn
 
 from .base_policy import BasePolicy
 
@@ -407,9 +411,12 @@ class CPOPolicy(BasePolicy):
         scope = 'policy'
         with tf.variable_scope(scope):
             # kwargs for ac network
-            ac_kwargs=dict()
-            ac_kwargs['action_space'] = self.act_space
-            ac_kwargs['hidden_sizes_a'] = kwargs.get('hidden_layer_sizes_a')
+            a_kwargs=dict()
+            a_kwargs['action_space'] = self.act_space
+            a_kwargs['hidden_sizes'] = kwargs.get('hidden_layer_sizes_a')
+
+            c_kwargs = dict()
+            c_kwargs['hidden_sizes'] = kwargs.get('hidden_layer_sizes_c')
 
             # tf placeholders
             with tf.variable_scope('obs_ph'):
@@ -424,77 +431,152 @@ class CPOPolicy(BasePolicy):
                 self.cadv_ph = placeholder(None)
             with tf.variable_scope('logp_old_ph'):
                 self.logp_old_ph = placeholder(None)
-
             with tf.variable_scope('surr_cost_rescale_ph'):
                 # phs for cpo specific inputs to comp graph
                 self.surr_cost_rescale_ph = placeholder(None)
             with tf.variable_scope('cur_cost_ph'):
                 self.cur_cost_ph = placeholder(None)
 
-            #### set up critic with ac network if ensemble size = 1
-            if self.critic_ensemble_size==1:
-                ac_kwargs['hidden_sizes_c'] = kwargs.get('hidden_layer_sizes_c')
+            # critic phs
+            with tf.variable_scope('ret_ph'):
+                self.ret_ph = placeholder(None)
+            with tf.variable_scope('cret_ph'):
+                self.cret_ph = placeholder(None)
+            with tf.variable_scope('old_v_ph'):
+                self.old_v_ph = placeholder(None)
+            with tf.variable_scope('old_vc_ph'):
+                self.old_vc_ph = placeholder(None)
 
-                with tf.variable_scope('old_v_ph'):
-                    self.old_v_ph = placeholder(None)
-                with tf.variable_scope('ret_ph'):
-                    self.ret_ph = placeholder(None)
+            self.actor = mlp_actor
 
-                with tf.variable_scope('old_vc_ph'):
-                    self.old_vc_ph = placeholder(None)
-                    
-                with tf.variable_scope('cret_ph'):
-                    self.cret_ph = placeholder(None)
+            actor_outs = self.actor(self.obs_ph, self.a_ph, **a_kwargs)
+            self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent \
+                = actor_outs
 
-                self.ac = mlp_actor_critic
+            
+            self.v1, self.vc1 = mlp_critic(self.obs_ph, name='v1', **c_kwargs)
+            self.v2_cl, self.vc2_cl = mlp_critic(self.obs_ph, name='v_cl', **c_kwargs)
 
-                # unpack actor critic outputs
-                ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
-                self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, self.v, self.vc \
-                    = ac_outs
+            self.v = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VEnsemble',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.vf_lr, 
+                        num_networks=self.critic_ensemble_size, 
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
 
-            else:
-                self.ac = mlp_actor
+            self.vc = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr, 
+                        num_networks=self.critic_ensemble_size, 
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+	
+            ######################### DEBUG !!! ###########################
+            params = {'name': 'vc_debug', 
+                        'num_networks': 7, 
+                        'sess': self.sess}       
+            self.vc_debug = BNN(params)
+            self.vc_debug.add(FC(kwargs.get('hidden_layer_sizes_c')[0], input_dim=np.prod(self.obs_space.shape), activation='swish', weight_decay=0.00001))	#0.000025))
+            
+            for hidden_dim in kwargs.get('hidden_layer_sizes_c')[1:]:
+                self.vc_debug.add(FC(hidden_dim, activation='swish', weight_decay=0.00001))			#0.00005))
+            
+            self.vc_debug.add(FC(1, weight_decay=0.0001))
+            opt_params = {"learning_rate":self.cvf_lr} 
+            self.vc_debug.finalize(tf.train.AdamOptimizer, opt_params)
 
-                ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
-                self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent \
-                    = ac_outs
-                self.v = construct_model(in_dim=tf.shape(self.obs_ph), 
-                            out_dim=1,
-                            name='VEnsemble',
-                            hidden_dim=kwargs.get('hidden_layer_sizes_c'),
-                            lr=self.vf_lr, 
-                            num_networks=self.critic_ensemble_size, 
-                            num_elites=5,
-                            session=self.sess)
+            self.vc_st  = nn.EnsembleFeedForwardNet(
+                'vc_st', 
+                in_size= np.prod(self.obs_space.shape), 
+                out_shape = [],
+                layers=4,
+                hidden_dim=128,
+                get_uncertainty=True,
+                ensemble_size=4,
+                train_sample_count=4,
+                eval_sample_count=4,
+                )            
+            self.vc_st_guess = self.vc_st(self.obs_ph, is_eval=False, reduce_mode="random")
+            self.vc_st_loss = .5 * tf.reduce_mean(tf.square(self.vc_st_guess-self.cret_ph))
+            st_opt = tf.train.AdamOptimizer(self.cvf_lr)
+            self.vc_st_trainop = st_opt.minimize(self.vc_st_loss)
+
+            ######## classic v loss ########
+            self.v_cla_loss = .5* tf.reduce_mean(tf.square(self.ret_ph-self.v1))
+            self.vc_cla_loss = .5*tf.reduce_mean(tf.square(self.cret_ph-self.vc1))
+            self.train_v_cla = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_cla_loss)
+            self.train_vc_cla = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_cla_loss)
+            ###############################
+            
+            ######## clipped loss #########
+            # @anyboby testing value clipping
+            old_vpred = self.old_v_ph
+            v_cliprange = 0.1
+            v_clipped = old_vpred + tf.clip_by_value(self.v2_cl-old_vpred, -v_cliprange, v_cliprange)
+            v_loss1 = tf.square(self.ret_ph-self.v2_cl)
+            v_loss2 = tf.square(self.ret_ph-v_clipped)
+            self.v_loss_cl = .5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2))
+            self.v_loss_cl_mse = .5 * tf.reduce_mean(v_loss1)
+            #self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
+
+            old_vcpred = self.old_v_ph
+            
+            vc_cliprange = 0.2 # tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
+            vc_clipped = old_vcpred + tf.clip_by_value(self.vc2_cl-old_vcpred, -vc_cliprange, vc_cliprange)
+            vc_loss1 = tf.square(self.cret_ph-self.vc2_cl)
+
+            vc_loss2 = tf.square(self.cret_ph-vc_clipped)
+            self.vc_loss_cl = .5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2))
+            self.vc_loss_cl_mse = .5*tf.reduce_mean(vc_loss1)
+            #self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
+
+            # If agent uses penalty directly in reward function, don't train a separate
+            # value function for predicting cost returns. (Only use one vf for r - p*c.)
+            total_value_loss = self.v_loss_cl + self.vc_loss_cl
+
+            # Optimizer for value learning
+            #self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
+            #@anyboby testing: this shouldn't make a difference, but lets try it:
+            self.train_vc_cl = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_loss_cl)
+            self.train_v_cl = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_loss_cl)
+
+            #################################################################
 
             # Organize placeholders for zipping with data from buffer on updates
-            self.ensemble_phs = [self.ret_ph, self.cret_ph]
-            self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph,
-                                self.cadv_ph, self.ret_ph, self.cret_ph,
-                                self.logp_old_ph, self.old_v_ph, self.old_vc_ph, 
+            self.buf_fields = [self.obs_ph, self.a_ph, self.adv_ph,
+                                self.cadv_ph, 'returns', 'creturns',
+                                self.logp_old_ph, self.old_v_ph, self.old_vc_ph,
                                 self.cur_cost_ph]
-            self.buf_phs += values_as_sorted_list(self.pi_info_phs)
+            self.buf_fields += values_as_sorted_list(self.pi_info_phs)
+
+            self.actor_phs = [self.obs_ph, self.a_ph, self.adv_ph,
+                                self.cadv_ph, self.logp_old_ph,
+                                self.cur_cost_ph]
+            self.actor_phs += values_as_sorted_list(self.pi_info_phs)
+            
+            self.critic_phs = [
+                self.obs_ph, self.old_v_ph, self.old_vc_ph
+            ]
 
             # organize tf ops required for generation of actions
             self.ops_for_action = dict(pi=self.pi, 
-                                v=self.v, 
                                 logp_pi=self.logp_pi,
                                 pi_info=self.pi_info)
-            self.ops_for_action['vc'] = self.vc
 
             # organize tf ops for diagnostics
             self.ops_for_diagnostics = dict(pi=self.pi,
-                                            v=self.v,
-                                            vc=self.vc,
                                             logp_pi=self.logp_pi,
                                             pi_info=self.pi_info,
-                                            # d_kl=self.d_kl,
-                                            # ent=self.ent,
                                             )
 
             # Count variables
-            var_counts = tuple(count_vars(scope) for scope in ['pi', 'vf', 'vc'])
+            var_counts = tuple(count_vars(scope) for scope in ['pi', 'VCEnsemble', 'VEnsemble'])
             self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
 
             # Make a sample estimate for entropy to use as sanity check
@@ -515,14 +597,7 @@ class CPOPolicy(BasePolicy):
             # ________________________________ #
             ratio = tf.exp(self.logp-self.logp_old_ph)
             # Surrogate advantage / clipped surrogate advantage
-            if self.agent.clipped_adv:
-                min_adv = tf.where(self.adv_ph>0, 
-                                (1+self.agent.clip_ratio)*self.adv_ph, 
-                                (1-self.agent.clip_ratio)*self.adv_ph
-                                )
-                surr_adv = tf.reduce_mean(tf.minimum(ratio * self.adv_ph, min_adv))
-            else:
-                surr_adv = tf.reduce_mean(ratio * self.adv_ph)
+            surr_adv = tf.reduce_mean(ratio * self.adv_ph)
 
             # Surrogate cost (advantage)
             self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
@@ -562,14 +637,6 @@ class CPOPolicy(BasePolicy):
                                         get_pi_params=get_pi_params,
                                         set_pi_params=set_pi_params)
 
-            elif self.agent.first_order:
-
-                # Optimizer for first-order policy optimization
-                train_pi = MpiAdamOptimizer(learning_rate= self.agent.pi_lr).minimize(self.pi_loss)
-
-                # Prepare training package for agent
-                self.training_package = dict(train_pi=train_pi)
-
             else:
                 raise NotImplementedError
 
@@ -582,83 +649,43 @@ class CPOPolicy(BasePolicy):
                                         cost_lim=self.cost_lim))
             self.agent.prepare_update(self.training_package)
 
-            # ________________________________ #        
-            #    Computation graph for value   #
-            # ________________________________ #
-
-            ## only if v is not ensemble
-            if self.critic_ensemble_size==1:
-                # Value losses
-                # @anyboby testing value clipping
-                old_vpred = tf.expand_dims(self.old_v_ph, 1)
-                old_vpred = tf.tile(old_vpred, (1, self.critic_ensemble_size))
-
-                v_cliprange = 0.1
-                v_clipped = old_vpred + tf.clip_by_value(self.v-old_vpred, -v_cliprange, v_cliprange)
-
-                v_targets = tf.expand_dims(self.ret_ph, 1)
-                v_targets = tf.tile(v_targets, (1, self.critic_ensemble_size))
-
-                v_loss1 = tf.square(v_targets-self.v)
-                v_loss2 = tf.square(v_targets-v_clipped)
-                self.v_loss = tf.reduce_sum(.5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2), axis=-1))
-                self.v_loss_mean = tf.reduce_mean(.5*tf.reduce_mean(tf.minimum(v_loss1, v_loss2), axis=-1))
-                #self.v_loss = tf.reduce_mean((self.ret_ph - self.v)**2)
-
-                old_vcpred = tf.expand_dims(self.old_v_ph, 1)
-                old_vcpred = tf.tile(old_vcpred, (1, self.critic_ensemble_size))
-
-                vc_cliprange = 0.2 # tf.reduce_mean(old_vcpred/100)    #vc_cliprange = 0.2, experimental automatic setup !
-                vc_clipped = old_vcpred + tf.clip_by_value(self.vc-old_vcpred, -vc_cliprange, vc_cliprange)
-
-                vc_targets = tf.expand_dims(self.cret_ph, 1)
-                vc_targets = tf.tile(vc_targets, (1, self.critic_ensemble_size))
-
-                vc_loss1 = tf.square(vc_targets-self.vc)
-                vc_loss2 = tf.square(vc_targets-vc_clipped)
-                self.vc_loss = tf.reduce_sum(.5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2)))
-                self.vc_loss_mean = tf.reduce_mean(.5*tf.reduce_mean(tf.minimum(vc_loss1, vc_loss2)))
-                #self.vc_loss = tf.reduce_mean((self.cret_ph - self.vc)**2)
-
-                # If agent uses penalty directly in reward function, don't train a separate
-                # value function for predicting cost returns. (Only use one vf for r - p*c.)
-                total_value_loss = self.v_loss + self.vc_loss
-
-                # Optimizer for value learning
-                #self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(total_value_loss)
-                #@anyboby testing: this shouldn't make a difference, but lets try it:
-                self.train_cvf = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_loss)
-                self.train_vf = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_loss)
-
-
         ##### set up saver after all graph building is done
         self.saver.init_saver(scope=scope)
 
-    def train_critic(self, inputs, batch_size=256, max_epochs=None):
+    def train_critic(self, inputs, **kwargs):
         obs_in = inputs[self.obs_ph]
-        vc_targets = inputs[self.cret_ph]
-        v_targets = inputs[self.ret_ph]
-        
-        idxs = np.random.randint(obs_in.shape[0], size=[self.critic_ensemble_size, obs_in.shape[0]])
-        if max_epochs:
-            epoch_iter = range(max_epochs)
-        else:
-            epoch_iter = itertools.count()
+        vc_targets = inputs[self.cret_ph][:, np.newaxis]
+        v_targets = inputs[self.ret_ph][:, np.newaxis]
 
-        grad_updates = 0
-        for epoch in epoch_iter:
-            for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
-                batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
-                self.sess.run(
-                    self.train_vf, 
-                    feed_dict={self.obs_ph:obs_in[batch_idxs], self.ret_ph:v_targets[batch_idxs]}
-                    )
-                self.sess.run(
-                    self.train_cvf, 
-                    feed_dict={self.obs_ph:obs_in[batch_idxs], self.cret_ph: vc_targets[batch_idxs]}
-                    )
-                grad_updates += 1
-            idxs = self.shuffle_rows(idxs)
+        self.old_inputs = obs_in
+        self.old_targets = vc_targets
+        vc_metrics = self.vc.train(obs_in,
+                                    vc_targets,
+                                    **kwargs,
+                                    )                                            
+        
+        v_metrics = self.v.train(obs_in, 
+                                    v_targets, 
+                                    **kwargs,
+                                    )
+        self.vc_debug.train(obs_in,
+                                    vc_targets,
+                                    batch_size=kwargs['batch_size'],
+                                    epochs=self.vf_iters,
+                                    )                                
+        for i in range(self.vf_iters):
+            self.sess.run(self.vc_st_trainop, feed_dict=inputs)
+            self.sess.run(
+                self.train_vc_cla, 
+                feed_dict=inputs
+                )
+            self.sess.run(
+                self.train_vc_cl, 
+                feed_dict=inputs
+                )
+
+        return v_metrics.update(vc_metrics)
+
 
 
     def shuffle_rows(self, arr):
@@ -691,25 +718,57 @@ class CPOPolicy(BasePolicy):
         #  Prepare feed dict                                                  #
         #=====================================================================#
 
-        inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
-        #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
-
+        inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+        actor_inputs = {buf_ph:inputs[buf_ph] for buf_ph in self.actor_phs}
+        critic_inputs = {buf_ph:inputs[buf_ph] for buf_ph in self.critic_phs}
+        critic_inputs[self.ret_ph] = inputs['returns']
+        critic_inputs[self.cret_ph] = inputs['creturns']
         #=====================================================================#
         #  Make some measurements before updating                             #
         #=====================================================================#
 
         measures = dict(LossPi=self.pi_loss,
                         SurrCost=self.surr_cost,
-                        LossV=self.v_loss_mean,
                         Entropy=self.ent)
-        if not(self.agent.reward_penalized):
-            measures['LossVC'] = self.vc_loss_mean
 
-        # measure_inputs = inputs
-        # for to_be_repeated in self.ensemble_phs:   ### repeat measures to fit ensemble
-        #     measure_inputs[to_be_repeated] = np.repeat(measure_inputs[to_be_repeated][:, np.newaxis, ...], repeats=self.critic_ensemble_size, axis=1)
 
-        pre_update_measures = self.sess.run(measures, feed_dict=inputs)
+        pre_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
+
+        v_ins, v_tars, vc_ins, vc_tars = inputs[self.obs_ph], \
+                                            inputs['returns'][:, np.newaxis], \
+                                            inputs[self.obs_ph], \
+                                            inputs['creturns'][:, np.newaxis]
+        
+        vloss = self.v.validate(v_ins, v_tars)
+        vcloss = self.vc.validate(vc_ins, vc_tars)        
+                        
+        ################################## DEBUG ########################
+        vc_ins_deb = np.tile(v_ins[np.newaxis,...], (7,1,1))
+        vc_outs_deb = np.tile(v_tars[np.newaxis,...], (7,1,1))
+        vc_deb_loss = self.sess.run(self.vc_debug.mse_loss, feed_dict={self.vc_debug.sy_train_in:vc_ins_deb, self.vc_debug.sy_train_targ: vc_outs_deb})
+        vc_st_loss = self.sess.run(self.vc_st_loss, feed_dict=critic_inputs)
+        vc_cla_loss = self.sess.run(
+            self.vc_cla_loss, 
+            feed_dict=critic_inputs
+        )
+        vc_cl_loss = self.sess.run(
+            self.vc_loss_cl, 
+            feed_dict=critic_inputs
+        )
+        vc_cl_loss_mse = self.sess.run(
+            self.vc_loss_cl_mse, 
+            feed_dict=critic_inputs
+        )
+
+        ################################## DEBUG END ########################
+
+        pre_update_measures['LossV'] = vloss
+        pre_update_measures['LossVC'] = vcloss
+        pre_update_measures['LossVC_chua'] = vc_deb_loss.mean()
+        pre_update_measures['LossVC_STEVE'] = vc_st_loss
+        pre_update_measures['LossVC_classic'] = vc_cla_loss
+        pre_update_measures['LossVC_clipped_mse'] = vc_cl_loss_mse
+        pre_update_measures['LossVC_clipped'] = vc_cl_loss
         self.logger.store(**pre_update_measures)
 
         #=====================================================================#
@@ -722,13 +781,18 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         #  Update policy                                                      #
         #=====================================================================#
-        self.agent.update_pi(inputs)
+        self.agent.update_pi(actor_inputs)
 
         #=====================================================================#
         #  Update value function                                              #
         #=====================================================================#
-        self.train_critic(inputs, batch_size=2048, max_epochs=self.vf_iters)
-
+        self.train_critic(
+            critic_inputs, 
+            batch_size=256, 
+            min_epoch_before_break=self.vf_iters, 
+            max_epochs=self.vf_iters+1, 
+            holdout_ratio=0.2
+            )
 
         #=====================================================================#
         #  Make some measurements after updating                              #
@@ -737,7 +801,12 @@ class CPOPolicy(BasePolicy):
         del measures['Entropy']
         measures['KL'] = self.d_kl
 
-        post_update_measures = self.sess.run(measures, feed_dict=inputs)
+        post_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
+        vloss_post = self.v.validate(v_ins, v_tars)
+        vcloss_post = self.vc.validate(vc_ins, vc_tars)         
+        post_update_measures['LossV'] = vloss_post
+        post_update_measures['LossVC'] = vcloss_post
+
         deltas = dict()
         for k in post_update_measures:
             if k in pre_update_measures:
@@ -776,17 +845,39 @@ class CPOPolicy(BasePolicy):
         feed_obs = self.format_obs_for_tf(obs)
         get_action_outs = self.sess.run(self.ops_for_action, 
                         feed_dict={self.obs_ph: feed_obs})
+        v = self.sess.run(
+            self.v2_cl,
+            feed_dict={self.obs_ph: feed_obs}
+            )
+        vc = self.sess.run(
+            self.vc2_cl,
+            feed_dict={self.obs_ph: feed_obs}
+            )
+        # v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
+        # vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
+        get_action_outs['v'] = v
+        get_action_outs['vc'] = vc
         return get_action_outs
 
     def get_v(self, obs):
         feed_obs = self.format_obs_for_tf(obs)
-        val = self.sess.run([self.v], feed_dict={self.obs_ph: feed_obs})
-        return val
+        v = self.sess.run(
+            self.v2_cl,
+            feed_dict={self.obs_ph:feed_obs}
+            )
+        
+        # v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
+        return v
 
     def get_vc(self, obs):
         feed_obs = self.format_obs_for_tf(obs)
-        val_c = self.sess.run([self.vc], feed_dict={self.obs_ph: feed_obs})
-        return val_c
+        # vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
+
+        vc = self.sess.run(
+            self.vc2_cl,
+            feed_dict={self.obs_ph:feed_obs}
+            )
+        return vc
 
     @contextmanager
     def set_deterministic(self, deterministic=True):
@@ -843,6 +934,13 @@ class CPOPolicy(BasePolicy):
             logger.log_tabular('LossVC', average_only=True)
             logger.log_tabular('LossVCDelta', average_only=True)
 
+            ##### DEBUG logs #####
+            logger.log_tabular('LossVC_chua', average_only=True)
+            logger.log_tabular('LossVC_STEVE', average_only=True)
+            logger.log_tabular('LossVC_classic', average_only=True)
+            logger.log_tabular('LossVC_clipped_mse', average_only=True)
+            logger.log_tabular('LossVC_clipped', average_only=True)
+            ##### DEBUG logs end #####
 
         if self.agent.use_penalty or self.agent.save_penalty:
             logger.log_tabular('Penalty', average_only=True)
@@ -880,12 +978,13 @@ class CPOPolicy(BasePolicy):
         
 
         a = get_diag_outs['pi']
-        v = get_diag_outs['v']
-        vc = get_diag_outs.get('vc', 0)  # Agent may not use cost value func
         logp = get_diag_outs['logp_pi']
         pi_info = get_diag_outs['pi_info']
-        # d_kl = get_diag_outs['d_kl']
-        # ent = get_diag_outs['ent']
+
+        v = self.get_v(obs)
+        vc = self.get_vc(obs)  # Agent may not use cost value func
+
+
         pi_info_means = {'cpo/pi_info_'+k:np.mean(v) for k,v in pi_info.items()}
         diag = OrderedDict({
             'cpo/a-mean'        : np.mean(a),

@@ -9,7 +9,7 @@ from mbpo.models.bnn import BNN
 def construct_model(in_dim, 
 					out_dim,
 					name='BNN',
-					hidden_dim=200, 
+					hidden_dims=(200, 200, 200), 
 					num_networks=7, 
 					num_elites=5,
 					loss = 'NLL', 
@@ -27,7 +27,7 @@ def construct_model(in_dim,
 		loss: Choose from 'NLL', 'MSE', 'Huber' or 'CE'. 
 				choosing NLL will construct a model with variance output
 	"""
-	print('[ BNN ] dim in / out: {} / {} | Hidden dim: {}'.format(in_dim, out_dim, hidden_dim))
+	print('[ BNN ] dim in / out: {} / {} | Hidden dim: {}'.format(in_dim, out_dim, hidden_dims))
 	#print('[ BNN ] Input Layer dim: {} | Output Layer dim: {} '.format(obs_dim_in+act_dim+prior_dim, obs_dim_out+rew_dim))
 	params = {'name': name, 
 				'loss':loss, 
@@ -35,15 +35,12 @@ def construct_model(in_dim,
 				'num_elites': num_elites, 
 				'sess': session}
 	model = BNN(params)
-
-	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.000025))	#0.000025))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.00005))			#0.00005))
-	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
-	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
-	### output activation is determined by loss type
-	model.add(FC(out_dim, activation=output_activation, weight_decay=0.0001))									#0.0001
+	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=0.0000))	#0.000025))
+	
+	for hidden_dim in hidden_dims[1:]:
+		model.add(FC(hidden_dim, activation=activation, weight_decay=0.0000))			#0.00005))
+	
+	model.add(FC(out_dim, activation=output_activation, weight_decay=0.000))									#0.0001
 	
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,
