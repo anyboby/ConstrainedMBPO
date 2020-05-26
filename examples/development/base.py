@@ -34,13 +34,12 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_iters':             80,                 
         'target_kl':            0.01,            # @anyboby maybe remove ?
         'ent_reg':              0.0,
-        'cost_lim_end':         2500,
-        'cost_lim':             2500,
+        'cost_lim_end':         4000,
+        'cost_lim':             4000,
         'cost_lam':             0.97,
         'cost_gamma':           0.99,
         'lam':                  0.97,
         'gamma':                0.99,
-        'rollout_batch_size':   10000,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
                ['algorithm_params']['kwargs']['epoch_length'] 
@@ -266,7 +265,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(1e5),
+                    'CPOBuffer':int(5e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

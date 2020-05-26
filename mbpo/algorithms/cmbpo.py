@@ -79,6 +79,8 @@ class CMBPO(RLAlgorithm):
             rollout_batch_size=100e3,
             real_ratio=0.1,
             rollout_schedule=[20,100,1,1],
+            dyn_model_train_schedule=[20, 100, 1, 5],
+            cost_model_train_schedule=[20, 100, 1, 30],
             max_uncertainty = None,
             hidden_dim=200,
             max_model_t=None,
@@ -157,7 +159,10 @@ class CMBPO(RLAlgorithm):
 
         self._model_retain_epochs = model_retain_epochs
 
-        self._model_train_freq = model_train_freq
+        self._dyn_model_train_schedule = dyn_model_train_schedule
+        self._cost_model_train_schedule = cost_model_train_schedule
+        self._dyn_model_train_freq = 1
+        self._cost_model_train_freq = 1
         self._rollout_batch_size = int(rollout_batch_size)
         self._max_uncertainty = max_uncertainty
         self._deterministic = deterministic
@@ -341,9 +346,17 @@ class CMBPO(RLAlgorithm):
             #### start model rollout
             if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 self._training_progress.pause()
+                self._dyn_model_train_freq = self._set_model_train_freq(
+                    self._dyn_model_train_freq, 
+                    self._dyn_model_train_schedule
+                    ) ## set current train freq.
+                self._cost_model_train_freq = self._set_model_train_freq(
+                    self._cost_model_train_freq, 
+                    self._cost_model_train_schedule
+                    )
                 print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
                 print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
-                    self._epoch, self._model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
+                    self._epoch, self._dyn_model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
                 )
 
                 samples = self._pool.get_archive(['observations',
@@ -352,17 +365,34 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples, batch_size=1024, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
-                model_metrics.update(model_train_metrics)
+                
+                if self._epoch%self._dyn_model_train_freq==0:
+                    model_train_metrics_dyn = self.fake_env.train_dyn_model(
+                        samples, 
+                        batch_size=512, 
+                        max_epochs=1500, 
+                        holdout_ratio=0.2, 
+                        max_t=self._max_model_t
+                        )
+                    model_metrics.update(model_train_metrics_dyn)
+
+                if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
+                    model_train_metrics_cost = self.fake_env.train_cost_model(
+                        samples, 
+                        batch_size=512, 
+                        max_epochs=1500, 
+                        holdout_ratio=0.2, 
+                        max_t=self._max_model_t
+                        )
+                    model_metrics.update(model_train_metrics_cost)
+
                 gt.stamp('epoch_train_model')
 
                 #=====================================================================#
                 #  Rollout Model                                                      #
                 #=====================================================================#
-                self._set_rollout_length()
-                print('[ Model Rollout ] Starting | Epoch: {} | Rollout length: {} | Batch size: {}'.format(
-                    self._epoch, 'auto', self._rollout_batch_size #self._epoch, self._rollout_length, self._rollout_batch_size
+                print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
+                    self._epoch, self._rollout_batch_size 
                 ))                
                 
                 ### set initial states
@@ -374,6 +404,8 @@ class CMBPO(RLAlgorithm):
                 # next_obs, rew, terminal, info = self.sampler.sample()
                 # self.model_sampler.reset(np.concatenate((next_obs[np.newaxis,:], next_obs[np.newaxis,:]), axis=0))
                 
+
+                ### skip rollout twice if model has been reset
                 for i in count():
                     print(f'Sampling step Nr. {i+1}')
 
@@ -415,7 +447,7 @@ class CMBPO(RLAlgorithm):
             if len(train_samples[0])>=min_samples or self._epoch<2:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
-
+                surr_cost_delta = self.logger.get_stats('SurrCostDelta')
                 #### empty train_samples
                 train_samples = None
                 samples_added = 0
@@ -516,22 +548,20 @@ class CMBPO(RLAlgorithm):
     def train(self, *args, **kwargs):
         return self._train(*args, **kwargs)
 
-
-
-    def _set_rollout_length(self):
-        min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+    def _set_model_train_freq(self, var, schedule):
+        min_epoch, max_epoch, min_freq, max_freq = schedule
         if self._epoch <= min_epoch:
-            y = min_length
+            y = min_freq
         else:
             dx = (self._epoch - min_epoch) / (max_epoch - min_epoch)
             dx = min(dx, 1)
-            y = dx * (max_length - min_length) + min_length
+            y = dx * (max_freq - min_freq) + min_freq
 
-        self._rollout_length = int(y)
-        print('[ Model Length ] Epoch: {} (min: {}, max: {}) | Length: {} (min: {} , max: {})'.format(
-            self._epoch, min_epoch, max_epoch, self._rollout_length, min_length, max_length
+        var = int(y)
+        print('[ Model Train Frequency ] Epoch: {} (min: {}, max: {}) | Frequency: {} (min: {} , max: {})'.format(
+            self._epoch, min_epoch, max_epoch, var, min_freq, max_freq
         ))
-
+        return var
 
     def _visualize_model(self, env, timestep):
         ## save env state

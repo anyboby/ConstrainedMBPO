@@ -164,6 +164,10 @@ class CPOAgent(TrustRegionAgent):
         self.margin_lr = 0.05
         self.margin_discount = 0.93
         self.c_gamma = kwargs['c_gamma']
+        self.d_control = True
+        self.delta = 0.6
+        self.decayed_surr_cost = 0
+        self.surr_cost_decay = 0.6
         self.max_path_length = kwargs['max_path_length']
 
 
@@ -180,12 +184,12 @@ class CPOAgent(TrustRegionAgent):
         d_kl = self.training_package['d_kl']
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
-        c_disc_ret_op = self.training_package['c_disc_ret']
+        cur_cost_avg_op = self.training_package['cur_cost_avg']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
-        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, c_disc_ret_op], feed_dict=inputs)
+        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cost_avg_op], feed_dict=inputs)
         outs = [mpi_avg(out) for out in outs]
-        g, b, pi_l_old, surr_cost_old, c_ret_old = outs
+        g, b, pi_l_old, surr_cost_old, cur_cost_avg = outs
 
         # Need old params, old policy cost gap (epcost - limit), 
         # and surr_cost rescale factor (equal to average eplen).
@@ -199,9 +203,15 @@ class CPOAgent(TrustRegionAgent):
 
         # compare
         c_debug = self.logger.get_stats('CostEp')[0] - cost_lim
+        c_debug /= (rescale + EPS)
+
         # undiscount (@anyboby TODO not really understand why we undiscount here, despite
         # the theory in CPO suggests the discounted Return)
-        c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
+        #c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
+        c = cur_cost_avg*rescale-cost_lim
+
+        if self.d_control:
+            c += self.delta * self.decayed_surr_cost
 
         # Consider the right margin
         if self.learn_margin:
@@ -303,6 +313,7 @@ class CPOAgent(TrustRegionAgent):
             if (kl <= target_kl and
                 (pi_l_new <= pi_l_old if optim_case > 1 else True) and
                 surr_cost_new - surr_cost_old <= max(-c,0)):
+                self.decayed_surr_cost = (surr_cost_new-surr_cost_old)+self.surr_cost_decay*self.decayed_surr_cost
                 self.logger.log('Accepting new params at step %d of line search.'%j)
                 self.logger.store(BacktrackIters=j)
                 break
@@ -348,7 +359,6 @@ class CPOPolicy(BasePolicy):
         self.cost_gamma = kwargs.get('cost_gamma', 0.99)
         self.lam = kwargs.get('lam', 0.97)
         self.gamma = kwargs.get('discount', 0.99)
-        self.stepchs_per_epoch = kwargs.get('rollout_batch_size', 10000)
         self.vf_iters = kwargs.get('vf_iters', 80)
         self.max_path_length = kwargs.get('max_path_length', 1)
         #usually not deterministic, but give the option for eval runs
@@ -423,7 +433,7 @@ class CPOPolicy(BasePolicy):
                 # phs for cpo specific inputs to comp graph
                 self.surr_cost_rescale_ph = tf.placeholder(tf.float32, shape=())
             with tf.variable_scope('cur_cost_ph'):
-                self.cur_cost_ph = tf.placeholder(tf.float32, shape=())
+                self.cur_cost_ph = placeholders(*(None for _ in range(1)))[0]
 
             # unpack actor critic outputs
             ac_outs = self.ac(self.obs_ph, self.a_ph, **ac_kwargs)
@@ -431,9 +441,10 @@ class CPOPolicy(BasePolicy):
                 = ac_outs
 
             # Organize placeholders for zipping with data from buffer on updates
-            self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph, \
-                                self.cadv_ph, self.ret_ph, self.cret_ph,\
-                                self.logp_old_ph, self.old_v_ph, self.old_vc_ph]
+            self.buf_phs = [self.obs_ph, self.a_ph, self.adv_ph,
+                                self.cadv_ph, self.ret_ph, self.cret_ph,
+                                self.logp_old_ph, self.old_v_ph, self.old_vc_ph, 
+                                self.cur_cost_ph]
             self.buf_phs += values_as_sorted_list(self.pi_info_phs)
 
             # organize tf ops required for generation of actions
@@ -488,7 +499,7 @@ class CPOPolicy(BasePolicy):
             self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
 
             # Cret
-            self.c_disc_ret = tf.reduce_mean(self.cret_ph)
+            self.cur_cost_avg = tf.reduce_mean(self.cur_cost_ph)
 
             # cost_lim if it were discounted
             # self.disc_cost_lim = (self.cost_lim/self.ep_len)
@@ -536,7 +547,7 @@ class CPOPolicy(BasePolicy):
             # Provide training package to agent
             self.training_package.update(dict(pi_loss=self.pi_loss, 
                                         surr_cost=self.surr_cost,
-                                        c_disc_ret = self.c_disc_ret,
+                                        cur_cost_avg = self.cur_cost_avg,
                                         d_kl=self.d_kl, 
                                         target_kl=self.target_kl,
                                         cost_lim=self.cost_lim))
@@ -639,68 +650,66 @@ class CPOPolicy(BasePolicy):
 
     #@anyboby todo: buf_inputs has to be delivered to update. implement when buffer (or pool) is done
     def update(self, buf_inputs, ):
-        with tf.Graph().as_default():  # Performs training in a new, empty graph.
-            cur_cost = self.logger.get_stats('CostEp')[0]
-            #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
-            cur_cost_lim = self.cost_lim
-            c = cur_cost - cur_cost_lim
-            if c > 0 and self.agent.cares_about_cost:
-                self.logger.log('Warning! Safety constraint is already violated.', 'red')
+        cur_cost = self.logger.get_stats('CostEp')[0]
+        #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
+        cur_cost_lim = self.cost_lim
+        c = cur_cost - cur_cost_lim
+        if c > 0 and self.agent.cares_about_cost:
+            self.logger.log('Warning! Safety constraint is already violated.', 'red')
 
-            #=====================================================================#
-            #  Prepare feed dict                                                  #
-            #=====================================================================#
+        #=====================================================================#
+        #  Prepare feed dict                                                  #
+        #=====================================================================#
 
-            inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
-            #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
-            inputs[self.cur_cost_ph] = cur_cost
+        inputs = {k:v for k,v in zip(self.buf_phs, buf_inputs)}     
+        #inputs[self.surr_cost_rescale_ph] = self.logger.get_stats('EpLen')[0]
 
-            #=====================================================================#
-            #  Make some measurements before updating                             #
-            #=====================================================================#
+        #=====================================================================#
+        #  Make some measurements before updating                             #
+        #=====================================================================#
 
-            measures = dict(LossPi=self.pi_loss,
-                            SurrCost=self.surr_cost,
-                            LossV=self.v_loss,
-                            Entropy=self.ent)
-            if not(self.agent.reward_penalized):
-                measures['LossVC'] = self.vc_loss
+        measures = dict(LossPi=self.pi_loss,
+                        SurrCost=self.surr_cost,
+                        LossV=self.v_loss,
+                        Entropy=self.ent)
+        if not(self.agent.reward_penalized):
+            measures['LossVC'] = self.vc_loss
 
-            pre_update_measures = self.sess.run(measures, feed_dict=inputs)
-            self.logger.store(**pre_update_measures)
+        pre_update_measures = self.sess.run(measures, feed_dict=inputs)
+        self.logger.store(**pre_update_measures)
 
-            #=====================================================================#
-            #  update cost_limit (@mo creation)                               #
-            #=====================================================================#
-            # Provide training package to agent
-            self.training_package["cost_lim"]= cur_cost_lim
-            self.agent.prepare_update(self.training_package)
+        #=====================================================================#
+        #  update cost_limit (@mo creation)                               #
+        #=====================================================================#
+        # Provide training package to agent
+        self.training_package["cost_lim"]= cur_cost_lim
+        self.agent.prepare_update(self.training_package)
 
-            #=====================================================================#
-            #  Update policy                                                      #
-            #=====================================================================#
-            self.agent.update_pi(inputs)
+        #=====================================================================#
+        #  Update policy                                                      #
+        #=====================================================================#
+        self.agent.update_pi(inputs)
 
-            #=====================================================================#
-            #  Update value function                                              #
-            #=====================================================================#
-            for _ in range(self.vf_iters):
-                self.sess.run(self.train_vf, feed_dict=inputs)
-                self.sess.run(self.train_cvf, feed_dict=inputs)
+        #=====================================================================#
+        #  Update value function                                              #
+        #=====================================================================#
+        for _ in range(self.vf_iters):
+            self.sess.run(self.train_vf, feed_dict=inputs)
+            self.sess.run(self.train_cvf, feed_dict=inputs)
 
-            #=====================================================================#
-            #  Make some measurements after updating                              #
-            #=====================================================================#
+        #=====================================================================#
+        #  Make some measurements after updating                              #
+        #=====================================================================#
 
-            del measures['Entropy']
-            measures['KL'] = self.d_kl
+        del measures['Entropy']
+        measures['KL'] = self.d_kl
 
-            post_update_measures = self.sess.run(measures, feed_dict=inputs)
-            deltas = dict()
-            for k in post_update_measures:
-                if k in pre_update_measures:
-                    deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
-            self.logger.store(KL=post_update_measures['KL'], **deltas)
+        post_update_measures = self.sess.run(measures, feed_dict=inputs)
+        deltas = dict()
+        for k in post_update_measures:
+            if k in pre_update_measures:
+                deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
+        self.logger.store(KL=post_update_measures['KL'], **deltas)
 
 
     def format_obs_for_tf(self, obs):

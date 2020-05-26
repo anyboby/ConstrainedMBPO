@@ -211,7 +211,8 @@ class ModelBuffer(CPOBuffer):
 
         res = [self.obs_buf, self.act_buf, self.adv_buf, 
                 self.cadv_buf, self.ret_buf, self.cret_buf, 
-                self.logp_buf, self.val_buf, self.cval_buf] \
+                self.logp_buf, self.val_buf, self.cval_buf,
+                self.cost_buf] \
                 + values_as_sorted_list(self.pi_info_bufs)
 
         # filter out unpopulated entries / finished paths

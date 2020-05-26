@@ -36,14 +36,14 @@ def construct_model(in_dim,
 				'sess': session}
 	model = BNN(params)
 
-	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.000025))	#0.000025))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.00005))			#0.00005))
+	model.add(FC(hidden_dim, input_dim=in_dim, activation=activation, weight_decay=0.001))	#0.000025))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))			#0.00005))
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00003))		#@anyboby optional
 	#model.add(FC(hidden_dim, activation="swish", weight_decay=0.00005))		#@anyboby optional
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
-	model.add(FC(hidden_dim, activation=activation, weight_decay=0.000075))		#0.000075))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))		#0.000075))
+	model.add(FC(hidden_dim, activation=activation, weight_decay=0.001))		#0.000075))
 	### output activation is determined by loss type
-	model.add(FC(out_dim, activation=output_activation, weight_decay=0.0001))									#0.0001
+	model.add(FC(out_dim, activation=output_activation, weight_decay=0.001))									#0.0001
 	
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,
@@ -63,7 +63,7 @@ def construct_model(in_dim,
 
 	return model
 
-def format_samples_for_dyn(samples, priors = None, safe_config=None, add_noise=False):
+def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -116,12 +116,12 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, add_noise=F
 
 	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
 	# add noise
-	if add_noise:
-		inputs = _add_noise(inputs, 0.0001)		### noise helps 
+	if noise:
+		inputs = _add_noise(inputs, noise)		### noise helps 
 
 	return inputs, outputs
 
-def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = None, add_noise=False):
+def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = None, noise=None):
 	"""
 	formats samples to fit training for cost, specifically returns: 
 
@@ -158,15 +158,15 @@ def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = Non
 	## ________________________________ ##
 	if len(outputs[np.where(costs>0)[0]])>0:
 		imbalance_ratio = len(outputs[np.where(costs==0)[0]])//len(outputs[np.where(costs>0)[0]])
-		extra_outputs = np.tile(outputs[np.where(costs>0)[0]], (imbalance_ratio,1))
+		extra_outputs = np.tile(outputs[np.where(costs>0)[0]], (1+imbalance_ratio//4,1))		## don't need to overdo it
 		outputs = np.concatenate((outputs, extra_outputs), axis=0)
-		extra_inputs = np.tile(inputs[np.where(costs>0)[0]], (imbalance_ratio,1))
+		extra_inputs = np.tile(inputs[np.where(costs>0)[0]], (1+imbalance_ratio//4,1))
 		extra_inputs = _add_noise(extra_inputs, 0.0001)
 		inputs = np.concatenate((inputs, extra_inputs), axis=0)
 	
 	### ______ add noise _____ ###
-	if add_noise:
-		inputs = _add_noise(inputs, 0.0001)		### noise helps 
+	if noise:
+		inputs = _add_noise(inputs, noise)		### noise helps 
 
 	return inputs, outputs
 
