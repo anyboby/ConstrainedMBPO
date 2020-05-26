@@ -455,40 +455,89 @@ class CPOPolicy(BasePolicy):
 
             
             self.v1, self.vc1 = mlp_critic(self.obs_ph, name='v1', **c_kwargs)
+            self.v1_mb, self.vc1_mb = mlp_critic(self.obs_ph, name='v1_mb', **c_kwargs)
+            self.v2_mb, self.vc2_mb = mlp_critic(self.obs_ph, name='v2_mb', **c_kwargs)
+
             self.v2_cl, self.vc2_cl = mlp_critic(self.obs_ph, name='v_cl', **c_kwargs)
 
             self.v = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
                         name='VEnsemble',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
-                        lr=self.vf_lr, 
+                        lr=self.vf_lr/15, 
                         num_networks=self.critic_ensemble_size, 
+                        activation='ReLU',
                         loss='MSE',
                         num_elites=5,
                         session=self.sess)
 
-            self.vc = construct_model(in_dim=np.prod(self.obs_space.shape),
+            self.vc_relu = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble',
+                        name='VCEnsemble_Relu',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
                         lr=self.cvf_lr, 
                         num_networks=self.critic_ensemble_size, 
+                        activation='ReLU',
                         loss='MSE',
                         num_elites=5,
                         session=self.sess)
 	
+            self.vc_swish = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_Swish',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/15, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+
+            self.vc_mmb = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_mmb',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/15, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+            
+            self.vc_mmb_lr20 = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_mmb_lr20',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/20, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+
+            self.vc_mmb_lr15_epadap = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_mmb_lr15_epadap',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/15, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+
             ######################### DEBUG !!! ###########################
             params = {'name': 'vc_debug', 
                         'num_networks': 7, 
                         'sess': self.sess}       
             self.vc_debug = BNN(params)
-            self.vc_debug.add(FC(kwargs.get('hidden_layer_sizes_c')[0], input_dim=np.prod(self.obs_space.shape), activation='swish', weight_decay=0.00001))	#0.000025))
+            self.vc_debug.add(FC(kwargs.get('hidden_layer_sizes_c')[0], input_dim=np.prod(self.obs_space.shape), activation='swish', weight_decay=0.0000))	#0.000025))
             
             for hidden_dim in kwargs.get('hidden_layer_sizes_c')[1:]:
-                self.vc_debug.add(FC(hidden_dim, activation='swish', weight_decay=0.00001))			#0.00005))
+                self.vc_debug.add(FC(hidden_dim, activation='swish', weight_decay=0.0000))			#0.00005))
             
-            self.vc_debug.add(FC(1, weight_decay=0.0001))
-            opt_params = {"learning_rate":self.cvf_lr} 
+            self.vc_debug.add(FC(1, weight_decay=0.000))
+            opt_params = {"learning_rate":self.cvf_lr/15} 
             self.vc_debug.finalize(tf.train.AdamOptimizer, opt_params)
 
             self.vc_st  = nn.EnsembleFeedForwardNet(
@@ -513,6 +562,19 @@ class CPOPolicy(BasePolicy):
             self.train_v_cla = MpiAdamOptimizer(learning_rate=self.vf_lr).minimize(self.v_cla_loss)
             self.train_vc_cla = MpiAdamOptimizer(learning_rate=self.cvf_lr).minimize(self.vc_cla_loss)
             ###############################
+
+            ######## classic v mb ##########
+            self.v_cla_mb_loss = .5* tf.reduce_mean(tf.square(self.ret_ph-self.v1_mb))
+            self.vc_cla_mb_loss = .5*tf.reduce_mean(tf.square(self.cret_ph-self.vc1_mb))
+            self.train_v_cla_mb = MpiAdamOptimizer(learning_rate=self.vf_lr/15).minimize(self.v_cla_mb_loss)
+            self.train_vc_cla_mb = MpiAdamOptimizer(learning_rate=self.cvf_lr/15).minimize(self.vc_cla_mb_loss)
+
+            self.v2_cla_mb_loss = .5* tf.reduce_mean(tf.square(self.ret_ph-self.v2_mb))
+            self.vc2_cla_mb_loss = .5*tf.reduce_mean(tf.square(self.cret_ph-self.vc2_mb))
+            self.train_v2_cla_mb = MpiAdamOptimizer(learning_rate=self.vf_lr/10).minimize(self.v2_cla_mb_loss)
+            self.train_vc2_cla_mb = MpiAdamOptimizer(learning_rate=self.cvf_lr/10).minimize(self.vc2_cla_mb_loss)
+
+            ######## classic v mb end ##########
             
             ######## clipped loss #########
             # @anyboby testing value clipping
@@ -652,40 +714,6 @@ class CPOPolicy(BasePolicy):
         ##### set up saver after all graph building is done
         self.saver.init_saver(scope=scope)
 
-    def train_critic(self, inputs, **kwargs):
-        obs_in = inputs[self.obs_ph]
-        vc_targets = inputs[self.cret_ph][:, np.newaxis]
-        v_targets = inputs[self.ret_ph][:, np.newaxis]
-
-        self.old_inputs = obs_in
-        self.old_targets = vc_targets
-        vc_metrics = self.vc.train(obs_in,
-                                    vc_targets,
-                                    **kwargs,
-                                    )                                            
-        
-        v_metrics = self.v.train(obs_in, 
-                                    v_targets, 
-                                    **kwargs,
-                                    )
-        self.vc_debug.train(obs_in,
-                                    vc_targets,
-                                    batch_size=kwargs['batch_size'],
-                                    epochs=self.vf_iters,
-                                    )                                
-        for i in range(self.vf_iters):
-            self.sess.run(self.vc_st_trainop, feed_dict=inputs)
-            self.sess.run(
-                self.train_vc_cla, 
-                feed_dict=inputs
-                )
-            self.sess.run(
-                self.train_vc_cl, 
-                feed_dict=inputs
-                )
-
-        return v_metrics.update(vc_metrics)
-
 
 
     def shuffle_rows(self, arr):
@@ -733,42 +761,10 @@ class CPOPolicy(BasePolicy):
 
 
         pre_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
-
-        v_ins, v_tars, vc_ins, vc_tars = inputs[self.obs_ph], \
-                                            inputs['returns'][:, np.newaxis], \
-                                            inputs[self.obs_ph], \
-                                            inputs['creturns'][:, np.newaxis]
         
-        vloss = self.v.validate(v_ins, v_tars)
-        vcloss = self.vc.validate(vc_ins, vc_tars)        
-                        
-        ################################## DEBUG ########################
-        vc_ins_deb = np.tile(v_ins[np.newaxis,...], (7,1,1))
-        vc_outs_deb = np.tile(v_tars[np.newaxis,...], (7,1,1))
-        vc_deb_loss = self.sess.run(self.vc_debug.mse_loss, feed_dict={self.vc_debug.sy_train_in:vc_ins_deb, self.vc_debug.sy_train_targ: vc_outs_deb})
-        vc_st_loss = self.sess.run(self.vc_st_loss, feed_dict=critic_inputs)
-        vc_cla_loss = self.sess.run(
-            self.vc_cla_loss, 
-            feed_dict=critic_inputs
-        )
-        vc_cl_loss = self.sess.run(
-            self.vc_loss_cl, 
-            feed_dict=critic_inputs
-        )
-        vc_cl_loss_mse = self.sess.run(
-            self.vc_loss_cl_mse, 
-            feed_dict=critic_inputs
-        )
+        critic_diag = self.compute_v_losses(inputs)
+        pre_update_measures.update(critic_diag)
 
-        ################################## DEBUG END ########################
-
-        pre_update_measures['LossV'] = vloss
-        pre_update_measures['LossVC'] = vcloss
-        pre_update_measures['LossVC_chua'] = vc_deb_loss.mean()
-        pre_update_measures['LossVC_STEVE'] = vc_st_loss
-        pre_update_measures['LossVC_classic'] = vc_cla_loss
-        pre_update_measures['LossVC_clipped_mse'] = vc_cl_loss_mse
-        pre_update_measures['LossVC_clipped'] = vc_cl_loss
         self.logger.store(**pre_update_measures)
 
         #=====================================================================#
@@ -788,10 +784,10 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         self.train_critic(
             critic_inputs, 
-            batch_size=256, 
-            min_epoch_before_break=self.vf_iters, 
-            max_epochs=self.vf_iters+1, 
-            holdout_ratio=0.2
+            batch_size=64, 
+            min_epoch_before_break=int(self.vf_iters/5), 
+            max_epochs=int(self.vf_iters/5), 
+            holdout_ratio=0.1
             )
 
         #=====================================================================#
@@ -802,10 +798,9 @@ class CPOPolicy(BasePolicy):
         measures['KL'] = self.d_kl
 
         post_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
-        vloss_post = self.v.validate(v_ins, v_tars)
-        vcloss_post = self.vc.validate(vc_ins, vc_tars)         
-        post_update_measures['LossV'] = vloss_post
-        post_update_measures['LossVC'] = vcloss_post
+
+        critic_diag_post = self.compute_v_losses(inputs)
+        post_update_measures.update(critic_diag_post)
 
         deltas = dict()
         for k in post_update_measures:
@@ -813,6 +808,156 @@ class CPOPolicy(BasePolicy):
                 deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
         self.logger.store(KL=post_update_measures['KL'], **deltas)
 
+    def train_critic(self, inputs, **kwargs):
+        obs_in = inputs[self.obs_ph]
+        vc_targets = inputs[self.cret_ph][:, np.newaxis]
+        v_targets = inputs[self.ret_ph][:, np.newaxis]
+
+        batch_size = kwargs['batch_size']
+        epochs = kwargs['min_epoch_before_break']
+        holdout_ratio = kwargs['holdout_ratio']
+        self.old_inputs = obs_in
+        self.old_targets = vc_targets
+        vc_metrics = self.vc_relu.train(obs_in,
+                                    vc_targets,
+                                    batch_size=len(obs_in),
+                                    min_epoch_before_break = self.vf_iters,
+                                    max_epochs= self.vf_iters,
+                                    holdout_ratio= 0,
+                                    )                                            
+        _ = self.vc_swish.train(obs_in,
+                                    vc_targets,
+                                    **kwargs,
+                                    )                                            
+        _ = self.vc_mmb.train(obs_in,
+                                    vc_targets,
+                                    batch_size=int(batch_size/2),
+                                    min_epoch_before_break = epochs,
+                                    max_epochs= epochs,
+                                    holdout_ratio= holdout_ratio,
+                                    )                                            
+        _ = self.vc_mmb_lr20.train(obs_in,
+                                    vc_targets,
+                                    batch_size=int(batch_size/2),
+                                    min_epoch_before_break = epochs,
+                                    max_epochs= epochs,
+                                    holdout_ratio= holdout_ratio,
+                                    )                                            
+        _ = self.vc_mmb_lr15_epadap.train(obs_in,
+                                    vc_targets,
+                                    batch_size=int(batch_size/2),
+                                    min_epoch_before_break = int(epochs*2),
+                                    max_epochs = int(epochs*4),
+                                    holdout_ratio= holdout_ratio,
+                                    )                                                                                
+
+        v_metrics = self.v.train(obs_in, 
+                                    v_targets, 
+                                    **kwargs,
+                                    )
+        self.vc_debug.train(obs_in,
+                                    vc_targets,
+                                    batch_size=batch_size,
+                                    epochs=epochs,
+                                    )                                
+        ### mini_batch ###
+        for i in range(epochs):
+            idxs = np.random.choice(inputs[self.obs_ph].shape[0], size=[inputs[self.obs_ph].shape[0]], replace=False)
+
+            for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
+                batch_idxs = idxs[batch_num * batch_size:(batch_num + 1) * batch_size]
+                mb_inputs = {
+                    self.obs_ph:inputs[self.obs_ph][batch_idxs],
+                    self.ret_ph:inputs[self.ret_ph][batch_idxs],
+                    self.cret_ph:inputs[self.cret_ph][batch_idxs],
+                }
+                self.sess.run(
+                    self.train_vc_cla_mb,
+                    feed_dict=mb_inputs
+                )
+                self.sess.run(
+                    self.train_vc2_cla_mb,
+                    feed_dict=mb_inputs
+                )
+        
+        for i in range(self.vf_iters):
+            self.sess.run(self.vc_st_trainop, feed_dict=inputs)
+            self.sess.run(
+                self.train_vc_cla, 
+                feed_dict=inputs
+                )
+            self.sess.run(
+                self.train_vc_cl, 
+                feed_dict=inputs
+                )
+
+
+
+        return v_metrics.update(vc_metrics)
+
+    def compute_v_losses(self, inputs):
+        critic_inputs = {buf_ph:inputs[buf_ph] for buf_ph in self.critic_phs}
+        critic_inputs[self.ret_ph] = inputs['returns']
+        critic_inputs[self.cret_ph] = inputs['creturns']
+        v_ins, v_tars, vc_ins, vc_tars = inputs[self.obs_ph], \
+                                            inputs['returns'][:, np.newaxis], \
+                                            inputs[self.obs_ph], \
+                                            inputs['creturns'][:, np.newaxis]
+
+        ################################## DEBUG ########################
+
+        vloss = self.v.validate(v_ins, v_tars)
+        vc_relu_loss = self.vc_relu.validate(vc_ins, vc_tars)        
+        vc_swish_loss = self.vc_swish.validate(vc_ins, vc_tars)        
+        vc_mmb_loss = self.vc_mmb.validate(vc_ins, vc_tars)        
+        vc_mmb_lr20_loss = self.vc_mmb_lr20.validate(vc_ins, vc_tars)        
+        vc_mmb_lr15_epadap_loss = self.vc_mmb_lr15_epadap.validate(vc_ins, vc_tars)                                
+
+        vc_ins_deb = np.tile(v_ins[np.newaxis,...], (7,1,1))
+        vc_outs_deb = np.tile(v_tars[np.newaxis,...], (7,1,1))
+        vc_deb_loss = self.sess.run(self.vc_debug.mse_loss, feed_dict={self.vc_debug.sy_train_in:vc_ins_deb, self.vc_debug.sy_train_targ: vc_outs_deb})
+        vc_st_loss = self.sess.run(self.vc_st_loss, feed_dict=critic_inputs)
+        vc_cla_loss = self.sess.run(
+            self.vc_cla_loss, 
+            feed_dict=critic_inputs
+        )
+
+        vc_cla_loss_mb = self.sess.run(
+            self.vc_cla_mb_loss, 
+            feed_dict=critic_inputs
+        )
+
+        vc2_cla_loss_mb = self.sess.run(
+            self.vc2_cla_mb_loss, 
+            feed_dict=critic_inputs
+        )
+
+        vc_cl_loss = self.sess.run(
+            self.vc_loss_cl, 
+            feed_dict=critic_inputs
+        )
+        vc_cl_loss_mse = self.sess.run(
+            self.vc_loss_cl_mse, 
+            feed_dict=critic_inputs
+        )
+
+        critic_metric = dict()
+        critic_metric['LossV'] = vloss
+        critic_metric['LossVC_ReLu'] = vc_relu_loss
+        critic_metric['LossVC_Swish'] = vc_swish_loss
+        critic_metric['LossVC_minminb'] = vc_mmb_loss
+        critic_metric['LossVC_minminb_lr20'] = vc_mmb_lr20_loss
+        critic_metric['LossVC_minminb_lr15_epadap'] = vc_mmb_lr15_epadap_loss
+        critic_metric['LossVC_chua'] = vc_deb_loss.mean()
+        critic_metric['LossVC_STEVE'] = vc_st_loss
+        critic_metric['LossVC_classic'] = vc_cla_loss
+        critic_metric['LossVC_clipped_mse'] = vc_cl_loss_mse
+        critic_metric['LossVC_clipped'] = vc_cl_loss
+        critic_metric['LossVC_classic_mb1'] = vc_cla_loss_mb
+        critic_metric['LossVC_classic_mb2'] = vc2_cla_loss_mb
+        ################################## DEBUG END ########################
+
+        return critic_metric
 
     def format_obs_for_tf(self, obs):
         sq_obs = np.squeeze(obs)
@@ -845,38 +990,30 @@ class CPOPolicy(BasePolicy):
         feed_obs = self.format_obs_for_tf(obs)
         get_action_outs = self.sess.run(self.ops_for_action, 
                         feed_dict={self.obs_ph: feed_obs})
-        v = self.sess.run(
-            self.v2_cl,
-            feed_dict={self.obs_ph: feed_obs}
-            )
-        vc = self.sess.run(
-            self.vc2_cl,
-            feed_dict={self.obs_ph: feed_obs}
-            )
+        v = self.sess.run(self.v1_mb, 
+                        feed_dict={self.obs_ph: feed_obs})
+        vc = self.sess.run(self.vc1_mb, 
+                        feed_dict={self.obs_ph: feed_obs})
+
         # v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
-        # vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
+        # vc = np.squeeze(self.vc_relu.predict(feed_obs, factored=True), axis=-1)
         get_action_outs['v'] = v
         get_action_outs['vc'] = vc
         return get_action_outs
 
     def get_v(self, obs):
         feed_obs = self.format_obs_for_tf(obs)
-        v = self.sess.run(
-            self.v2_cl,
-            feed_dict={self.obs_ph:feed_obs}
-            )
-        
+        v = self.sess.run(self.v1_mb, 
+                        feed_dict={self.obs_ph: feed_obs})
         # v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
         return v
 
     def get_vc(self, obs):
         feed_obs = self.format_obs_for_tf(obs)
-        # vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
+        vc = self.sess.run(self.vc1_mb, 
+                        feed_dict={self.obs_ph: feed_obs})
 
-        vc = self.sess.run(
-            self.vc2_cl,
-            feed_dict={self.obs_ph:feed_obs}
-            )
+        # vc = np.squeeze(self.vc_relu.predict(feed_obs, factored=True), axis=-1)
         return vc
 
     @contextmanager
@@ -916,7 +1053,7 @@ class CPOPolicy(BasePolicy):
 
     def save(self, checkpoint_dir):
         tf_path, model_info_path, success = self.saver.save_tf(self.sess, inputs={'x':self.obs_ph},
-                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc}, 
+                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc_relu}, 
                         output_dir=checkpoint_dir)
         return tf_path, model_info_path, success
 
@@ -931,8 +1068,12 @@ class CPOPolicy(BasePolicy):
         
         # Vc loss and change, if applicable (reward_penalized agents don't use vc)
         if not(self.agent.reward_penalized):
-            logger.log_tabular('LossVC', average_only=True)
-            logger.log_tabular('LossVCDelta', average_only=True)
+            logger.log_tabular('LossVC_ReLu', average_only=True)
+            logger.log_tabular('LossVC_Swish', average_only=True)
+            logger.log_tabular('LossVC_minminb', average_only=True)
+            logger.log_tabular('LossVC_minminb_lr20', average_only=True)
+            logger.log_tabular('LossVC_minminb_lr15_epadap', average_only=True)
+            logger.log_tabular('LossVC_ReLuDelta', average_only=True)
 
             ##### DEBUG logs #####
             logger.log_tabular('LossVC_chua', average_only=True)
@@ -940,6 +1081,8 @@ class CPOPolicy(BasePolicy):
             logger.log_tabular('LossVC_classic', average_only=True)
             logger.log_tabular('LossVC_clipped_mse', average_only=True)
             logger.log_tabular('LossVC_clipped', average_only=True)
+            logger.log_tabular('LossVC_classic_mb1', average_only=True)
+            logger.log_tabular('LossVC_classic_mb2', average_only=True)
             ##### DEBUG logs end #####
 
         if self.agent.use_penalty or self.agent.save_penalty:

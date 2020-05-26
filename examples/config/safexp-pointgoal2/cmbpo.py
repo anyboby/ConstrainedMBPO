@@ -19,7 +19,7 @@ params = {
     'ent_reg':0.0,
 
     'kwargs': {
-        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 1000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 

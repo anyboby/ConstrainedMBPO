@@ -171,7 +171,7 @@ class BNN:
             optimizer_args.pop('learning_rate_decay', None)
             optimizer_args.pop('decay_steps', None)
             optimizer_args['learning_rate'] = learning_rate    
-        self.optimizer = optimizer(**optimizer_args)
+        #self.optimizer = optimizer(**optimizer_args)
 
         # Add variance output.
         if self.include_var:
@@ -245,10 +245,10 @@ class BNN:
 
             ### clip grads
             #self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
-            grads = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
-            grads_and_vars_cl = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads]
-            self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_and_vars_cl, global_step=global_step)
-
+            # grads_a_vars = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
+            # grads_a_vars = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_a_vars]
+            # self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_a_vars, global_step=global_step)
+            self.train_op = self.optimizer.minimize(train_loss)
         # Initialize all variables
         self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
 

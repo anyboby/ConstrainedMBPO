@@ -28,7 +28,7 @@ CPO_POLICY_PARAMS_BASE = {
     'type': 'CPOPolicy',
     'kwargs': {
         'hidden_layer_sizes_a':   (M, M),
-        'hidden_layer_sizes_c':   (M, M),
+        'hidden_layer_sizes_c':   (128, 128, 128, 128),
         'squash': True,
         'vf_lr':                0.001,
         'cvf_lr':               0.001,

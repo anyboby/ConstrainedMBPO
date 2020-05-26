@@ -64,12 +64,12 @@ class FC:
             sess.run(op)
             # print('assigned {}: {}'.format(attr, idx))
 
-    def set_model_vars(self, variables):
-        ops = [getattr(self, attr).assign(var) for attr, var in variables.items()]
-        return ops
-        # for attr, var in variables.items():
-            # tensor = getattr(self, attr)
-            # op = tensor.assign(var)
+    # def set_model_vars(self, variables):
+    #     ops = [getattr(self, attr).assign(var) for attr, var in variables.items()]
+    #     return ops
+    #     # for attr, var in variables.items():
+    #         # tensor = getattr(self, attr)
+    #         # op = tensor.assign(var)
 
 
     def reset(self, sess):
@@ -140,11 +140,18 @@ class FC:
             raise RuntimeError("Cannot construct variables without fully specifying input and output dimensions.")
 
         # Construct variables
+        # self.weights = tf.get_variable(
+        #     "FC_weights",
+        #     shape=[self.ensemble_size, self.input_dim, self.output_dim],
+        #     initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
+        # )
+
         self.weights = tf.get_variable(
             "FC_weights",
             shape=[self.ensemble_size, self.input_dim, self.output_dim],
-            initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
+            initializer=tf.glorot_normal_initializer()
         )
+
         self.biases = tf.get_variable(
             "FC_biases",
             shape=[self.ensemble_size, 1, self.output_dim],

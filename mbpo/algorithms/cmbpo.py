@@ -336,7 +336,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             model_samples = None
             #### start model rollout
-            if self._real_ratio<1.0 and self._epoch>40: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+            if self._real_ratio<1.0 and self._epoch>3: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 self._training_progress.pause()
                 print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
                 print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
@@ -349,8 +349,11 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
+                if len(samples['observations'])>15000:
+                    samples = {k:v[-15000:] for k,v in samples.items()} 
+    
                 #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples[-50000:], batch_size=1024, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
+                model_train_metrics = self.fake_env.train(samples, batch_size=1024, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
 
@@ -409,7 +412,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>=min_samples or self._epoch<10:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if len(train_samples[0])>=min_samples or self._epoch<15:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update(train_samples)
                 gt.stamp('train')
                 surr_cost_delta = self.logger.get_stats('SurrCostDelta')
@@ -425,6 +428,9 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Log performance and stats                                          #
             #=====================================================================#
+            if model_samples:
+                model_v_diagnostics = self._policy.compute_v_losses(model_samples)
+                model_metrics.update(model_v_diagnostics)
 
             self.sampler.log()
             self.logger.log_tabular('Epoch', self._epoch)
