@@ -15,7 +15,7 @@ def construct_model(in_dim,
 					loss = 'NLL', 
 					activation = 'swish',
 					output_activation = None,
-					decay=True,
+					decay=1e-4,
 					lr = 1e-3,
 					lr_decay = None,
 					decay_steps=None,
@@ -35,12 +35,12 @@ def construct_model(in_dim,
 				'num_elites': num_elites, 
 				'sess': session}
 	model = BNN(params)
-	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=0.0000))	#0.000025))
+	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=decay/4))	# def dec: 0.000025))
 	
 	for hidden_dim in hidden_dims[1:]:
-		model.add(FC(hidden_dim, activation=activation, weight_decay=0.0000))			#0.00005))
+		model.add(FC(hidden_dim, activation=activation, weight_decay=decay/2))						# def dec: 0.00005))
 	
-	model.add(FC(out_dim, activation=output_activation, weight_decay=0.000))									#0.0001
+	model.add(FC(out_dim, activation=output_activation, weight_decay=decay))						# def dec: 0.0001
 	
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,

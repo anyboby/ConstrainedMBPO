@@ -140,17 +140,20 @@ class FC:
             raise RuntimeError("Cannot construct variables without fully specifying input and output dimensions.")
 
         # Construct variables
-        # self.weights = tf.get_variable(
-        #     "FC_weights",
-        #     shape=[self.ensemble_size, self.input_dim, self.output_dim],
-        #     initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
-        # )
 
         self.weights = tf.get_variable(
             "FC_weights",
             shape=[self.ensemble_size, self.input_dim, self.output_dim],
-            initializer=tf.glorot_normal_initializer()
+            initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
         )
+
+        ### glorot / xavier better for tanh
+        
+        # self.weights = tf.get_variable(
+        #     "FC_weights",
+        #     shape=[self.ensemble_size, self.input_dim, self.output_dim],
+        #     initializer=tf.glorot_normal_initializer(),
+        # )
 
         self.biases = tf.get_variable(
             "FC_biases",

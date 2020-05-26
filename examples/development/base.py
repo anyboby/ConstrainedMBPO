@@ -27,21 +27,24 @@ GAUSSIAN_POLICY_PARAMS_BASE = {
 CPO_POLICY_PARAMS_BASE = {
     'type': 'CPOPolicy',
     'kwargs': {
-        'hidden_layer_sizes_a':   (M, M),
-        'hidden_layer_sizes_c':   (128, 128, 128, 128),
+        'a_hidden_layer_sizes':   (M, M),
         'squash': True,
-        'vf_lr':                0.001,
-        'cvf_lr':               0.001,
-        'vf_iters':             80,                 
-        'target_kl':            0.01,            # @anyboby maybe remove ?
+        'vf_lr':                6e-5,
+        'vf_hidden_layer_sizes':(128, 128, 128, 128),
+        'vf_epochs':            10,                 
+        'vf_batch_size':        256,
+        'vf_ensemble_size':     7,
+        'vf_elites':            5,
+        'vf_activation':        'swish',
+        'vf_loss':              'MSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
         'ent_reg':              0.0,
-        'cost_lim_end':         25,
-        'cost_lim':             25,
+        'target_kl':            0.01,
+        'cost_lim_end':         50,
+        'cost_lim':             50,
         'cost_lam':             0.97,
         'cost_gamma':           0.99,
         'lam':                  0.97,
         'gamma':                0.99,
-        'critic_ensemble_size':      7,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
                ['algorithm_params']['kwargs']['epoch_length'] 
@@ -50,7 +53,6 @@ CPO_POLICY_PARAMS_BASE = {
                spec.get('config', spec)
                ['sampler_params']['kwargs']['max_path_length']
             )),
-        'target_entropy':       0,              # @anyboby maybe remove ?
     }
 }
 

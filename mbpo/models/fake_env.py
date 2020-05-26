@@ -50,7 +50,7 @@ class FakeEnv:
                                         out_dim=output_dim_dyn,
                                         name='BNN',
                                         hidden_dims=hidden_dims,
-                                        lr=5e-4, 
+                                        lr=1e-4, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000,  
                                         num_networks=num_networks, 
@@ -65,7 +65,7 @@ class FakeEnv:
                                         name='CostNN',
                                         hidden_dims=(128, 128, 128),
                                         output_activation='softmax',
-                                        lr=5e-5, 
+                                        lr=1e-5, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
                                         num_networks=num_networks, 
@@ -126,9 +126,6 @@ class FakeEnv:
         # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))*self.target_weights
         # ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
         # ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
-        
-        
-
 
         ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_model_vars)
@@ -231,20 +228,21 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    noise=0.001)
+                                                                    noise=1e-4)
         train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
                                                                     one_hot=True,
                                                                     num_classes=len(self.cost_classes),
                                                                     priors=priors,
-                                                                    noise=0.01)
+                                                                    noise=1e-3)
         if self.cares_about_cost:
             self._cost_model.train(train_inputs_cost,
                                         train_outputs_cost,
+                                        max_epochs_since_update=3,
                                         **kwargs,
                                         )                                            
-        
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
+                                            max_epochs_since_update=3,
                                             **kwargs,
                                             )
         return model_metrics

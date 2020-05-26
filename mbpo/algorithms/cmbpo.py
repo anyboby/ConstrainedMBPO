@@ -212,7 +212,7 @@ class CMBPO(RLAlgorithm):
 
         ### model sampler and buffer
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=5, 
+                                        max_path_length=40, 
                                         observation_space = self.obs_space, 
                                         action_space = self.act_space)
         self.model_pool.initialize(pi_info_shapes,
@@ -233,7 +233,7 @@ class CMBPO(RLAlgorithm):
         #                 cost_lam = self._policy.cost_lam)     
 
         
-        self.model_sampler = ModelSampler(max_path_length=5,
+        self.model_sampler = ModelSampler(max_path_length=40,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -302,7 +302,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 1e3
+            min_samples = 3e3
             max_samples = 220e3
             samples_added = 0
 
@@ -353,7 +353,7 @@ class CMBPO(RLAlgorithm):
                 #     samples = {k:v[-20000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples, batch_size=256, max_epochs=1500, holdout_ratio=0.2, max_t=self._max_model_t)
+                model_train_metrics = self.fake_env.train(samples, batch_size=256, max_epochs=800, holdout_ratio=0.2, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
 

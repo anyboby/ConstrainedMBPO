@@ -10,14 +10,6 @@ params = {
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
     
-    #@anyboby TODO this is not updated to variant atm !
-    # 'archive_size':int(2e3),           # maximum pool size, if memory is an issue (for on-policy buffers, epoch_length 
-    #                                     #    predetermines size, so max_pool_size is without effect)
-
-    'vf_lr':8e-4,
-    'cvf_lr':8-4,
-    'ent_reg':0.0,
-
     'kwargs': {
         'epoch_length': 20000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 

@@ -171,7 +171,6 @@ class BNN:
             optimizer_args.pop('learning_rate_decay', None)
             optimizer_args.pop('decay_steps', None)
             optimizer_args['learning_rate'] = learning_rate    
-        #self.optimizer = optimizer(**optimizer_args)
 
         # Add variance output.
         if self.include_var:
@@ -226,7 +225,7 @@ class BNN:
             
             elif self.loss_type == 'MSE':
                 train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights))
-                #train_loss += tf.add_n(self.decays)
+                train_loss += tf.add_n(self.decays)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
             
@@ -243,12 +242,17 @@ class BNN:
                 self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=weights)
                 self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=weights)
 
-            ### clip grads
-            #self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
-            # grads_a_vars = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
-            # grads_a_vars = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_a_vars]
-            # self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_a_vars, global_step=global_step)
-            self.train_op = self.optimizer.minimize(train_loss)
+            #### _________________________ ####  
+            ####      Optimization Ops     ####
+            #### _________________________ ####
+            
+            self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
+            grads_a_vars = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
+            grads_a_vars = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_a_vars]
+            self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_a_vars, global_step=global_step)
+            
+            #self.train_op = self.optimizer.minimize(train_loss)
+        
         # Initialize all variables
         self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
 
