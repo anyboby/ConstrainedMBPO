@@ -471,9 +471,9 @@ class CPOPolicy(BasePolicy):
                         num_elites=5,
                         session=self.sess)
 
-            self.vc_relu = construct_model(in_dim=np.prod(self.obs_space.shape),
+            self.vc_1 = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble_Relu',
+                        name='VCEnsemble_Relu_lr1_bfull_e80',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
                         lr=self.cvf_lr, 
                         num_networks=self.critic_ensemble_size, 
@@ -482,9 +482,9 @@ class CPOPolicy(BasePolicy):
                         num_elites=5,
                         session=self.sess)
 	
-            self.vc_swish = construct_model(in_dim=np.prod(self.obs_space.shape),
+            self.vc_2 = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble_Swish',
+                        name='VCEnsemble_Swish_lr15_b256_e10',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
                         lr=self.cvf_lr/15, 
                         num_networks=self.critic_ensemble_size, 
@@ -493,9 +493,31 @@ class CPOPolicy(BasePolicy):
                         num_elites=5,
                         session=self.sess)
 
-            self.vc_mmb = construct_model(in_dim=np.prod(self.obs_space.shape),
+            self.vc_3 = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble_mmb',
+                        name='VCEnsemble_Swish_lr10_b256_e10',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/10, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+            
+            self.vc_4 = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_Swish_lr15_b128_e10',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/15, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='ReLU',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+
+            self.vc_5 = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_Swish_lr15_b128_e15',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
                         lr=self.cvf_lr/15, 
                         num_networks=self.critic_ensemble_size, 
@@ -503,10 +525,30 @@ class CPOPolicy(BasePolicy):
                         loss='MSE',
                         num_elites=5,
                         session=self.sess)
-            
-            self.vc_mmb_lr20 = construct_model(in_dim=np.prod(self.obs_space.shape),
+
+            self.vc_6 = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble_mmb_lr20',
+                        name='VCEnsemble_Swish_lr20_b128_e15',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/20, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+            self.vc_7 = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_Swish_lr20_b128_e10',
+                        hidden_dims=kwargs.get('hidden_layer_sizes_c'),
+                        lr=self.cvf_lr/20, 
+                        num_networks=self.critic_ensemble_size, 
+                        activation='swish',
+                        loss='MSE',
+                        num_elites=5,
+                        session=self.sess)
+            self.vc_8 = construct_model(in_dim=np.prod(self.obs_space.shape),
+                        out_dim=1,
+                        name='VCEnsemble_Swish_lr20_b64_e8',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
                         lr=self.cvf_lr/20, 
                         num_networks=self.critic_ensemble_size, 
@@ -515,16 +557,17 @@ class CPOPolicy(BasePolicy):
                         num_elites=5,
                         session=self.sess)
 
-            self.vc_mmb_lr15_epadap = construct_model(in_dim=np.prod(self.obs_space.shape),
+            self.vc_9 = construct_model(in_dim=np.prod(self.obs_space.shape),
                         out_dim=1,
-                        name='VCEnsemble_mmb_lr15_epadap',
+                        name='VCEnsemble_Swish_lr25_b64_e8',
                         hidden_dims=kwargs.get('hidden_layer_sizes_c'),
-                        lr=self.cvf_lr/15, 
+                        lr=self.cvf_lr/25, 
                         num_networks=self.critic_ensemble_size, 
                         activation='swish',
                         loss='MSE',
                         num_elites=5,
                         session=self.sess)
+
 
             ######################### DEBUG !!! ###########################
             params = {'name': 'vc_debug', 
@@ -638,7 +681,7 @@ class CPOPolicy(BasePolicy):
                                             )
 
             # Count variables
-            var_counts = tuple(count_vars(scope) for scope in ['pi', 'VCEnsemble', 'VEnsemble'])
+            var_counts = tuple(count_vars(scope) for scope in ['pi', 'VEnsemble', 'VCEnsemble'])
             self.logger.log('\nNumber of parameters: \t pi: %d, \t v: %d, \t vc: %d\n'%var_counts)
 
             # Make a sample estimate for entropy to use as sanity check
@@ -762,7 +805,7 @@ class CPOPolicy(BasePolicy):
 
         pre_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
         
-        critic_diag = self.compute_v_losses(inputs)
+        critic_diag = self.compute_v_losses(buf_inputs)
         pre_update_measures.update(critic_diag)
 
         self.logger.store(**pre_update_measures)
@@ -799,7 +842,7 @@ class CPOPolicy(BasePolicy):
 
         post_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
 
-        critic_diag_post = self.compute_v_losses(inputs)
+        critic_diag_post = self.compute_v_losses(buf_inputs)
         post_update_measures.update(critic_diag_post)
 
         deltas = dict()
@@ -818,38 +861,71 @@ class CPOPolicy(BasePolicy):
         holdout_ratio = kwargs['holdout_ratio']
         self.old_inputs = obs_in
         self.old_targets = vc_targets
-        vc_metrics = self.vc_relu.train(obs_in,
+        vc_metrics = self.vc_1.train(obs_in,
                                     vc_targets,
                                     batch_size=len(obs_in),
                                     min_epoch_before_break = self.vf_iters,
                                     max_epochs= self.vf_iters,
                                     holdout_ratio= 0,
                                     )                                            
-        _ = self.vc_swish.train(obs_in,
+        _ = self.vc_2.train(obs_in,
                                     vc_targets,
-                                    **kwargs,
-                                    )                                            
-        _ = self.vc_mmb.train(obs_in,
-                                    vc_targets,
-                                    batch_size=int(batch_size/2),
+                                    batch_size=int(batch_size*2),
                                     min_epoch_before_break = epochs,
                                     max_epochs= epochs,
                                     holdout_ratio= holdout_ratio,
                                     )                                            
-        _ = self.vc_mmb_lr20.train(obs_in,
+        _ = self.vc_3.train(obs_in,
                                     vc_targets,
-                                    batch_size=int(batch_size/2),
+                                    batch_size=int(batch_size*2),
                                     min_epoch_before_break = epochs,
                                     max_epochs= epochs,
                                     holdout_ratio= holdout_ratio,
                                     )                                            
-        _ = self.vc_mmb_lr15_epadap.train(obs_in,
+        _ = self.vc_4.train(obs_in,
                                     vc_targets,
-                                    batch_size=int(batch_size/2),
-                                    min_epoch_before_break = int(epochs*2),
-                                    max_epochs = int(epochs*4),
+                                    batch_size=batch_size,
+                                    min_epoch_before_break = epochs,
+                                    max_epochs= epochs,
+                                    holdout_ratio= holdout_ratio,
+                                    )                                            
+        _ = self.vc_5.train(obs_in,
+                                    vc_targets,
+                                    batch_size=batch_size,
+                                    min_epoch_before_break = int(epochs*1.5),
+                                    max_epochs = int(epochs*1.5),
                                     holdout_ratio= holdout_ratio,
                                     )                                                                                
+        _ = self.vc_6.train(obs_in,
+                                    vc_targets,
+                                    batch_size=batch_size,
+                                    min_epoch_before_break = epochs,
+                                    max_epochs = epochs,
+                                    holdout_ratio= holdout_ratio,
+                                    )                                                                                
+        _ = self.vc_7.train(obs_in,
+                                    vc_targets,
+                                    batch_size=batch_size,
+                                    min_epoch_before_break = epochs,
+                                    max_epochs = epochs,
+                                    holdout_ratio= holdout_ratio,
+                                    )                                                                                
+        _ = self.vc_8.train(obs_in,
+                                    vc_targets,
+                                    batch_size=int(batch_size/2),
+                                    min_epoch_before_break = int(epochs*0.8),
+                                    max_epochs = int(epochs*0.8),
+                                    holdout_ratio= holdout_ratio,
+                                    )                                                                                
+        _ = self.vc_9.train(obs_in,
+                                    vc_targets,
+                                    batch_size=int(batch_size/2),
+                                    min_epoch_before_break = int(epochs*0.8),
+                                    max_epochs = int(epochs*0.8),
+                                    holdout_ratio= holdout_ratio,
+                                    )                                                                                
+
+
 
         v_metrics = self.v.train(obs_in, 
                                     v_targets, 
@@ -896,6 +972,7 @@ class CPOPolicy(BasePolicy):
         return v_metrics.update(vc_metrics)
 
     def compute_v_losses(self, inputs):
+        inputs = {k:v for k,v in zip(self.buf_fields, inputs)}
         critic_inputs = {buf_ph:inputs[buf_ph] for buf_ph in self.critic_phs}
         critic_inputs[self.ret_ph] = inputs['returns']
         critic_inputs[self.cret_ph] = inputs['creturns']
@@ -907,11 +984,16 @@ class CPOPolicy(BasePolicy):
         ################################## DEBUG ########################
 
         vloss = self.v.validate(v_ins, v_tars)
-        vc_relu_loss = self.vc_relu.validate(vc_ins, vc_tars)        
-        vc_swish_loss = self.vc_swish.validate(vc_ins, vc_tars)        
-        vc_mmb_loss = self.vc_mmb.validate(vc_ins, vc_tars)        
-        vc_mmb_lr20_loss = self.vc_mmb_lr20.validate(vc_ins, vc_tars)        
-        vc_mmb_lr15_epadap_loss = self.vc_mmb_lr15_epadap.validate(vc_ins, vc_tars)                                
+        vc_1_loss = self.vc_1.validate(vc_ins, vc_tars)        
+        vc_2_loss = self.vc_2.validate(vc_ins, vc_tars)        
+        vc_3_loss = self.vc_3.validate(vc_ins, vc_tars)        
+        vc_4_loss = self.vc_4.validate(vc_ins, vc_tars)        
+        vc_5_loss = self.vc_5.validate(vc_ins, vc_tars)               
+        vc_6_loss = self.vc_6.validate(vc_ins, vc_tars)        
+        vc_7_loss = self.vc_7.validate(vc_ins, vc_tars)        
+        vc_8_loss = self.vc_8.validate(vc_ins, vc_tars)        
+        vc_9_loss = self.vc_9.validate(vc_ins, vc_tars)        
+                 
 
         vc_ins_deb = np.tile(v_ins[np.newaxis,...], (7,1,1))
         vc_outs_deb = np.tile(v_tars[np.newaxis,...], (7,1,1))
@@ -943,11 +1025,16 @@ class CPOPolicy(BasePolicy):
 
         critic_metric = dict()
         critic_metric['LossV'] = vloss
-        critic_metric['LossVC_ReLu'] = vc_relu_loss
-        critic_metric['LossVC_Swish'] = vc_swish_loss
-        critic_metric['LossVC_minminb'] = vc_mmb_loss
-        critic_metric['LossVC_minminb_lr20'] = vc_mmb_lr20_loss
-        critic_metric['LossVC_minminb_lr15_epadap'] = vc_mmb_lr15_epadap_loss
+        critic_metric['Loss' + self.vc_1.name] = vc_1_loss
+        critic_metric['Loss' + self.vc_2.name] = vc_2_loss
+        critic_metric['Loss' + self.vc_3.name] = vc_3_loss
+        critic_metric['Loss' + self.vc_4.name] = vc_4_loss
+        critic_metric['Loss' + self.vc_5.name] = vc_5_loss
+        critic_metric['Loss' + self.vc_6.name] = vc_6_loss
+        critic_metric['Loss' + self.vc_7.name] = vc_7_loss
+        critic_metric['Loss' + self.vc_8.name] = vc_8_loss
+        critic_metric['Loss' + self.vc_9.name] = vc_9_loss
+
         critic_metric['LossVC_chua'] = vc_deb_loss.mean()
         critic_metric['LossVC_STEVE'] = vc_st_loss
         critic_metric['LossVC_classic'] = vc_cla_loss
@@ -1053,7 +1140,7 @@ class CPOPolicy(BasePolicy):
 
     def save(self, checkpoint_dir):
         tf_path, model_info_path, success = self.saver.save_tf(self.sess, inputs={'x':self.obs_ph},
-                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc_relu}, 
+                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc_1}, 
                         output_dir=checkpoint_dir)
         return tf_path, model_info_path, success
 
@@ -1068,12 +1155,17 @@ class CPOPolicy(BasePolicy):
         
         # Vc loss and change, if applicable (reward_penalized agents don't use vc)
         if not(self.agent.reward_penalized):
-            logger.log_tabular('LossVC_ReLu', average_only=True)
-            logger.log_tabular('LossVC_Swish', average_only=True)
-            logger.log_tabular('LossVC_minminb', average_only=True)
-            logger.log_tabular('LossVC_minminb_lr20', average_only=True)
-            logger.log_tabular('LossVC_minminb_lr15_epadap', average_only=True)
-            logger.log_tabular('LossVC_ReLuDelta', average_only=True)
+            logger.log_tabular('Loss' + self.vc_1.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_2.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_3.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_4.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_5.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_6.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_7.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_8.name, average_only=True)
+            logger.log_tabular('Loss' + self.vc_9.name, average_only=True)
+
+            logger.log_tabular('Loss' + self.vc_1.name + 'Delta', average_only=True)
 
             ##### DEBUG logs #####
             logger.log_tabular('LossVC_chua', average_only=True)

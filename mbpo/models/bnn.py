@@ -226,7 +226,7 @@ class BNN:
             
             elif self.loss_type == 'MSE':
                 train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights))
-                train_loss += tf.add_n(self.decays)
+                #train_loss += tf.add_n(self.decays)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
             
@@ -665,7 +665,8 @@ class BNN:
             in the ensemble.
         """
         dim_output = self.layers[-1].get_output_dim()
-        cur_out = self.scaler.transform(inputs)
+        #cur_out = self.scaler.transform(inputs)
+        cur_out = inputs
         for layer in self.layers:
             cur_out = layer.compute_output_tensor(cur_out)
 
@@ -733,7 +734,7 @@ class BNN:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
-            total_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * mse_weights_tensor, axis=-1), axis=-1)
+            total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
 

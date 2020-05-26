@@ -207,7 +207,6 @@ class ModelSampler(CpoSampler):
         terminal = np.squeeze(terminal, axis=-1)
         c = info.get('cost', np.zeros(reward.shape))
         en_disag = info.get('ensemble_disagreement', 0)
-        self._cum_var += info.get('ensemble_var', 0)*len(self.pool.alive_paths)
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -274,13 +273,14 @@ class ModelSampler(CpoSampler):
         self._path_cost[alive_paths] += c
         self._total_samples += alive_paths.sum()
         self._cum_cost += c.sum()
+        self._cum_var += info.get('ensemble_var', 0)*alive_paths.sum()
         self._max_path_return = max(self._max_path_return,
                             max(self._path_return))
 
         #### terminate mature termination due to path length
         ## update obs before finishing paths (_finish_paths() uses current obs)
         self._current_observation = next_obs
-        path_end_mask = (self._path_length >= self._max_path_length)[alive_paths]
+        path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]
         remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True)
         
         ## update remaining paths and obs
