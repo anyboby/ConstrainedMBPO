@@ -228,23 +228,25 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    noise=1e-4)
+                                                                    noise=5e-3)
         train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
                                                                     one_hot=True,
                                                                     num_classes=len(self.cost_classes),
                                                                     priors=priors,
-                                                                    noise=1e-3)
-        if self.cares_about_cost:
-            self._cost_model.train(train_inputs_cost,
-                                        train_outputs_cost,
-                                        max_epochs_since_update=3,
-                                        **kwargs,
-                                        )                                            
+                                                                    noise=5e-3)
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
                                             max_epochs_since_update=3,
                                             **kwargs,
                                             )
+        if self.cares_about_cost:
+            cost_metrics = self._cost_model.train(train_inputs_cost,
+                                        train_outputs_cost,
+                                        max_epochs_since_update=3,
+                                        **kwargs,
+                                        )            
+            model_metrics.update(cost_metrics)
+        
         return model_metrics
 
 

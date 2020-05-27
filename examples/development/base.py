@@ -29,9 +29,9 @@ CPO_POLICY_PARAMS_BASE = {
     'kwargs': {
         'a_hidden_layer_sizes':   (M, M),
         'squash': True,
-        'vf_lr':                6e-5,
+        'vf_lr':                7e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
-        'vf_epochs':            10,                 
+        'vf_epochs':            12,                 
         'vf_batch_size':        256,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
@@ -39,8 +39,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_loss':              'MSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         50,
-        'cost_lim':             50,
+        'cost_lim_end':         30,
+        'cost_lim':             30,
         'cost_lam':             0.97,
         'cost_gamma':           0.99,
         'lam':                  0.97,

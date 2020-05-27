@@ -302,7 +302,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 3e3
+            min_samples = 50e3
             max_samples = 220e3
             samples_added = 0
 
@@ -349,11 +349,12 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                # if len(samples['observations'])>20000:
-                #     samples = {k:v[-20000:] for k,v in samples.items()} 
+                if len(samples['observations'])>60000:
+                    samples = {k:v[-50000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                model_train_metrics = self.fake_env.train(samples, batch_size=256, max_epochs=800, holdout_ratio=0.2, max_t=self._max_model_t)
+                min_epochs = 250 if self._epoch==0 else None        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                model_train_metrics = self.fake_env.train(samples, batch_size=256, min_epoch_before_break=min_epochs, max_epochs=800, holdout_ratio=0.2, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
 
@@ -406,13 +407,13 @@ class CMBPO(RLAlgorithm):
             real_samples= self._pool.get()
 
             if train_samples is None:
-                # train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                train_samples = real_samples
+                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                # train_samples = real_samples
             else: 
-                # new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
-                new_samples = real_samples
+                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
                 train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                # new_samples = real_samples
+                # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
 
             self._training_progress.resume()
 
