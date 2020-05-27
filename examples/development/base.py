@@ -39,8 +39,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_loss':              'MSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         3000,
-        'cost_lim':             3000,
+        'cost_lim_end':         30,
+        'cost_lim':             30,
         'cost_lam':             0.97,
         'cost_gamma':           0.99,
         'lam':                  0.97,
