@@ -123,6 +123,7 @@ class CpoSampler():
 
         return last_n_paths
 
+    @property
     def batch_ready(self):
         return self.pool.size >= self.pool.max_size
 

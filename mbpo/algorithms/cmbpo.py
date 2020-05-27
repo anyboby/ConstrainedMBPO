@@ -271,10 +271,6 @@ class CMBPO(RLAlgorithm):
             ######  fills pool with _n_initial_exploration_steps samples
             self._initial_exploration_hook(
                 training_environment, self._policy, pool)
-            self.sampler.finish_all_paths(append_val=True)
-            pool.dump_to_archive() # move old policy samples to archive
-
-        
         
         #### set up sampler with train env and actual policy (may be different from initial exploration policy)
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
@@ -523,6 +519,22 @@ class CMBPO(RLAlgorithm):
 
     def train(self, *args, **kwargs):
         return self._train(*args, **kwargs)
+
+    def _initial_exploration_hook(self, env, initial_exploration_policy, pool):
+        if self._n_initial_exploration_steps < 1: return
+
+        if not initial_exploration_policy:
+            raise ValueError(
+                "Initial exploration policy must be provided when"
+                " n_initial_exploration_steps > 0.")
+
+        self.sampler.initialize(env, initial_exploration_policy, pool)
+        while pool.size < self._n_initial_exploration_steps:
+            self.sampler.sample()
+            if self.sampler.batch_ready:
+                self.sampler.finish_all_paths(append_val=True)
+                pool.dump_to_archive() # move old policy samples to archive
+
 
 
 
