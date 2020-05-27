@@ -349,7 +349,7 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                if len(samples['observations'])>60000:
+                if len(samples['observations'])>50000:
                     samples = {k:v[-50000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly

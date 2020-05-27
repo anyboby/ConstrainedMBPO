@@ -102,7 +102,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(1000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'SQL': {
