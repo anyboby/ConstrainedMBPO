@@ -529,9 +529,9 @@ class CMBPO(RLAlgorithm):
                 " n_initial_exploration_steps > 0.")
 
         self.sampler.initialize(env, initial_exploration_policy, pool)
-        while pool.size < self._n_initial_exploration_steps:
+        while pool.arch_size < self._n_initial_exploration_steps:
             self.sampler.sample()
-            if self.sampler.batch_ready:
+            if self.ready_to_train:
                 self.sampler.finish_all_paths(append_val=True)
                 pool.dump_to_archive() # move old policy samples to archive
 
