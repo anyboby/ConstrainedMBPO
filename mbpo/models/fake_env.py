@@ -49,13 +49,8 @@ class FakeEnv:
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
                                         name='BNN',
-<<<<<<< HEAD
                                         hidden_dims=hidden_dims,
-                                        lr=1e-4, 
-=======
-                                        hidden_dim=hidden_dim,
-                                        lr=5e-4, 
->>>>>>> master
+                                        lr=3e-4, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000,  
                                         num_networks=num_networks, 
@@ -233,35 +228,13 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-<<<<<<< HEAD
-                                                                    noise=5e-3)
-        train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
-                                                                    one_hot=True,
-                                                                    num_classes=len(self.cost_classes),
-                                                                    priors=priors,
-                                                                    noise=5e-3)
-        model_metrics = self._model.train(train_inputs_dyn, 
-                                            train_outputs_dyn, 
-                                            max_epochs_since_update=3,
-                                            **kwargs,
-                                            )
-        if self.cares_about_cost:
-            cost_metrics = self._cost_model.train(train_inputs_cost,
-                                        train_outputs_cost,
-                                        max_epochs_since_update=3,
-                                        **kwargs,
-                                        )            
-            model_metrics.update(cost_metrics)
-        
-=======
-                                                                    noise=0.001)
+                                                                    noise=5e-4)
         
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
                                             **kwargs,
                                             )
         
->>>>>>> master
         return model_metrics
 
     def train_cost_model(self, samples, **kwargs):        
@@ -273,7 +246,7 @@ class FakeEnv:
                                                                     one_hot=True,
                                                                     num_classes=len(self.cost_classes),
                                                                     priors=priors,
-                                                                    noise=0.01)
+                                                                    noise=5e-3)
         model_metrics_cost = self._cost_model.train(train_inputs_cost,
                                     train_outputs_cost,
                                     **kwargs,

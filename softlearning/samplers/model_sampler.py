@@ -223,11 +223,14 @@ class ModelSampler(CpoSampler):
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
 
-
         ### check if too uncertain before storing info of the taken step
         path_uncertainty = self._path_uncertainty[alive_paths] + en_disag
-        too_uncertain_mask = path_uncertainty > self._max_uncertainty
-
+        
+        ### too_uncertain_mask = path_uncertainty > self._max_uncertainty
+        ### testing
+        too_uncertain_mask = path_uncertainty > vc_var
+        
+        
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 
         # as our terminal mask (too_uncertain_mask)
