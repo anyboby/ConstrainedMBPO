@@ -217,6 +217,7 @@ class ModelSampler(CpoSampler):
         terminal = np.squeeze(terminal, axis=-1)
         c = info.get('cost', np.zeros(reward.shape))
         en_disag = info.get('ensemble_disagreement', 0)
+        self._cum_var += info.get('ensemble_var', 0)*len(self.pool.alive_paths)
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##

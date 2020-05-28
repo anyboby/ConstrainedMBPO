@@ -9,6 +9,17 @@ params = {
     'log_dir': '~/ray_mbpo/',
     'exp_name': 'defaults',
     'use_mjc_state_model': False,      
+<<<<<<< HEAD
+=======
+    
+    #@anyboby TODO this is not updated to variant atm !
+    # 'archive_size':int(2e3),           # maximum pool size, if memory is an issue (for on-policy buffers, epoch_length 
+    #                                     #    predetermines size, so max_pool_size is without effect)
+
+    'vf_lr':1e-3,
+    'cvf_lr':1e-3,
+    'ent_reg':0.0,
+>>>>>>> master
 
     'kwargs': {
         'epoch_length': 1000, #1000,    # samples per epoch, also determines train frequency 
@@ -43,7 +54,9 @@ params = {
         'rollout_schedule': [15, 250, 35, 40], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
-        'max_uncertainty' : 1.5,
+        'dyn_model_train_schedule': [15, 100, 1, 20],
+        'cost_model_train_schedule': [10, 15, 1, 10],                                                    
+        'max_uncertainty' : 2.5,
     }
 }
 
