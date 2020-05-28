@@ -349,7 +349,7 @@ class CMBPO(RLAlgorithm):
                     samples = {k:v[-50000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 250 if self._epoch==0 else None        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                min_epochs = 250 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
                 model_train_metrics = self.fake_env.train(samples, batch_size=256, min_epoch_before_break=min_epochs, max_epochs=800, holdout_ratio=0.2, max_t=self._max_model_t)
                 model_metrics.update(model_train_metrics)
                 gt.stamp('epoch_train_model')
