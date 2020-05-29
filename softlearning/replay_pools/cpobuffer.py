@@ -153,8 +153,8 @@ class CPOBuffer:
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
         self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma * self.lam)
         
-        #self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
-        self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
+        self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
+        # self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
 
         costs = np.append(self.cost_buf[path_slice], last_cval)
         cvals = np.append(self.cval_buf[path_slice], last_cval)
@@ -162,8 +162,8 @@ class CPOBuffer:
         self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam)
         
         # testing a baslines-like lambda - TD
-        # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
-        self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
+        self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
+        # self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
         
         self.path_start_idx = self.ptr
         self.path_finished = True

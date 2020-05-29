@@ -159,7 +159,7 @@ class TrustRegionAgent(Agent):
 
 class CPOAgent(TrustRegionAgent):
 
-    def __init__(self, learn_margin=False, **kwargs):
+    def __init__(self, learn_margin=True, **kwargs):
         super().__init__(**kwargs)
         self.learn_margin = learn_margin
         self.params.update(dict(
@@ -168,7 +168,7 @@ class CPOAgent(TrustRegionAgent):
             ))
         self.margin = 0
         self.margin_lr = 0.05
-        self.margin_discount = 0.93
+        self.margin_discount = 0.9
         self.c_gamma = kwargs['c_gamma']
         self.d_control = True
         self.delta = 0.6
