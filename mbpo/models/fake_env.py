@@ -65,7 +65,7 @@ class FakeEnv:
                                         name='CostNN',
                                         hidden_dims=(128, 128, 128),
                                         output_activation='softmax',
-                                        lr=1e-5, 
+                                        lr=3e-5, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
                                         num_networks=num_networks, 

@@ -303,7 +303,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 10e3
+            min_samples = 3e3
             max_samples = 220e3
             samples_added = 0
 
@@ -368,7 +368,7 @@ class CMBPO(RLAlgorithm):
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
                         batch_size=512, 
-                        max_epochs=1500, 
+                        max_epochs=800, 
                         min_epoch_before_break=min_epochs, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
@@ -380,7 +380,7 @@ class CMBPO(RLAlgorithm):
                         samples, 
                         batch_size=512, 
                         min_epoch_before_break=min_epochs,
-                        max_epochs=1500, 
+                        max_epochs=800, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
                         )

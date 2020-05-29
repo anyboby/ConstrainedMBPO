@@ -99,7 +99,7 @@ class ModelSampler(CpoSampler):
         VVals_var = self._cum_var_v / (self._total_samples+EPS)
 
         CostV_mean = self._total_CVs / (self._total_samples+EPS)
-        CostV_var = self._total_CVs / (self._total_samples+EPS)
+        CostV_var = self._cum_var_vc / (self._total_samples+EPS)
 
         diagnostics.update({
             'samples_added': self._total_samples,
@@ -228,7 +228,7 @@ class ModelSampler(CpoSampler):
         
         ### too_uncertain_mask = path_uncertainty > self._max_uncertainty
         ### testing
-        too_uncertain_mask = path_uncertainty > vc_var
+        too_uncertain_mask = path_uncertainty > vc_var*3
         
         
         ### finish too uncertain paths before storing info of the taken step
