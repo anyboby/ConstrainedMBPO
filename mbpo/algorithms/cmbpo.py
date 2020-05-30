@@ -88,6 +88,7 @@ class CMBPO(RLAlgorithm):
             use_mjc_state_model = False,
             model_std_inc = 0.02,
 
+            testing_mode = 'VanillaCPO',
             **kwargs,
     ):
         """
@@ -251,6 +252,11 @@ class CMBPO(RLAlgorithm):
         self._policy.set_logger(self.logger)
         self.sampler.set_logger(self.logger)
         #self.model_sampler.set_logger(self.logger)
+
+        #### _____________________________________ ####
+        ####           Testing                     ####
+        #### _____________________________________ ####
+        self.testing_mode = testing_mode
 
     def _train(self):
         

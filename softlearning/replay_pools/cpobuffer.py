@@ -161,7 +161,7 @@ class CPOBuffer:
         cdeltas = costs[:-1] + self.gamma * cvals[1:] - cvals[:-1]
         self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam)
         
-        # testing a baslines-like lambda - TD
+        # testing lambda - TD
         # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
         self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
         
