@@ -452,17 +452,17 @@ class CMBPO(RLAlgorithm):
                 model_metrics.update(model_v_diagnostics)
             
             if self.testing_mode=='StateDistA' or self.testing_mode=='StateDistB':
-                cost_batch = real_samples[-1]
+                cost_batch = real_samples[-3]
                 real_bs = 1000
 
                 if train_samples is None:
                     ### only use small real_batch, except for cost buffer
                     train_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    train_samples[-1] = cost_batch
+                    train_samples[-3] = cost_batch
                     # train_samples = real_samples
                 else: 
                     new_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    new_samples[-1] = cost_batch
+                    new_samples[-3] = cost_batch
                     train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
                     # new_samples = real_samples
                     # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
