@@ -309,8 +309,8 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 5e3
-            max_samples = 80e3
+            min_samples = 50e3
+            max_samples = 150e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -368,8 +368,8 @@ class CMBPO(RLAlgorithm):
                     samples = {k:v[-50000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 250 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                max_epochs = 500 if self._epoch<50 else 15
+                min_epochs = 10 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                max_epochs = 500 if self._epoch<10 else 15
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
@@ -402,7 +402,17 @@ class CMBPO(RLAlgorithm):
                 ))                
                 
                 ### set initial states
-                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                if self.testing_mode=='StateDistA':
+                    real_samples= self._pool.get()
+                    obs = real_samples[0]
+                    indcs = np.random.choice(len(obs), self._rollout_batch_size, replace=self._rollout_batch_size>=len(obs))
+                    start_states = obs[indcs]
+                elif self.testing_mode=='StateDistB':
+                    start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                    real_samples= self._pool.get()
+                else:
+                    start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+
                 self.model_sampler.reset(start_states)
                 
                 ### debug
@@ -440,17 +450,33 @@ class CMBPO(RLAlgorithm):
                 ### value diagnostics in model samples
                 model_v_diagnostics = self._policy.compute_v_losses(model_samples)
                 model_metrics.update(model_v_diagnostics)
+            
+            if self.testing_mode=='StateDistA' or self.testing_mode=='StateDistB':
+                cost_batch = real_samples[-1]
+                real_bs = 1000
 
-            real_samples= self._pool.get()
-
-            if train_samples is None:
-                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                # train_samples = real_samples
+                if train_samples is None:
+                    ### only use small real_batch, except for cost buffer
+                    train_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                    train_samples[-1] = cost_batch
+                    # train_samples = real_samples
+                else: 
+                    new_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                    new_samples[-1] = cost_batch
+                    train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                    # new_samples = real_samples
+                    # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
             else: 
-                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
-                # new_samples = real_samples
-                # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                real_samples= self._pool.get()
+
+                if train_samples is None:
+                    train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                    # train_samples = real_samples
+                else: 
+                    new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                    train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                    # new_samples = real_samples
+                    # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
 
             self._training_progress.resume()
 
