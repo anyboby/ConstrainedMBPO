@@ -364,8 +364,8 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                if len(samples['observations'])>50000:
-                    samples = {k:v[-50000:] for k,v in samples.items()} 
+                if len(samples['observations'])>15000:
+                    samples = {k:v[-15000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
                 min_epochs = 10 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
