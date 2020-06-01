@@ -29,10 +29,10 @@ CPO_POLICY_PARAMS_BASE = {
     'kwargs': {
         'a_hidden_layer_sizes':   (M, M),
         'squash': True,
-        'vf_lr':                1e-4,
+        'vf_lr':                7e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
-        'vf_epochs':            12,                 
-        'vf_batch_size':        512,
+        'vf_epochs':            15,                 
+        'vf_batch_size':        256,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
