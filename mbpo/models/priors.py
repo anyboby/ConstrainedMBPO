@@ -56,7 +56,7 @@ def safety_gym_weights(obs_dim):
     mse_weights = np.ones(obs_dim+1, dtype='float32') # +2 for rew and costs
     mse_weights[0:2] = 1    # predicting prev action given the action should be easy, but has very high unnormalized target values. 
     mse_weights[3:19]=1 # goal lidar
-    mse_weights[2]=1   # goal dist.
+    mse_weights[2]=5   # goal dist.
     mse_weights[-1]= 1   # rew function
 
     return mse_weights

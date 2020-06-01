@@ -71,6 +71,18 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         session=self._session)
+            self._cost_model_reg = construct_model(in_dim=input_dim_c, 
+                                        out_dim=1,
+                                        loss='MSE',
+                                        name='CostNNReg',
+                                        hidden_dims=(128, 128, 128),
+                                        lr=1e-4, 
+                                        # lr_decay=0.96,
+                                        # decay_steps=10000, 
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites,
+                                        session=self._session)
+            
         else:
             self._cost_model = None
         
@@ -114,10 +126,8 @@ class FakeEnv:
         if self.prior_f:
             priors = self.prior_f(obs, act)
             inputs = np.concatenate((obs, act, priors), axis=-1)
-            inputs_cost = np.concatenate((obs, priors), axis=-1)
         else:
             inputs = np.concatenate((obs, act), axis=-1)
-            inputs_cost = obs
 
         ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
 
@@ -165,6 +175,11 @@ class FakeEnv:
         rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
 
         if self.cares_about_cost:
+            if self.prior_f:
+                inputs_cost = np.concatenate((next_obs, priors), axis=-1)
+            else:
+                inputs_cost = next_obs
+            
             cost_prob = self._cost_model.predict(inputs_cost, factored=True)
             cost_model_inds = self._cost_model.random_inds(batch_size) 
             cost_prob = cost_prob[cost_model_inds, batch_inds]

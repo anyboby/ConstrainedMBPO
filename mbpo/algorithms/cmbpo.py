@@ -364,17 +364,17 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                if len(samples['observations'])>25000:
-                    dyn_samples = {k:v[-25000:] for k,v in samples.items()} 
-                if len(samples['observations'])>10000:
-                    cost_samples = {k:v[-10000:] for k,v in samples.items()} 
+                # if len(samples['observations'])>25000:
+                #     dyn_samples = {k:v[-25000:] for k,v in samples.items()} 
+                # if len(samples['observations'])>10000:
+                #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
                 min_epochs = 10 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
                 max_epochs = 500 if self._epoch<10 else 15
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
-                        dyn_samples, 
+                        samples, 
                         batch_size=512, 
                         max_epochs=max_epochs, 
                         min_epoch_before_break=min_epochs, 
@@ -385,7 +385,7 @@ class CMBPO(RLAlgorithm):
 
                 if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
                     model_train_metrics_cost = self.fake_env.train_cost_model(
-                        cost_samples, 
+                        samples, 
                         batch_size=512, 
                         min_epoch_before_break=min_epochs,
                         max_epochs=max_epochs, 
@@ -460,11 +460,11 @@ class CMBPO(RLAlgorithm):
                 if train_samples is None:
                     ### only use small real_batch, except for cost buffer
                     train_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    train_samples[-3] = cost_batch
+                    train_samples[-3] = cost_batch          ### use real cost batch
                     # train_samples = real_samples
                 else: 
                     new_samples = [np.concatenate((r[:real_bs],m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    new_samples[-3] = cost_batch
+                    new_samples[-3] = cost_batch            ### use real cost batch
                     train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
                     # new_samples = real_samples
                     # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
