@@ -26,6 +26,7 @@ class FakeEnv:
         self.cares_about_cost = cares_about_cost
         self.rew_dim = 1
         self.cost_classes = [0,1]
+        self.num_networks = num_networks
 
         self.static_fns = static_fns
         self.safe_config = safe_config
@@ -56,56 +57,23 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weights=self.target_weights,    
+                                        use_scaler=True,
+                                        sc_factor=1,
                                         session=self._session)
 
-        if self.cares_about_cost:
+        if self.cares_about_cost:                                                    
             self._cost_model = construct_model(in_dim=input_dim_c, 
-                                        out_dim=2,
-                                        loss='CE',
-                                        name='CostNN',
-                                        hidden_dims=(128, 128, 128),
-                                        output_activation='softmax',
-                                        lr=3e-5, 
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000, 
-                                        num_networks=num_networks, 
-                                        num_elites=num_elites,
-                                        session=self._session)
-            self._cost_model_no_os = construct_model(in_dim=input_dim_c, 
-                                        out_dim=2,
-                                        loss='CE',
-                                        name='CostNN_noOS',
-                                        hidden_dims=(128, 128, 128),
-                                        output_activation='softmax',
-                                        lr=3e-5, 
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000, 
-                                        num_networks=num_networks, 
-                                        num_elites=num_elites,
-                                        session=self._session)
-            self._cost_model_no_noise = construct_model(in_dim=input_dim_c, 
-                                        out_dim=2,
-                                        loss='CE',
-                                        name='CostNN_noNoise',
-                                        hidden_dims=(128, 128, 128),
-                                        output_activation='softmax',
-                                        lr=3e-5, 
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000, 
-                                        num_networks=num_networks, 
-                                        num_elites=num_elites,
-                                        session=self._session)
-                                                    
-            self._cost_model_reg = construct_model(in_dim=input_dim_c, 
                                         out_dim=1,
                                         loss='MSE',
-                                        name='CostNNReg',
+                                        name='CostNN',
                                         hidden_dims=(128, 128, 128),
-                                        lr=1e-4, 
+                                        lr=7e-5, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
-                                        num_networks=num_networks, 
+                                        num_networks=num_networks,
                                         num_elites=num_elites,
+                                        use_scaler=True,
+                                        sc_factor=1,
                                         session=self._session)
             
         else:
@@ -175,7 +143,7 @@ class FakeEnv:
         ### calc disagreement of elites
         elite_means = ensemble_model_means[self._model.elite_inds]
         elite_stds = ensemble_model_stds[self._model.elite_inds]
-        average_dkl_per_output = average_dkl(elite_means, elite_stds)*self.target_weights
+        average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
         average_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
         ensemble_disagreement = average_dkl_mean
 
@@ -223,14 +191,11 @@ class FakeEnv:
                 inputs_cost = np.concatenate((next_obs, priors), axis=-1)
             else:
                 inputs_cost = next_obs
-            
-            cost_prob = self._cost_model.predict(inputs_cost, factored=True)
-            cost_model_inds = self._cost_model.random_inds(batch_size) 
-            cost_prob = cost_prob[cost_model_inds, batch_inds]
-            cost_batch = np.tile(self.cost_classes, (batch_size,1))
-            costs = cost_batch[(batch_inds, self._random_choice_prob_index(cost_prob, axis=1))]  ### chooses indices by p-dist
 
-            costs_reg = self._cost_model_reg.predict(inputs_cost, factored=True)
+            costs = np.squeeze(self._cost_model.predict(inputs_cost, factored=True))
+            ensemble_disagreement = np.var(costs, axis=0)
+            costs = np.mean(costs, axis=0)
+
         else:
             costs = np.zeros_like(rewards)
 
@@ -270,7 +235,7 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    noise=5e-4)
+                                                                    noise=1e-4)
         
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
@@ -284,57 +249,20 @@ class FakeEnv:
         priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
 
+
+        
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        train_inputs_cost, train_outputs_cost = format_samples_for_cost(samples, 
-                                                                    one_hot=True,
-                                                                    oversampling=True,
-                                                                    num_classes=len(self.cost_classes),
-                                                                    priors=priors,
-                                                                    noise=1e-4)
-
-        ##         #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
-
-        model_metrics_cost = self._cost_model.train(train_inputs_cost,
-                                    train_outputs_cost,
-                                    **kwargs,
-                                    )                                            
-        
-
-
-        train_inputs_cost_no_os, train_outputs_cost_no_os = format_samples_for_cost(samples, 
-                                                                    one_hot=True,
-                                                                    oversampling=False,
-                                                                    num_classes=len(self.cost_classes),
-                                                                    priors=priors,
-                                                                    noise=1e-4)
-        train_inputs_cost_no_noise, train_outputs_cost_no_noise = format_samples_for_cost(samples, 
-                                                                    one_hot=True,
-                                                                    oversampling=False,
-                                                                    num_classes=len(self.cost_classes),
-                                                                    priors=priors,
-                                                                    )
-        
-        train_inputs_cost_reg, train_outputs_cost_reg = format_samples_for_cost(samples, 
+        inputs, targets = format_samples_for_cost(samples, 
                                                                     one_hot=False,
                                                                     priors=priors,
                                                                     noise=1e-4)
-        model_metrics_cost_no_os = self._cost_model_no_os.train(train_inputs_cost_no_os,
-                                    train_outputs_cost_no_os,
-                                    **kwargs,
-                                    )                                            
-        model_metrics_cost_no_noise = self._cost_model_no_noise.train(train_inputs_cost_no_noise,
-                                    train_outputs_cost_no_noise,
-                                    **kwargs,
-                                    )                                            
+        #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
-        model_metrics_cost_reg = self._cost_model_reg.train(train_inputs_cost_reg,
-                                    train_outputs_cost_reg,
+        cost_model_metrics = self._cost_model.train(inputs,
+                                    targets,
                                     **kwargs,
                                     )                                            
-        model_metrics_cost.update(model_metrics_cost_no_os)
-        model_metrics_cost.update(model_metrics_cost_no_noise)
-        model_metrics_cost.update(model_metrics_cost_reg)                                                                    
-        return model_metrics_cost
+        return cost_model_metrics
 
 
     def reset_model(self):

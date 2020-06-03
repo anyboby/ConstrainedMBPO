@@ -11,9 +11,9 @@ params = {
     'use_mjc_state_model': False,      
 
     'kwargs': {
-        'testing_mode': 'StateDistA',
+        'testing_mode': 'Vanilla',
         
-        'epoch_length': 10000, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 4000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
@@ -35,7 +35,7 @@ params = {
         'hidden_dims':(512, 512, 512, 512),               # hidden layer size of model bnn
         'model_train_freq': 4000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 20e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 1e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
@@ -47,7 +47,7 @@ params = {
                                                     # range of (min_epoch, max_epoch)
         'dyn_model_train_schedule': [1, 1000, 1, 1],
         'cost_model_train_schedule': [1, 1000, 1, 1],                                                    
-        'max_uncertainty' : 2.5,
+        'max_uncertainty' : 0.1,
     }
 }
 

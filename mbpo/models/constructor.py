@@ -20,6 +20,9 @@ def construct_model(in_dim,
 					lr_decay = None,
 					decay_steps=None,
 					weights=None, 
+					use_scaler = False,
+					sc_factor = 1,
+					cliprange = 0.1,
 					session=None):
 	"""
 	Constructs a tf model.
@@ -33,7 +36,11 @@ def construct_model(in_dim,
 				'loss':loss, 
 				'num_networks': num_networks, 
 				'num_elites': num_elites, 
-				'sess': session}
+				'sess': session,
+				'use_scaler': use_scaler,
+				'sc_factor': sc_factor,
+				'cliprange':cliprange,
+				}
 	model = BNN(params)
 	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=decay/4))	# def dec: 0.000025))
 	

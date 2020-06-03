@@ -218,7 +218,7 @@ class CMBPO(RLAlgorithm):
 
         ### model sampler and buffer
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=40, 
+                                        max_path_length=250, 
                                         observation_space = self.obs_space, 
                                         action_space = self.act_space)
         self.model_pool.initialize(pi_info_shapes,
@@ -239,7 +239,7 @@ class CMBPO(RLAlgorithm):
         #                 cost_lam = self._policy.cost_lam)     
 
         
-        self.model_sampler = ModelSampler(max_path_length=40,
+        self.model_sampler = ModelSampler(max_path_length=250,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -414,7 +414,26 @@ class CMBPO(RLAlgorithm):
                     real_samples= self._pool.get()
                 else:
                     start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-
+                    
+                    if self._epoch==0:
+                        real_samples = self._pool.get_archive([     #### include initial expl. hook samples
+                                'observations',
+                                'actions',
+                                'advantages',
+                                'cadvantages',
+                                'returns',
+                                'creturns',
+                                'log_policies',
+                                'values',
+                                'cvalues',
+                                'costs',
+                                'pi_infos',
+                            ])
+                        real_samples = real_samples.values()
+                        _ = self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
+                    else:
+                        real_samples= self._pool.get()
+                    
                 self.model_sampler.reset(start_states)
                 
                 ### debug
@@ -449,9 +468,15 @@ class CMBPO(RLAlgorithm):
                 ### get model_samples after rollout
                 model_samples = self.model_pool.get()
                 
-                ### value diagnostics in model samples
-                model_v_diagnostics = self._policy.compute_v_losses(model_samples)
-                model_metrics.update(model_v_diagnostics)
+                ### run diagnostics on model data
+                model_data_diag = self._policy.run_diagnostics(model_samples)
+                model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
+                model_metrics.update(model_data_diag)
+                
+                ### run diagnostics on real data
+                real_data_diag = self._policy.run_diagnostics(real_samples)
+                real_data_diag = {k+'_r':v for k,v in real_data_diag.items()}
+                model_metrics.update(real_data_diag)
             
             if self.testing_mode=='StateDistA' or self.testing_mode=='StateDistB':
                 cost_batch = real_samples[-3]
@@ -469,8 +494,6 @@ class CMBPO(RLAlgorithm):
                     # new_samples = real_samples
                     # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
             else: 
-                real_samples= self._pool.get()
-
                 if train_samples is None:
                     train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
                     # train_samples = real_samples

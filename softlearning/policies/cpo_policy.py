@@ -366,6 +366,9 @@ class CPOPolicy(BasePolicy):
         self.vf_elites = kwargs.get('vf_elites', 3)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
+        self.vf_cliprange = kwargs.get('vf_cliprange', 0.1)
+        self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.3)
+
         self.ent_reg = kwargs.get('ent_reg', 0.0)
         self.cost_lim_end = kwargs.get('cost_lim_end', 25)
         self.cost_lim = kwargs.get('cost_lim', 25)
@@ -476,9 +479,9 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['num_elites']     = self.vf_elites
             vf_kwargs['session']        = self.sess
 
-            self.v = construct_model(name='VEnsemble', **vf_kwargs)
+            self.v = construct_model(name='VEnsemble', cliprange=self.vf_cliprange, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', **vf_kwargs)
+            self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
 
             # Organize placeholders for zipping with data from buffer on updates
             # careful ! this has to be in sync with the output of our buffer !
@@ -490,13 +493,20 @@ class CPOPolicy(BasePolicy):
                 ] + values_as_sorted_list(self.pi_info_phs)
 
             self.actor_phs = [
-                self.obs_ph, self.a_ph, self.adv_ph,
-                self.cadv_ph, self.logp_old_ph,
+                self.obs_ph, 
+                self.a_ph, 
+                self.adv_ph,
+                self.cadv_ph, 
+                self.logp_old_ph,
                 self.cur_cost_ph
                 ] + values_as_sorted_list(self.pi_info_phs)
             
             self.critic_phs = [
-                self.obs_ph, self.ret_ph, self.cret_ph
+                self.obs_ph, 
+                self.ret_ph, 
+                self.cret_ph, 
+                self.old_v_ph, 
+                self.old_vc_ph,
                 ]
 
             self.actor_fd = lambda x: {k:x[k] for k in self.actor_phs}
@@ -672,21 +682,47 @@ class CPOPolicy(BasePolicy):
         obs_in = inputs[self.obs_ph]
         vc_targets = inputs[self.cret_ph][:, np.newaxis]
         v_targets = inputs[self.ret_ph][:, np.newaxis]
+        old_v = inputs[self.old_v_ph][:, None]
+        #old_v = np.repeat(old_v, axis=0, repeats = self.vf_ensemble_size)
+        
+        old_vc = inputs[self.old_vc_ph][:, None]
+        #old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
 
         v_metrics = self.v.train(
             obs_in,
             v_targets,
+            old_pred = old_v,
             **kwargs,
             )                                      
 
         vc_metrics = self.vc.train(
             obs_in,
             vc_targets,
+            old_pred = old_vc,
             **kwargs,
             )                                            
 
         v_metrics.update(vc_metrics)
         return v_metrics
+
+    def run_diagnostics(self, buf_inputs):
+        inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+        actor_inputs = self.actor_fd(inputs)
+        
+        #=====================================================================#
+        #  Make some measurements before updating                             #
+        #=====================================================================#
+
+        measures = dict(LossPi=self.pi_loss,
+                        SurrCost=self.surr_cost,
+                        Entropy=self.ent)
+
+        diagnostics = self.sess.run(measures, feed_dict=actor_inputs)
+        diagnostics.update(self.compute_v_losses(buf_inputs))
+
+        return diagnostics
+
+
 
     def compute_v_losses(self, inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, inputs)}

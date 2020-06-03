@@ -59,7 +59,7 @@ def average_dkl(mu, std):
 class TensorStandardScaler:
     """Helper class for automatically normalizing inputs into the network.
     """
-    def __init__(self, x_dim):
+    def __init__(self, x_dim, sc_factor=1):
         """Initializes a scaler.
 
         Arguments:
@@ -79,6 +79,7 @@ class TensorStandardScaler:
             )
 
         self.cached_mu, self.cached_sigma = np.zeros([0, x_dim]), np.ones([1, x_dim])
+        self.sc_factor = sc_factor
 
     def fit(self, data):
         """Runs two ops, one for assigning the mean of the data to the internal mean, and
@@ -93,22 +94,32 @@ class TensorStandardScaler:
         mu = np.mean(data, axis=0, keepdims=True)
         sigma = np.std(data, axis=0, keepdims=True)
         sigma[sigma < 1e-12] = 1.0
-
         self.mu.load(mu)
         self.sigma.load(sigma)
         self.fitted = True
         self.cache()
 
-
     def transform(self, data):
         """Transforms the input matrix data using the parameters of this scaler.
+        
+        can be adjusted to scale with a factor, to control sensitivity to ood data:
+        d = (d-mu)/sigma = d + (d-mu)/sigma - d = d + (d(1-sigma)-mu)/sigma 
+        and the version with scaling factor thus becomes
+        d = d + sc_factor*(d(1-sigma)-mu)/sigma
 
         Arguments:
         data (np.array): A numpy array containing the points to be transformed.
+        sc_factor: Factor to what degree the original dataset is transformed
 
         Returns: (np.array) The transformed dataset.
+
+
         """
-        return (data - self.mu) / self.sigma
+        #scaled_transform = data + self.sc_factor * (data* (1-self.sigma) - self.mu) / self.sigma
+        scaling = 1+self.sc_factor*(self.sigma-1)
+        scaling = tf.clip_by_value(scaling, 1.0e-8, 1.0e8)
+        scaled_transform = (data-self.mu)/scaling
+        return scaled_transform
 
     def inverse_transform(self, data):
         """Undoes the transformation performed by this scaler.
