@@ -526,12 +526,18 @@ class CPOPolicy(BasePolicy):
 
             ratio = tf.exp(self.logp-self.logp_old_ph)
 
+            
+            #### testing
+            self.surr_cost = 3.5 * tf.reduce_mean(ratio * self.cadv_ph)
+            self.surr_adv = 3.5 * tf.reduce_mean(ratio * self.adv_ph)
+
             # Surrogate advantage / clipped surrogate advantage
-            surr_adv = tf.reduce_mean(ratio * self.adv_ph)
+            #self.surr_adv = tf.reduce_mean(ratio * self.adv_ph)
 
             # Surrogate cost (advantage)
-            self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
-
+            #self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
+            
+            
             # Cret
             self.cur_cost_avg = tf.reduce_mean(self.cur_cost_ph)
 
@@ -539,7 +545,7 @@ class CPOPolicy(BasePolicy):
             # self.disc_cost_lim = (self.cost_lim/self.ep_len)
 
             # Create policy objective function, including entropy regularization
-            pi_objective = surr_adv + self.ent_reg * self.ent
+            pi_objective = self.surr_adv + self.ent_reg * self.ent
 
             # Loss function for pi is negative of pi_objective
             self.pi_loss = -pi_objective
@@ -605,6 +611,7 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
 
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+                
         actor_inputs = self.actor_fd(inputs)
         critic_inputs = self.critic_fd(inputs)
         
@@ -614,6 +621,7 @@ class CPOPolicy(BasePolicy):
 
         measures = dict(LossPi=self.pi_loss,
                         SurrCost=self.surr_cost,
+                        SurrAdv = self.surr_adv,
                         Entropy=self.ent)
 
         pre_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
@@ -816,6 +824,11 @@ class CPOPolicy(BasePolicy):
         # Surr cost and change
         logger.log_tabular('SurrCost', average_only=True)
         logger.log_tabular('SurrCostDelta', average_only=True)
+
+        # Surr cost and change
+        logger.log_tabular('SurrAdv', average_only=True)
+        logger.log_tabular('SurrAdvDelta', average_only=True)
+
 
         # Policy stats
         logger.log_tabular('Entropy', average_only=True)

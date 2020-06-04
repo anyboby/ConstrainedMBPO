@@ -41,9 +41,9 @@ CPO_POLICY_PARAMS_BASE = {
         'target_kl':            0.01,
         'cost_lim_end':         30,
         'cost_lim':             30,
-        'cost_lam':             0.97,
+        'cost_lam':             0.6,
         'cost_gamma':           0.99,
-        'lam':                  0.97,
+        'lam':                  0.6,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
