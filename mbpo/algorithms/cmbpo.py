@@ -217,7 +217,7 @@ class CMBPO(RLAlgorithm):
 
         ### model sampler and buffer
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=40, 
+                                        max_path_length=250, 
                                         observation_space = self.obs_space, 
                                         action_space = self.act_space)
         self.model_pool.initialize(pi_info_shapes,
@@ -238,7 +238,7 @@ class CMBPO(RLAlgorithm):
         #                 cost_lam = self._policy.cost_lam)     
 
         
-        self.model_sampler = ModelSampler(max_path_length=40,
+        self.model_sampler = ModelSampler(max_path_length=250,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -251,11 +251,6 @@ class CMBPO(RLAlgorithm):
         self._policy.set_logger(self.logger)
         self.sampler.set_logger(self.logger)
         #self.model_sampler.set_logger(self.logger)
-
-        #### _____________________________________ ####
-        ####           Testing                     ####
-        #### _____________________________________ ####
-        self.testing_mode = testing_mode
 
     def _train(self):
         
@@ -308,8 +303,8 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 5e3
-            max_samples = 80e3
+            min_samples = 50e3
+            max_samples = 150e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -363,12 +358,14 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals'])
-                if len(samples['observations'])>50000:
-                    samples = {k:v[-50000:] for k,v in samples.items()} 
+                # if len(samples['observations'])>25000:
+                #     dyn_samples = {k:v[-25000:] for k,v in samples.items()} 
+                # if len(samples['observations'])>10000:
+                #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 250 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                max_epochs = 500 if self._epoch<50 else 15
+                min_epochs = 150 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                max_epochs = 500 if self._epoch<10 else 15
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
@@ -402,6 +399,26 @@ class CMBPO(RLAlgorithm):
                 
                 ### set initial states
                 start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                
+                if self._epoch==0:
+                    real_samples = self._pool.get_archive([     #### include initial expl. hook samples
+                            'observations',
+                            'actions',
+                            'advantages',
+                            'cadvantages',
+                            'returns',
+                            'creturns',
+                            'log_policies',
+                            'values',
+                            'cvalues',
+                            'costs',
+                            'pi_infos',
+                        ])
+                    real_samples = real_samples.values()
+                    self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
+                else:
+                    real_samples= self._pool.get()
+                
                 self.model_sampler.reset(start_states)
                 
                 ### debug
@@ -436,20 +453,21 @@ class CMBPO(RLAlgorithm):
                 ### get model_samples after rollout
                 model_samples = self.model_pool.get()
                 
-                ### value diagnostics in model samples
-                model_v_diagnostics = self._policy.compute_v_losses(model_samples)
-                model_metrics.update(model_v_diagnostics)
-
-            real_samples= self._pool.get()
-
-            if train_samples is None:
-                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                # train_samples = real_samples
-            else: 
-                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
-                # new_samples = real_samples
-                # train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                ### run diagnostics on model data
+                model_data_diag = self._policy.run_diagnostics(model_samples)
+                model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
+                model_metrics.update(model_data_diag)
+                
+                ### run diagnostics on real data
+                real_data_diag = self._policy.run_diagnostics(real_samples)
+                real_data_diag = {k+'_r':v for k,v in real_data_diag.items()}
+                model_metrics.update(real_data_diag)
+            
+                if train_samples is None:
+                    train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                else: 
+                    new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                    train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
 
             self._training_progress.resume()
 

@@ -59,12 +59,15 @@ class BNN:
         
         self.loss_type = params.get('loss', 'NLL')
         self.include_var = True if self.loss_type == 'NLL' else False
+        self.cliprange = params.get('cliprange', 0.2)   #### Only relevant if losstype is ClippedMSE
 
         # Instance variables
         self.finalized = False
         self.layers, self.max_logvar, self.min_logvar = [], None, None
         self.decays, self.optvars, self.nonoptvars = [], [], []
         self.end_act, self.end_act_name = None, None
+        self.use_scaler = params.get('use_scaler', True)
+        self.sc_factor = params.get('sc_factor', 1)
         self.scaler = None
 
         # Training objects
@@ -172,6 +175,7 @@ class BNN:
             optimizer_args.pop('decay_steps', None)
             optimizer_args['learning_rate'] = learning_rate    
 
+        
         # Add variance output.
         if self.include_var:
             self.layers[-1].set_output_dim(2 * self.layers[-1].get_output_dim())
@@ -184,7 +188,8 @@ class BNN:
         # Construct all variables.
         with self.sess.as_default():
             with tf.variable_scope(self.name):
-                self.scaler = TensorStandardScaler(self.layers[0].get_input_dim())
+                if self.use_scaler:
+                    self.scaler = TensorStandardScaler(self.layers[0].get_input_dim(), sc_factor=self.sc_factor)
                 if self.include_var:
                     self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])/2., dtype=tf.float32,
                                                 name="max_log_var")
@@ -197,7 +202,9 @@ class BNN:
                         self.optvars.extend(layer.get_vars())
         if self.include_var:
             self.optvars.extend([self.max_logvar, self.min_logvar])
-        self.nonoptvars.extend(self.scaler.get_vars())
+        if self.use_scaler:
+            self.nonoptvars.extend(self.scaler.get_vars())
+
 
         # Set up training
         with tf.variable_scope(self.name):
@@ -213,7 +220,6 @@ class BNN:
                 self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
                                                 name="training_targets")
-            
 
             #### set up losses
             if self.loss_type == 'NLL':
@@ -242,13 +248,23 @@ class BNN:
                 self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=weights)
                 self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=weights)
 
+            elif self.loss_type == 'ClippedMSE':
+                self.old_pred_ph = tf.placeholder(dtype=tf.float32,
+                                                shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
+                                                name="old_predictions")
+                self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)                                       
+                train_loss = tf.reduce_sum(self._clippedMSE_loss(self.sy_train_in, self.sy_train_targ, self.old_pred_ph))
+                train_loss += tf.add_n(self.decays)
+                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights) ### use normal loss for displaying
+                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
+
             #### _________________________ ####  
             ####      Optimization Ops     ####
             #### _________________________ ####
             
             self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
             grads_a_vars = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
-            grads_a_vars = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_a_vars]
+            grads_a_vars = [(tf.clip_by_value(grad, -1, 1.), var) for grad, var in grads_a_vars]
             self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_a_vars, global_step=global_step)
             
             #self.train_op = self.optimizer.minimize(train_loss)
@@ -383,7 +399,7 @@ class BNN:
 
     def train(self, inputs, targets,
               batch_size=32, max_epochs=None, max_epochs_since_update=5, min_epoch_before_break = 0,
-              hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None):
+              hide_progress=False, holdout_ratio=0.0, max_logging=5000, max_grad_updates=None, timer=None, max_t=None, **kwargs):
         """Trains/Continues network training
 
         Arguments:
@@ -413,9 +429,16 @@ class BNN:
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
+        if self.loss_type=='ClippedMSE':
+            if self.loss_type=='ClippedMSE':
+                old_pred = kwargs.get('old_pred', targets)
+                old_pred = old_pred[permutation[num_holdout:]]
+
         print(f'[ {self.name} ] Training {inputs.shape} | Holdout: {holdout_inputs.shape}')
-        with self.sess.as_default():
-            self.scaler.fit(inputs)
+
+        if self.use_scaler:
+            with self.sess.as_default():
+                self.scaler.fit(inputs)
 
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
         if hide_progress:
@@ -436,10 +459,24 @@ class BNN:
         for epoch in epoch_iter:
             for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
                 batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
-                self.sess.run(
-                    self.train_op,
-                    feed_dict={self.sy_train_in: inputs[batch_idxs], self.sy_train_targ: targets[batch_idxs]}
-                )
+                
+                if self.loss_type == 'ClippedMSE':
+                    self.sess.run(
+                        self.train_op,
+                        feed_dict={
+                            self.sy_train_in: inputs[batch_idxs], 
+                            self.sy_train_targ: targets[batch_idxs], 
+                            self.old_pred_ph:old_pred[batch_idxs]
+                            }
+                    )
+                else:
+                    self.sess.run(
+                        self.train_op,
+                        feed_dict={
+                            self.sy_train_in: inputs[batch_idxs],
+                            self.sy_train_targ: targets[batch_idxs]
+                            }
+                    )
                 grad_updates += 1
 
             idxs = shuffle_rows(idxs)
@@ -669,8 +706,10 @@ class BNN:
             in the ensemble.
         """
         dim_output = self.layers[-1].get_output_dim()
-        #cur_out = self.scaler.transform(inputs)
         cur_out = inputs
+        if self.use_scaler:
+            cur_out = self.scaler.transform(cur_out)
+
         for layer in self.layers:
             cur_out = layer.compute_output_tensor(cur_out)
 
@@ -741,6 +780,37 @@ class BNN:
             total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
+
+    def _clippedMSE_loss(self, inputs, targets, old_pred):
+        """Helper method for compiling the NLL loss function.
+
+        The loss function is obtained from the log likelihood, assuming that the output
+        distribution is Gaussian, with both mean and (diagonal) covariance matrix being determined
+        by network outputs.
+
+        if inc_var_loss is False, becomes standard MSE
+
+        Arguments:
+            inputs: (tf.Tensor) A tensor representing the input batch
+            targets: (tf.Tensor) The desired targets for each input vector in inputs.
+            inc_var_loss: (bool) If True, includes log variance loss.
+                            will throw an error if set to True in a model without variances included
+
+        Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
+        """
+
+        mean = self._compile_outputs(inputs)
+
+        pred = self._compile_outputs(inputs)
+        pred_cl = pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
+
+        loss = tf.square(mean-targets)      ## unclipped loss
+        loss_cl = tf.square(pred_cl-targets)    ##loss of the clipped prediction
+
+        total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
+
+        return total_losses
+
 
     def _ce_loss(self, inputs, targets, tensor_loss=False, weights=None):
         """Helper method for compiling the NLL loss function.

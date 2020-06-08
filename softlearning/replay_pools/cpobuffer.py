@@ -253,14 +253,18 @@ class CPOBuffer:
             'creturns'
             'cvalues'
             'log_policies'
+            'pi_infos'
             'terminals'
+            'all'
 
         Args:
             fields: a list containing the key words for the desired 
-            data types. e.g.: ['observations', 'actions', 'values']
+            data types. e.g.: ['observations', 'actions', 'values'], 'all' will return all of the possible fields
         """
         if fields is None:
             archives = ['observations', 'actions', 'next_observations', 'rewards', 'terminals']
+        elif 'all' in fields:
+            archives = self.arch_dict.keys() 
         else:
             archives = fields
 
@@ -270,9 +274,21 @@ class CPOBuffer:
             arch_ptr = self.archive_ptr
         buf_ptr = self.ptr
 
+        if 'pi_infos' in fields:
+            pi_info_requested = True
+            fields.remove('pi_infos')
+        else:
+            pi_info_requested = False
+
         samples = {archive: \
                         np.concatenate((self.arch_dict[archive][:arch_ptr], self.buf_dict[archive][:buf_ptr]), axis=0) \
                         for archive in archives}
+        
+        if pi_info_requested:
+            pi_infos = {
+                k:np.concatenate((self.pi_info_archive[k][:arch_ptr], self.pi_info_bufs[k][:buf_ptr]), axis=0) for k in keys_as_sorted_list(self.pi_info_archive)
+                }
+            samples.update(pi_infos)
         # add current buffers
         return samples
 

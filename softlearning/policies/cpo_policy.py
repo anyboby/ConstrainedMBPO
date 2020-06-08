@@ -190,12 +190,12 @@ class CPOAgent(TrustRegionAgent):
         d_kl = self.training_package['d_kl']
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
-        cur_cost_avg_op = self.training_package['cur_cost_avg']
+        cur_cret_avg_op = self.training_package['cur_cret_avg']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
-        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cost_avg_op], feed_dict=inputs)
+        outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cret_avg_op], feed_dict=inputs)
         outs = [mpi_avg(out) for out in outs]
-        g, b, pi_l_old, surr_cost_old, cur_cost_avg = outs
+        g, b, pi_l_old, surr_cost_old, cur_cret_avg = outs
 
         # Need old params, old policy cost gap (epcost - limit), 
         # and surr_cost rescale factor (equal to average eplen).
@@ -204,7 +204,7 @@ class CPOAgent(TrustRegionAgent):
         # calc the cost lim if it were discounted, 
         # need rescale since cost_lim refers to one episode
         #rescale = self.logger.get_stats('EpLen')[0]
-        rescale = self.max_path_length
+        rescale = self.max_path_length*(1-self.c_gamma)
         cost_lim_disc = (cost_lim/rescale)/(1-self.c_gamma)
 
         # compare
@@ -214,7 +214,7 @@ class CPOAgent(TrustRegionAgent):
         # undiscount (@anyboby TODO not really understand why we undiscount here, despite
         # the theory in CPO suggests the discounted Return)
         #c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
-        c = cur_cost_avg*rescale-cost_lim
+        c = cur_cret_avg*rescale-cost_lim
 
         if self.d_control:
             c += self.delta * self.decayed_surr_cost
@@ -366,6 +366,9 @@ class CPOPolicy(BasePolicy):
         self.vf_elites = kwargs.get('vf_elites', 3)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
+        self.vf_cliprange = kwargs.get('vf_cliprange', 0.1)
+        self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.3)
+
         self.ent_reg = kwargs.get('ent_reg', 0.0)
         self.cost_lim_end = kwargs.get('cost_lim_end', 25)
         self.cost_lim = kwargs.get('cost_lim', 25)
@@ -476,9 +479,9 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['num_elites']     = self.vf_elites
             vf_kwargs['session']        = self.sess
 
-            self.v = construct_model(name='VEnsemble', **vf_kwargs)
+            self.v = construct_model(name='VEnsemble', cliprange=self.vf_cliprange, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', **vf_kwargs)
+            self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
 
             # Organize placeholders for zipping with data from buffer on updates
             # careful ! this has to be in sync with the output of our buffer !
@@ -490,13 +493,20 @@ class CPOPolicy(BasePolicy):
                 ] + values_as_sorted_list(self.pi_info_phs)
 
             self.actor_phs = [
-                self.obs_ph, self.a_ph, self.adv_ph,
-                self.cadv_ph, self.logp_old_ph,
-                self.cur_cost_ph
+                self.obs_ph, 
+                self.a_ph, 
+                self.adv_ph,
+                self.cadv_ph, 
+                self.logp_old_ph,
+                self.cret_ph
                 ] + values_as_sorted_list(self.pi_info_phs)
             
             self.critic_phs = [
-                self.obs_ph, self.ret_ph, self.cret_ph
+                self.obs_ph, 
+                self.ret_ph, 
+                self.cret_ph, 
+                self.old_v_ph, 
+                self.old_vc_ph,
                 ]
 
             self.actor_fd = lambda x: {k:x[k] for k in self.actor_phs}
@@ -532,9 +542,8 @@ class CPOPolicy(BasePolicy):
             # Surrogate cost (advantage)
             self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
             
-            
-            # Cret
-            self.cur_cost_avg = tf.reduce_mean(self.cur_cost_ph)
+            # Current Cret
+            self.cur_cret_avg = tf.reduce_mean(self.cret_ph)
 
             # cost_lim if it were discounted
             # self.disc_cost_lim = (self.cost_lim/self.ep_len)
@@ -574,7 +583,7 @@ class CPOPolicy(BasePolicy):
             # Provide training package to agent
             self.training_package.update(dict(pi_loss=self.pi_loss, 
                                         surr_cost=self.surr_cost,
-                                        cur_cost_avg = self.cur_cost_avg,
+                                        cur_cret_avg = self.cur_cret_avg,
                                         d_kl=self.d_kl, 
                                         target_kl=self.target_kl,
                                         cost_lim=self.cost_lim))
@@ -675,21 +684,47 @@ class CPOPolicy(BasePolicy):
         obs_in = inputs[self.obs_ph]
         vc_targets = inputs[self.cret_ph][:, np.newaxis]
         v_targets = inputs[self.ret_ph][:, np.newaxis]
+        old_v = inputs[self.old_v_ph][:, None]
+        #old_v = np.repeat(old_v, axis=0, repeats = self.vf_ensemble_size)
+        
+        old_vc = inputs[self.old_vc_ph][:, None]
+        #old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
 
         v_metrics = self.v.train(
             obs_in,
             v_targets,
+            old_pred = old_v,
             **kwargs,
             )                                      
 
         vc_metrics = self.vc.train(
             obs_in,
             vc_targets,
+            old_pred = old_vc,
             **kwargs,
             )                                            
 
         v_metrics.update(vc_metrics)
         return v_metrics
+
+    def run_diagnostics(self, buf_inputs):
+        inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+        actor_inputs = self.actor_fd(inputs)
+        
+        #=====================================================================#
+        #  Make some measurements before updating                             #
+        #=====================================================================#
+
+        measures = dict(LossPi=self.pi_loss,
+                        SurrCost=self.surr_cost,
+                        Entropy=self.ent)
+
+        diagnostics = self.sess.run(measures, feed_dict=actor_inputs)
+        diagnostics.update(self.compute_v_losses(buf_inputs))
+
+        return diagnostics
+
+
 
     def compute_v_losses(self, inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, inputs)}

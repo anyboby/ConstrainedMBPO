@@ -20,6 +20,9 @@ def construct_model(in_dim,
 					lr_decay = None,
 					decay_steps=None,
 					weights=None, 
+					use_scaler = False,
+					sc_factor = 1,
+					cliprange = 0.1,
 					session=None):
 	"""
 	Constructs a tf model.
@@ -33,7 +36,11 @@ def construct_model(in_dim,
 				'loss':loss, 
 				'num_networks': num_networks, 
 				'num_elites': num_elites, 
-				'sess': session}
+				'sess': session,
+				'use_scaler': use_scaler,
+				'sc_factor': sc_factor,
+				'cliprange':cliprange,
+				}
 	model = BNN(params)
 	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=decay/4))	# def dec: 0.000025))
 	
@@ -118,7 +125,7 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 
 	return inputs, outputs
 
-def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = None, noise=None):
+def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, priors = None, noise=None):
 	"""
 	formats samples to fit training for cost, specifically returns: 
 
@@ -142,7 +149,7 @@ def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = Non
 		cost_one_hot[(batch_indcs, costs)] = 1
 		outputs = cost_one_hot
 	else:
-		outputs = np.squeeze(cost)
+		outputs = cost[:, None]
 
 	if priors is not None:
 		inputs = np.concatenate((next_obs, priors), axis=-1)
@@ -153,13 +160,14 @@ def format_samples_for_cost(samples, one_hot = True, num_classes=2, priors = Non
 	## ________________________________ ##
 	##      oversample cost classes     ##
 	## ________________________________ ##
-	if len(outputs[np.where(costs>0)[0]])>0:
-		imbalance_ratio = len(outputs[np.where(costs==0)[0]])//len(outputs[np.where(costs>0)[0]])
-		extra_outputs = np.tile(outputs[np.where(costs>0)[0]], (1+imbalance_ratio//4,1))		## don't need to overdo it
-		outputs = np.concatenate((outputs, extra_outputs), axis=0)
-		extra_inputs = np.tile(inputs[np.where(costs>0)[0]], (1+imbalance_ratio//4,1))
-		extra_inputs = _add_noise(extra_inputs, 0.0001)
-		inputs = np.concatenate((inputs, extra_inputs), axis=0)
+	if oversampling:
+		if len(outputs[np.where(costs>0)[0]])>0:
+			imbalance_ratio = len(outputs[np.where(costs==0)[0]])//len(outputs[np.where(costs>0)[0]])
+			extra_outputs = np.tile(outputs[np.where(costs>0)[0]], (1+imbalance_ratio//3,1))		## don't need to overdo it
+			outputs = np.concatenate((outputs, extra_outputs), axis=0)
+			extra_inputs = np.tile(inputs[np.where(costs>0)[0]], (1+imbalance_ratio//3,1))
+			extra_inputs = _add_noise(extra_inputs, 0.0001)
+			inputs = np.concatenate((inputs, extra_inputs), axis=0)
 	
 	### ______ add noise _____ ###
 	if noise:
