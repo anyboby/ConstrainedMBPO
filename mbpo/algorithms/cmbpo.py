@@ -303,7 +303,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 50e3
+            min_samples = 70e3
             max_samples = 150e3
             samples_added = 0
 

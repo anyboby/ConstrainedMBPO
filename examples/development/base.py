@@ -271,7 +271,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(5e4),
+                    'CPOBuffer':int(5e5),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
