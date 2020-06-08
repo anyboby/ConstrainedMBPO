@@ -528,8 +528,8 @@ class CPOPolicy(BasePolicy):
 
             
             #### testing
-            self.surr_cost = 3.5 * tf.reduce_mean(ratio * self.cadv_ph)
-            self.surr_adv = 3.5 * tf.reduce_mean(ratio * self.adv_ph)
+            self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
+            self.surr_adv = tf.reduce_mean(ratio * self.adv_ph)
 
             # Surrogate advantage / clipped surrogate advantage
             #self.surr_adv = tf.reduce_mean(ratio * self.adv_ph)
