@@ -263,12 +263,17 @@ class FakeEnv:
         cret_buf_mean = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
         cret_buf_median_cl = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
         cret_buf_mean_cl = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+        cval_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
 
         cret_var_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
         cret_iod_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
-
+ 
         # tic = time.perf_counter()
         act_buf = a
+        
+        
+        cvals, _ = self.policy.get_vc(obs, inc_var=True)
+        cvals = np.mean(cvals[..., None], axis=0)
 
         for i in range(max_length):
             # Get outputs from policy
@@ -412,6 +417,16 @@ class FakeEnv:
         creturns_med_cl_iod = np.sum(cret_buf_median_cl*wc_iod*1/wc_sum_iod, axis=0)
         creturns_mean_cl_iod = np.sum(cret_buf_mean_cl*wc_iod*1/wc_sum_iod, axis=0)
 
+        a_med = creturns_med - cvals
+        a_med_iod = creturns_med_iod - cvals
+        a_mean = creturns_mean - cvals
+        a_mean_iod = creturns_mean_iod - cvals
+        a_med_cl = creturns_med_cl - cvals
+        a_mean_cl = creturns_mean_cl - cvals
+        a_med_cl_iod = creturns_med_cl_iod - cvals
+        a_mean_cl_iod = creturns_mean_cl_iod - cvals
+        a_td0 = cret_buf[0] - cvals
+
         e1 = np.mean((creturns_med-real_samples[5][rand_inds])**2)
         e2 = np.mean((creturns_med_iod-real_samples[5][rand_inds])**2)
         e3 = np.mean((creturns_mean-real_samples[5][rand_inds])**2)
@@ -421,6 +436,16 @@ class FakeEnv:
         e7 = np.mean((creturns_med_cl_iod-real_samples[5][rand_inds])**2)
         e8 = np.mean((creturns_mean_cl_iod-real_samples[5][rand_inds])**2)
         etd0 = np.mean((cret_buf[0]-real_samples[5][rand_inds])**2)
+
+        ea1 = np.mean((a_med-real_samples[3][rand_inds])**2)
+        ea2 = np.mean((a_med_iod-real_samples[3][rand_inds])**2)
+        ea3 = np.mean((a_mean-real_samples[3][rand_inds])**2)
+        ea4 = np.mean((a_mean_iod-real_samples[3][rand_inds])**2)
+        ea5 = np.mean((a_med_cl-real_samples[3][rand_inds])**2)
+        ea6 = np.mean((a_mean_cl-real_samples[3][rand_inds])**2)
+        ea7 = np.mean((a_med_cl_iod-real_samples[3][rand_inds])**2)
+        ea8 = np.mean((a_mean_cl_iod-real_samples[3][rand_inds])**2)
+        eatd0 = np.mean((a_td0-real_samples[3][rand_inds])**2)
 
         ### diag
         rolls = np.tile(np.arange(max_length)[..., None, None], reps=(1,wr.shape[1], wr.shape[2]))  
