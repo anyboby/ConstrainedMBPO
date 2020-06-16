@@ -64,6 +64,8 @@ class BNN:
         # Instance variables
         self.finalized = False
         self.layers, self.max_logvar, self.min_logvar = [], None, None
+        self.max_logvar_param = params.get('max_logvar', .5)
+        self.min_logvar_param = params.get('min_logvar', -6)
         self.decays, self.optvars, self.nonoptvars = [], [], []
         self.end_act, self.end_act_name = None, None
         self.use_scaler = params.get('use_scaler', True)
@@ -191,9 +193,9 @@ class BNN:
                 if self.use_scaler:
                     self.scaler = TensorStandardScaler(self.layers[0].get_input_dim(), sc_factor=self.sc_factor)
                 if self.include_var:
-                    self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])/2., dtype=tf.float32,
+                    self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.max_logvar_param, dtype=tf.float32,
                                                 name="max_log_var")
-                    self.min_logvar = tf.Variable(-np.ones([1, self.layers[-1].get_output_dim() // 2])*10., dtype=tf.float32,
+                    self.min_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.min_logvar_param, dtype=tf.float32,
                                                 name="min_log_var")
                 for i, layer in enumerate(self.layers):
                     with tf.variable_scope("Layer%i" % i):
@@ -225,7 +227,7 @@ class BNN:
             if self.loss_type == 'NLL':
                 train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
                 train_loss += tf.add_n(self.decays)
-                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+                # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
             
@@ -238,7 +240,7 @@ class BNN:
             elif self.loss_type == 'Huber':
                 train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights, delta=0.01))
                 train_loss += tf.add_n(self.decays)
-                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+                # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.01)
                 self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.01)
             
@@ -627,7 +629,7 @@ class BNN:
         """See predict() above for documentation.
         """
         if self.include_var:
-            factored_mean, factored_variance = self._compile_outputs(inputs)
+            factored_mean, factored_variance = self._compile_outputs(inputs, debug=True)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
                 variance = tf.reduce_mean(tf.square(factored_mean - mean), axis=0) + \
@@ -692,7 +694,7 @@ class BNN:
     # Compilation methods #
     #######################
 
-    def _compile_outputs(self, inputs, ret_log_var=False, raw_output=False):
+    def _compile_outputs(self, inputs, ret_log_var=False, raw_output=False,debug=False):
         """Compiles the output of the network at the given inputs.
 
         If inputs is 2D, returns a 3D tensor where output[i] is the output of the ith network in the ensemble.
@@ -710,8 +712,13 @@ class BNN:
         if self.use_scaler:
             cur_out = self.scaler.transform(cur_out)
 
+        if debug:
+            self.layers_deb = []
         for layer in self.layers:
+
             cur_out = layer.compute_output_tensor(cur_out)
+            if debug:
+                self.layers_deb.append(cur_out)
 
         mean = cur_out[:, :, :dim_output//2] if self.include_var else cur_out
         
@@ -719,13 +726,26 @@ class BNN:
             mean = self.end_act(mean)
 
         if self.include_var:
-            logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])
+            logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
             logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
 
             if ret_log_var: 
                 var = logvar
             else:
                 var = tf.exp(logvar)
+
+            # ##### testing
+            # var = cur_out[:, :, dim_output//2:]
+            # var = tf.clip_by_value(var, tf.exp(self.min_logvar), tf.exp(self.max_logvar))
+            # if debug:
+            #     self.var_deb_raw = var
+            # var = tf.log(1+tf.exp(var)) + 1e-8      ### positivity constraint on var
+            # if debug:
+            #     self.var_deb = var
+            # if ret_log_var: 
+            #     var = tf.log(var)
+            #     if debug:
+            #         self.var_deb_log = var
 
             return mean, var
 
@@ -761,7 +781,7 @@ class BNN:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
-            return 0.5 * tf.square(mean - targets)*mse_weights_tensor, mean
+            return 0.5 * tf.square(mean - targets), mean
 
         if inc_var_loss:
             assert self.include_var
@@ -769,8 +789,10 @@ class BNN:
             mean, log_var = self._compile_outputs(inputs, ret_log_var=True)            
             inv_var = tf.exp(-log_var)
 
-            mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var*mse_weights_tensor, axis=-1), axis=-1)
-            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var * mse_weights_tensor, axis=-1), axis=-1)
+            mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) \
+                + tf.reduce_mean(tf.reduce_mean(tf.square(tf.maximum(log_var-2, 0)),axis=-1), axis=-1)  ##testing
+            self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
         else:
             if self.include_var:

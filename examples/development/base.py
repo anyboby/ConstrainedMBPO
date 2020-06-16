@@ -36,16 +36,16 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'ClippedMSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
+        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
         'vf_cliprange':         0.01,
         'cvf_cliprange':        0.1,
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         30,
-        'cost_lim':             30,
-        'cost_lam':             0.97,
+        'cost_lim_end':         80,
+        'cost_lim':             80,
+        'cost_lam':             1.0,
         'cost_gamma':           0.99,
-        'lam':                  0.97,
+        'lam':                  1.0,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
@@ -104,7 +104,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(50e3), #5000
+            'n_initial_exploration_steps': int(3000), #5000
         }
     },
     'SQL': {
@@ -271,7 +271,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(5e5),
+                    'CPOBuffer':int(5e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

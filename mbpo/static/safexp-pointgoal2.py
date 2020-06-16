@@ -16,18 +16,17 @@ class StaticFns:
         safeexp-pointgoal (like the other default safety-gym envs) doesn't terminate
         prematurely other than due to sampling errors etc., therefore just return Falses
         '''
-        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
         assert StaticFns.task == safe_config['task']
         obs_indices = safe_config['obs_indices']
 
         if safe_config['continue_goal'] == False:
-            goal_dist = next_obs[:,obs_indices['goal_dist']]
+            goal_dist = next_obs[...,obs_indices['goal_dist']]
             goal_met_vec = np.vectorize(StaticFns._goal_met)
-            goal_met_vec.excluded.add(1)
+            goal_met_vec.excluded.add(1)        ## exclude safe_config from vectorizing
             done = goal_met_vec(goal_dist, safe_config)
         else:
-            done = np.array([False]).repeat(len(obs))
-            done = done[:,None]
+            done = np.zeros(shape=obs.shape[:-1], dtype=np.bool)
+            done = done[...,None]
         return done
     
     #@anyboby  TODO this is bullshit :/
@@ -55,12 +54,11 @@ class StaticFns:
         rebuild goal, if the goal was met in the starting obs, pool of new goal_obs should be provided
         please provide unstacked observations and next_observations
         '''
-        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == len(new_obs_pool.shape) == 2
         assert StaticFns.task == safe_config['task']
         obs_indices = safe_config['obs_indices']
 
         ### rebuild only if we already started in a goal
-        goal_dist = obs[:,obs_indices['goal_dist']] 
+        goal_dist = obs[...,obs_indices['goal_dist']] 
 
         goal_met_vec = np.vectorize(StaticFns._goal_met)
         goal_met_vec.excluded.add(1)
@@ -68,11 +66,19 @@ class StaticFns:
 
         rebuilt_obs = next_obs        
         if np.max(goal_met) == True:
-            randind = np.random.randint(0, len(new_obs_pool))
-            rand_obs = new_obs_pool[randind,:]
-
-            rebuilt_obs[goal_met, obs_indices['goal_dist']] = rand_obs[obs_indices['goal_dist']]
-            rebuilt_obs[goal_met, obs_indices['goal_lidar']] = rand_obs[obs_indices['goal_lidar']]
+            ### bit ugly but random choice in numpy is tedious
+            fl_lidars = new_obs_pool[..., obs_indices['goal_lidar']]\
+                .reshape(np.prod(new_obs_pool[..., obs_indices['goal_lidar']]\
+                    .shape[:-1]),new_obs_pool[..., obs_indices['goal_lidar']]\
+                        .shape[-1])
+            fl_dist = new_obs_pool[..., obs_indices['goal_dist']]\
+                .reshape(np.prod(new_obs_pool[..., obs_indices['goal_dist']]\
+                    .shape[:-1]),new_obs_pool[..., obs_indices['goal_dist']]\
+                        .shape[-1])
+            assert fl_lidars.shape[0] == fl_dist.shape[0]
+            rand_int = np.random.randint(0, fl_dist.shape[0], size=goal_met.sum())
+            rebuilt_obs[goal_met, obs_indices['goal_dist']] = fl_dist[rand_int]
+            rebuilt_obs[goal_met, obs_indices['goal_lidar']] = fl_lidars[rand_int]
     
         return rebuilt_obs
 
@@ -90,12 +96,11 @@ class StaticFns:
 
     @staticmethod
     def reward_np(obs, act, next_obs, safe_config):
-        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
         assert StaticFns.task == safe_config['task']
         obs_indices = safe_config['obs_indices']
 
-        goal_dist = next_obs[:,obs_indices['goal_dist']]
-        last_dist = obs[:,obs_indices['goal_dist']]
+        goal_dist = next_obs[...,obs_indices['goal_dist']]
+        last_dist = obs[...,obs_indices['goal_dist']]
 
         vec_rew_fn = np.vectorize(StaticFns._reward)
         vec_rew_fn.excluded.add(2)

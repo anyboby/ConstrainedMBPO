@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
         # self.fake_env = FakeEnv(self._model, self._static_fns, safe_config=self.safe_config)
         
         ## create fake environment for model
-        self.fake_env = FakeEnv(training_environment,
+        self.fake_env = FakeEnv(training_environment, policy,
                                     static_fns, num_networks=7, 
                                     num_elites=5, hidden_dims=hidden_dims, 
                                     cares_about_cost=True,
@@ -303,7 +303,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 70e3
+            min_samples = 0e3
             max_samples = 150e3
             samples_added = 0
 
@@ -398,8 +398,8 @@ class CMBPO(RLAlgorithm):
                 ))                
                 
                 ### set initial states
-                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-                
+                # batch = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations', 'returns', 'creturns'])
+                # start_states = batch['observations']
                 if self._epoch==0:
                     real_samples = self._pool.get_archive([     #### include initial expl. hook samples
                             'observations',
@@ -414,11 +414,16 @@ class CMBPO(RLAlgorithm):
                             'costs',
                             'pi_infos',
                         ])
-                    real_samples = real_samples.values()
+                    real_samples = list(real_samples.values())
                     self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
                 else:
                     real_samples= self._pool.get()
                 
+                a = np.repeat(real_samples[1][None], repeats=7, axis=0)
+                rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
+
+                start_states = real_samples[0][rand_inds]
+
                 self.model_sampler.reset(start_states)
                 
                 ### debug
@@ -462,7 +467,30 @@ class CMBPO(RLAlgorithm):
                 real_data_diag = self._policy.run_diagnostics(real_samples)
                 real_data_diag = {k+'_r':v for k,v in real_data_diag.items()}
                 model_metrics.update(real_data_diag)
-            
+
+                mret, mcret, r_H_mean, c_H_mean = self.fake_env.invVarRollout(start_states, a, rand_inds, real_samples)
+                rret, rcret = real_samples[4][rand_inds], real_samples[5][rand_inds]
+
+                v_pred, vc_pred = np.mean(self._policy.get_v(start_states), axis=0), np.mean(self._policy.get_vc(start_states), axis=0)
+
+                L_iv_ret = np.mean((rret-mret)**2)
+                L_iv_cret = np.mean((rcret-mcret)**2)
+
+                L_v = np.mean((rret-v_pred)**2)
+                L_vc = np.mean((rcret-vc_pred)**2)
+
+                model_metrics.update(
+                    {
+                        'InvVar/LossIVRet':L_iv_ret, 
+                        'InvVar/LossIVCRet':L_iv_cret,
+                        'InvVar/LossV':L_v, 
+                        'InvVar/LossVC':L_vc,
+                        'InvVar/roll_H_Ret':r_H_mean,
+                        'InvVar/roll_H_CRet':c_H_mean,
+                        })
+                #### testing
+                model_samples = None
+                
                 if train_samples is None:
                     train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
                 else: 

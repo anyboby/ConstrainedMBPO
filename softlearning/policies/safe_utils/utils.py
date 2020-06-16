@@ -37,4 +37,4 @@ def discount_cumsum(x, discount, axis=0):
     # original 
     #scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
-    return disc_cumsum 
+    return disc_cumsum

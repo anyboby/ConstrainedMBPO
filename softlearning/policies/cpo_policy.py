@@ -477,11 +477,19 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['activation']     = self.vf_activation
             vf_kwargs['loss']           = self.vf_loss
             vf_kwargs['num_elites']     = self.vf_elites
+            # vf_kwargs['use_scaler']     = False
+            # vf_kwargs['sc_factor']      = .999
             vf_kwargs['session']        = self.sess
 
-            self.v = construct_model(name='VEnsemble', cliprange=self.vf_cliprange, **vf_kwargs)
+
+            # self.v = construct_model(name='VEnsemble', cliprange=self.vf_cliprange, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
+            # self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
+
+            self.v = construct_model(name='VEnsemble', max_logvar=-1, min_logvar=-10, **vf_kwargs)
+	
+            self.vc = construct_model(name='VCEnsemble', max_logvar=4, min_logvar=-10, **vf_kwargs)
+
 
             # Organize placeholders for zipping with data from buffer on updates
             # careful ! this has to be in sync with the output of our buffer !
@@ -660,8 +668,8 @@ class CPOPolicy(BasePolicy):
             critic_inputs, 
             batch_size=self.vf_batch_size, 
             min_epoch_before_break=self.vf_epochs, 
-            max_epochs=self.vf_epochs, 
-            holdout_ratio=0.02
+            max_epochs=2*self.vf_epochs, 
+            holdout_ratio=0.1
             )
 
         #=====================================================================#
@@ -690,19 +698,32 @@ class CPOPolicy(BasePolicy):
         old_vc = inputs[self.old_vc_ph][:, None]
         #old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
 
+        # v_metrics = self.v.train(
+        #     obs_in,
+        #     v_targets,
+        #     old_pred = old_v,
+        #     **kwargs,
+        #     )                                      
+
+        # vc_metrics = self.vc.train(
+        #     obs_in,
+        #     vc_targets,
+        #     old_pred = old_vc,
+        #     **kwargs,
+        #     )                                            
+
+
         v_metrics = self.v.train(
             obs_in,
             v_targets,
-            old_pred = old_v,
             **kwargs,
             )                                      
 
         vc_metrics = self.vc.train(
             obs_in,
             vc_targets,
-            old_pred = old_vc,
             **kwargs,
-            )                                            
+            )                       
 
         v_metrics.update(vc_metrics)
         return v_metrics
@@ -774,21 +795,28 @@ class CPOPolicy(BasePolicy):
         get_action_outs = self.sess.run(self.ops_for_action, 
                         feed_dict={self.obs_ph: feed_obs})
 
-        v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
-        vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
-        get_action_outs['v'] = v
-        get_action_outs['vc'] = vc
+        v, _ = self.v.predict(feed_obs, factored=True)
+        vc, _ = self.vc.predict(feed_obs, factored=True)
+        # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
+        get_action_outs['v'] = np.squeeze(v, axis=-1)
+        get_action_outs['vc'] = np.squeeze(vc, axis=-1)
         return get_action_outs
 
-    def get_v(self, obs):
+    def get_v(self, obs, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
-        v = np.squeeze(self.v.predict(feed_obs, factored=True), axis=-1)
-        return v
+        v, v_var = self.v.predict(feed_obs, factored=True)
+        if inc_var:
+            return np.squeeze(v, axis=-1), np.squeeze(v_var, axis=-1)
+        else:
+            return np.squeeze(v, axis=-1)
 
-    def get_vc(self, obs):
+    def get_vc(self, obs, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
-        vc = np.squeeze(self.vc.predict(feed_obs, factored=True), axis=-1)
-        return vc
+        vc, vc_var = self.vc.predict(feed_obs, factored=True)
+        if inc_var:
+            return np.squeeze(vc, axis=-1), np.squeeze(vc_var, axis=-1)
+        else:
+            return np.squeeze(vc, axis=-1)
 
     @contextmanager
     def set_deterministic(self, deterministic=True):
