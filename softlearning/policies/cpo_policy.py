@@ -488,7 +488,7 @@ class CPOPolicy(BasePolicy):
 
             self.v = construct_model(name='VEnsemble', max_logvar=-1, min_logvar=-10, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', max_logvar=4, min_logvar=-10, **vf_kwargs)
+            self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, **vf_kwargs)
 
 
             # Organize placeholders for zipping with data from buffer on updates
