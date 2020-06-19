@@ -92,7 +92,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(3000), #5000
         }
     },
     'CMBPO': {
@@ -104,7 +104,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(15000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'SQL': {
@@ -271,7 +271,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(5e4),
+                    'CPOBuffer':int(1e5),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

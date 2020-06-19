@@ -31,6 +31,7 @@ def prior_safety_gym(obs, acts):
         return acc_spike
 
     last_acts = obs[...,:2]
+
     process_act_vec = np.vectorize(process_act)
     #last_act = np.concatenate((np.zeros_like(acts[0])[np.newaxis], acts[:-1,:]), axis=0)
 

@@ -788,18 +788,40 @@ class CPOPolicy(BasePolicy):
     def log_pis(self, obs, a):
         pass
 
-    def get_action_outs(self, obs):
+    def get_action_outs(self, obs, inc_v = True):
+        '''
+        takes obs of shape [batch_size, a_dim] or [ensemble, batch_size, a_dim]
+        returns a dict with actions, v, vc and pi_info
+        '''
         # check if single obs or multiple
         # remove single dims
         feed_obs = self.format_obs_for_tf(obs)
+        orig_shape = feed_obs.shape
+        ### reshape to batch size, since we don't have a policy ensemble
+        if len(orig_shape)>2:
+            feed_obs = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
+
         get_action_outs = self.sess.run(self.ops_for_action, 
                         feed_dict={self.obs_ph: feed_obs})
 
-        v, _ = self.v.predict(feed_obs, factored=True)
-        vc, _ = self.vc.predict(feed_obs, factored=True)
-        # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
-        get_action_outs['v'] = np.squeeze(v, axis=-1)
-        get_action_outs['vc'] = np.squeeze(vc, axis=-1)
+        if len(orig_shape)>2:
+            for k,v in get_action_outs.items():
+                if k == 'pi_info':
+                    get_action_outs[k] = {
+                        k_pi:v_pi.reshape(orig_shape[:2]+(v_pi.shape[1:])) \
+                        for k_pi, v_pi in v.items()
+                        }
+                else:
+                    get_action_outs[k] = v.reshape(orig_shape[:2]+(v.shape[1:]))
+
+
+        if inc_v:
+            v, _ = self.v.predict(feed_obs, factored=True)
+            vc, _ = self.vc.predict(feed_obs, factored=True)
+
+            # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
+            get_action_outs['v'] = np.squeeze(v, axis=-1)
+            get_action_outs['vc'] = np.squeeze(vc, axis=-1)
         return get_action_outs
 
     def get_v(self, obs, inc_var = False):

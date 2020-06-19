@@ -92,7 +92,7 @@ class FakeEnv:
         
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.running_mean_stdscale = 1
-
+        self.last_tic = time.perf_counter()
 
     '''
         x : [ batch_size, obs_dim + 1 ]
@@ -255,7 +255,10 @@ class FakeEnv:
         rew_buf = np.zeros(shape=(max_length, self.num_networks, batch_size, 1), dtype=np.float32)
 
         ret_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+        ret_buf_med = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+
         ret_var_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+        ret_iod2_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
 
         cost_buf = np.zeros(shape=(max_length, self.num_networks, batch_size, 1), dtype=np.float32)
         cost_buf_cl = np.zeros(shape=(max_length, self.num_networks, batch_size, 1), dtype=np.float32)
@@ -268,76 +271,96 @@ class FakeEnv:
 
         cret_var_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
         cret_iod_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
- 
+        cret_iod2_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+        cret_iod4_buf = np.zeros(shape=(max_length, batch_size, 1), dtype=np.float32)
+
         tic = time.perf_counter()
         act_buf = a
-        
         
         cvals, _ = self.policy.get_vc(obs, inc_var=True)
         cvals = np.mean(cvals[..., None], axis=0)
 
+        vals, _ = self.policy.get_v(obs, inc_var=True)
+        vals = np.mean(vals[..., None], axis=0)
+
+        self.tic(verbose=False) #reset timer
 
         for i in range(max_length):
-            # Get outputs from policy
-            get_action_outs = [self.policy.get_action_outs(o) for o in obs]
+            get_action_outs = self.policy.get_action_outs(obs, inc_v = False)
 
-            a = np.array([p['pi'] for p in get_action_outs])
-            
-            toc = time.perf_counter()
-            print('policy ',toc-tic)
+            a = get_action_outs['pi']
+            self.tic('policy ')
 
-            index = 0
-            for ind in rand_inds:
+            # index = 0
+            # for ind in rand_inds:
                 
-                if ind+i<act_buf.shape[1]:
-                    a[:,index] = act_buf[:,ind+i]
-                index+=1
+            #     if ind+i<act_buf.shape[1]:
+            #         a[:,index] = act_buf[:,ind+i]
+            #     index+=1
+            # self.tic('action building')
 
-            # a = np.array([p['pi_info']['mu'] for p in get_action_outs])
+            # v_t = get_action_outs['v']
+            # vc_t = get_action_outs['vc']
 
-            v_t = [p['v'] for p in get_action_outs]
-            vc_t = [p['vc'] for p in get_action_outs]  # Agent may not use cost value func
-            logp_t = [p['logp_pi'] for p in get_action_outs]
-            pi_info_t = [p['pi_info'] for p in get_action_outs]
+            logp_t = get_action_outs['logp_pi']
+            pi_info_t = get_action_outs['pi_info']
+        
+            a = np.clip(a, -1, 1)
 
             if self.prior_f:
-                priors = self.prior_f(obs, a)
+                # priors = self.prior_f(obs, a)
+                # self.tic('prior_f ')
+
+                priors = self.static_fns.prior_f(obs, a)
+                self.tic('prior_f_new ')
+
+                # e_pr = priors_n-priors
+
                 inputs = np.concatenate((obs, a, priors), axis=-1)
             else:
                 inputs = np.concatenate((obs, a), axis=-1)
 
-            tic = time.perf_counter()
-            print('prior ',tic-toc)
+            # self.tic('prior')
 
             ens_means, ens_vars = self._model.predict(inputs)
-            toc = time.perf_counter()
-            print('predict dyn ',toc-tic)
-            ens_means[...,:-self.rew_dim] += obs           #### models output state change rather than state completely
-            ens_stds = np.sqrt(ens_vars)
+            self.tic('predict dyn ')
 
-            ens_samples = ens_means + np.random.normal(size=ens_means.shape) * ens_stds
+            ens_means[...,:-self.rew_dim] += obs           #### models output state change rather than state completely
+
+            # super slow, maybe revive later
+            # ens_stds = np.sqrt(ens_vars)
+            # ens_samples = ens_means + np.random.normal(size=ens_means.shape) * ens_stds
+            
+            ens_samples = ens_means
 
             #### retrieve r and done for new state
             rew, next_obs = ens_samples[...,-self.rew_dim:], ens_samples[...,:-self.rew_dim]
             
+            self.tic('gaussian ')
+
             ## post_processing
             if self.post_f:
-                next_obs = self.post_f(next_obs, a)
-            
-            tic = time.perf_counter()
-            print('post_F ',tic-toc)
+                next_obs = self.static_fns.post_f(next_obs, a)
+            self.tic('post_F ')
             
             if self.safe_config:
                 self.task = self.safe_config['task']
-                rew = self.static_fns.reward_np(obs, a, next_obs, self.safe_config)
-                toc = time.perf_counter()
-                print('rew ',toc-tic)
+                # rew = self.static_fns.reward_np(obs, a, next_obs, self.safe_config)
+                # self.tic('rew old')
+                
+                rew = self.static_fns.reward_f(obs, a, next_obs, self.safe_config)
+                self.tic('rew new')
+                # erew = rew2-rew
+
                 terminals = self.static_fns.termination_fn(obs, a, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
-                tic = time.perf_counter()
-                print('term ',tic-toc)
-                next_obs = self.static_fns.rebuild_goal(obs, a, next_obs, obs, self.safe_config)  ### rebuild goal if goal was met
-                toc = time.perf_counter()
-                print('reb_goal ',toc-tic)
+                self.tic('term ')
+
+                # next_obs_b = np.array(next_obs)
+                # next_obs = self.static_fns.rebuild_goal(obs, a, next_obs, obs, self.safe_config)  ### rebuild goal if goal was met
+                # self.tic('reb_goal')
+                next_obs = self.static_fns.rebuild_goal_n(obs, a, next_obs, obs, self.safe_config)  ### rebuild goal if goal was met
+                self.tic('reb_goal n')
+
             else:
                 terminals = self.static_fns.termination_fn(obs, a, next_obs)
 
@@ -359,21 +382,27 @@ class FakeEnv:
             
             # next_val = np.array([np.squeeze(self.policy.get_v(o), axis=0) for o in split_obs])
             # next_cval = np.array([np.squeeze(self.policy.get_vc(o), axis=0) for o in split_obs])
-            tic = time.perf_counter()
-            print('predict cost ',tic-toc)
+            self.tic('predict cost ')
 
-            rew_buf[i] = rew
-            cost_buf[i] = costs
-            cost_buf_cl[i] = costs_cl
+            
+            
+            # rew_buf[i] = rew*0.99**i
+            # cost_buf[i] = costs**0.99**i
+            # cost_buf_cl[i] = costs_cl*0.99**i
 
-            ####### DEBUg ############
+            ## we only care about start state, can just discount in the forward sim
+            rew_buf[i] = rew*0.99**i
+            cost_buf[i] = costs*0.99**i
+            cost_buf_cl[i] = costs_cl*0.99**i
+
+            ###### DEBUg ############
             # costs_deb = np.squeeze(np.mean(costs, axis=0)[0:5])
-            # costs_real = real_samples[9][rand_inds[0:5]]
+            # costs_real = real_samples[9][(rand_inds+i)[0:5]]
             # dc = (costs_deb-costs_real)**2
             # obs_deb = np.mean(obs[:,0:5,:], axis=0)
             # obs_real = real_samples[0][(rand_inds+i)[0:5]]
             # d_obs = (obs_deb-obs_real)**2
-            ##########################
+            #########################
 
             next_val, next_val_var = self.policy.get_v(next_obs, inc_var=True)
             next_cval, next_cval_var = self.policy.get_vc(next_obs, inc_var=True)
@@ -391,33 +420,46 @@ class FakeEnv:
             next_val_var *= np.logical_not(terminals)
             next_cval_var *= np.logical_not(terminals)
 
+            #### variance for gaussian mixture, add dispersion of means to variance
+            next_val_var = np.mean(next_cval_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
+            next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
+
             # ret = np.append(rew_buf[0:i+1], next_val[None], axis=0)
             # cret = np.append(cost_buf[0:i+1], next_cval[None], axis=0)
-            toc = time.perf_counter()
-            print('predict values ',toc-tic)
+            self.tic('predict values')
 
-            disc_ret = discount_cumsum(rew_buf[0:i+1], 0.99, axis=0)[0]
-            disc_cret = discount_cumsum(cost_buf[0:i+1], 0.99, axis=0)[0]
-            disc_cret_cl = discount_cumsum(cost_buf_cl[0:i+1], 0.99, axis=0)[0]
+            # disc_ret = discount_cumsum(rew_buf[0:i+1], 0.99, axis=0)[0]
+            # disc_cret = discount_cumsum(cost_buf[0:i+1], 0.99, axis=0)[0]
+            # disc_cret_cl = discount_cumsum(cost_buf_cl[0:i+1], 0.99, axis=0)[0]
+
+            disc_ret = np.sum(rew_buf[0:i+1], axis=0)
+            disc_cret = np.sum(cost_buf[0:i+1], axis=0)
+            disc_cret_cl = np.sum(cost_buf_cl[0:i+1], axis=0)
+
+            self.tic('discumsum')
 
             bootstrap_v = 0.99**i*next_val
             bootstrap_v_var = 0.99**i*next_val_var
             bootstrap_vc = 0.99**i*next_cval
             bootstrap_vc_var = 0.99**i*next_cval_var
 
-            ret_buf[i] = np.median(disc_ret+bootstrap_v, axis=0)
-            ret_var_buf[i] = np.var(disc_ret, axis=0) + np.mean(bootstrap_v_var, axis=0)
+            ret_buf[i] = np.mean(disc_ret+bootstrap_v, axis=0)
+            ret_buf_med[i] = np.median(disc_ret+bootstrap_v, axis=0)
             
+            ret_var_buf[i] = np.var(disc_ret, axis=0) + bootstrap_v_var
+            ret_iod2_buf[i] = ret_var_buf[i]/np.square((ret_buf[i]))
+
             cret_buf[i] = np.median(disc_cret+bootstrap_vc, axis=0)
             cret_buf_mean[i] = np.mean(disc_cret+bootstrap_vc, axis=0)
             cret_buf_median_cl[i] = np.median(disc_cret_cl+bootstrap_vc, axis=0)
             cret_buf_mean_cl[i] = np.mean(disc_cret_cl+bootstrap_vc, axis=0)
 
-            cret_var_buf[i] = np.var(disc_cret, axis=0) + np.mean(bootstrap_vc_var, axis=0)
+            cret_var_buf[i] = np.var(disc_cret, axis=0) + bootstrap_vc_var
             cret_iod_buf[i] = cret_var_buf[i]/np.abs(cret_buf[i])
+            cret_iod2_buf[i] = cret_var_buf[i]/np.square((cret_buf[i]))
+            cret_iod4_buf[i] = np.square(cret_var_buf[i]/np.square((cret_buf[i])))
 
-            tic = time.perf_counter()
-            print('discounts',tic-toc)
+            self.tic('buffers')
             #### rearrange next obs to remove outliers
             no_sw = np.swapaxes(next_obs, 0, 1)
             cret_sw = np.swapaxes(disc_cret, 0, 1)
@@ -426,22 +468,59 @@ class FakeEnv:
             batch_idx = np.arange(len(elite_idx4))[...,None]
             next_obs = np.concatenate((no_sw[batch_idx, elite_idx4], no_sw[batch_idx, elite_idx3]), axis=1)
             next_obs = np.swapaxes(next_obs, 0, 1)
+
+            self.tic('elite obs')
             obs = next_obs
         
         wr = 1/ret_var_buf
         wr[(wr-np.mean(wr, axis=0))/np.sqrt(np.var(wr, axis=0))<0]=0        ### normalize and remove outliers
         wr_sum = np.sum(wr, axis=0)
+
+        wr_iod2 = 1/ret_iod2_buf
+        wr_iod2[(wr_iod2-np.mean(wr_iod2, axis=0))/np.sqrt(np.var(wr_iod2, axis=0))<0]=0        ### normalize and remove outliers
+        wr_iod2_sum = np.sum(wr_iod2, axis=0)
+
         returns = np.sum(ret_buf*wr/wr_sum, axis=0)
+        returns_med_iod2 = np.sum(ret_buf_med*wr_iod2*1/wr_iod2_sum, axis=0)
+
+        a_rew = returns - vals
+        a_rew = (a_rew-np.mean(a_rew))/np.sqrt(np.var(a_rew))
+
+        a_rew_iod2 = returns_med_iod2 - vals
+        a_rew_iod2 = (a_rew_iod2-np.mean(a_rew_iod2))/np.sqrt(np.var(a_rew_iod2))
+
+        a_rew_td0 = ret_buf[0] - cvals
+        a_rew_td0 = (a_rew_td0-np.mean(a_rew_td0))/np.sqrt(np.var(a_rew_td0))
+
+        e_rew_1 = np.mean((returns-real_samples[4][rand_inds][...,None])**2)
+        e_rew_2 = np.mean((returns_med_iod2-real_samples[4][rand_inds][...,None])**2)
+        e_rew_td0 = np.mean((ret_buf[0]-real_samples[4][rand_inds][...,None])**2)
+
+        ea_rew_1 = np.mean((a_rew-real_samples[2][rand_inds][...,None])**2)
+        ea_rew_2 = np.mean((a_rew_iod2-real_samples[2][rand_inds][...,None])**2)
+        ea_rew_td0 = np.mean((a_rew_td0-real_samples[2][rand_inds][...,None])**2)
         
+        ##############
+        #### Cost ####
+        ##############
+
         wc = 1/cret_var_buf
         wc[(wc-np.mean(wc, axis=0))/np.sqrt(np.var(wc, axis=0))<0]=0
         wc_sum = np.sum(wc, axis=0)
-        creturns_med = np.sum(cret_buf*wc*1/wc_sum, axis=0)
 
         wc_iod = 1/cret_iod_buf
         wc_iod[(wc_iod-np.mean(wc_iod, axis=0))/np.sqrt(np.var(wc_iod, axis=0))<0]=0
         wc_sum_iod = np.sum(wc_iod, axis=0)
         
+        wc_iod2 = 1/cret_iod2_buf
+        wc_iod2[(wc_iod2-np.mean(wc_iod2, axis=0))/np.sqrt(np.var(wc_iod2, axis=0))<0]=0
+        wc_sum_iod2 = np.sum(wc_iod2, axis=0)
+
+        wc_iod4 = 1/cret_iod4_buf
+        wc_iod4[(wc_iod4-np.mean(wc_iod4, axis=0))/np.sqrt(np.var(wc_iod4, axis=0))<0]=0
+        wc_sum_iod4 = np.sum(wc_iod4, axis=0)
+
+        creturns_med = np.sum(cret_buf*wc*1/wc_sum, axis=0)
         creturns_med_iod = np.sum(cret_buf*wc_iod*1/wc_sum_iod, axis=0)
         creturns_mean = np.sum(cret_buf_mean*wc*1/wc_sum, axis=0)
         creturns_mean_iod = np.sum(cret_buf_mean*wc_iod*1/wc_sum_iod, axis=0)
@@ -449,6 +528,8 @@ class FakeEnv:
         creturns_mean_cl = np.sum(cret_buf_mean_cl*wc*1/wc_sum, axis=0)
         creturns_med_cl_iod = np.sum(cret_buf_median_cl*wc_iod*1/wc_sum_iod, axis=0)
         creturns_mean_cl_iod = np.sum(cret_buf_mean_cl*wc_iod*1/wc_sum_iod, axis=0)
+        creturns_med_cl_iod2 = np.sum(cret_buf_median_cl*wc_iod2*1/wc_sum_iod2, axis=0)
+        creturns_med_cl_iod4 = np.sum(cret_buf_median_cl*wc_iod4*1/wc_sum_iod4, axis=0)
 
         a_med = creturns_med - cvals
         a_med -= np.mean(a_med)
@@ -474,6 +555,14 @@ class FakeEnv:
         a_mean_cl_iod = creturns_mean_cl_iod - cvals
         a_mean_cl_iod -= np.mean(a_mean_cl_iod)
 
+        a_med_cl_iod2 = creturns_med_cl_iod2 - cvals
+        a_med_cl_iod2 -= np.mean(a_med_cl_iod2)
+        a_med_cl_iod2 *= self.running_mean_stdscale
+        
+        a_med_cl_iod4 = creturns_med_cl_iod4 - cvals
+        a_med_cl_iod4 -= np.mean(a_med_cl_iod4)
+        a_med_cl_iod4 *= self.running_mean_stdscale
+
         a_td0 = cret_buf[0] - cvals
         a_td0 -= np.mean(a_td0)
 
@@ -488,6 +577,8 @@ class FakeEnv:
         e6 = np.mean((creturns_mean_cl-real_samples[5][rand_inds][...,None])**2)
         e7 = np.mean((creturns_med_cl_iod-real_samples[5][rand_inds][...,None])**2)
         e8 = np.mean((creturns_mean_cl_iod-real_samples[5][rand_inds][...,None])**2)
+        e9 = np.mean((creturns_med_cl_iod2-real_samples[5][rand_inds][...,None])**2)
+        e9 = np.mean((creturns_med_cl_iod4-real_samples[5][rand_inds][...,None])**2)
         etd0 = np.mean((cret_buf[0]-real_samples[5][rand_inds][...,None])**2)
 
         ea1 = np.mean((a_med-real_samples[3][rand_inds][...,None])**2)
@@ -499,16 +590,18 @@ class FakeEnv:
         ea6 = np.mean((a_mean_cl-real_samples[3][rand_inds][...,None])**2)
         ea7 = np.mean((a_med_cl_iod-real_samples[3][rand_inds][...,None])**2)
         ea8 = np.mean((a_mean_cl_iod-real_samples[3][rand_inds][...,None])**2)
+        ea9 = np.mean((a_med_cl_iod2-real_samples[3][rand_inds][...,None])**2)
+        ea10 = np.mean((a_med_cl_iod4-real_samples[3][rand_inds][...,None])**2)
         eatd0 = np.mean((a_td0-real_samples[3][rand_inds][...,None])**2)
 
         creturns_med = creturns_med - np.mean(creturns_med)
         ### diag
-        rolls = np.tile(np.arange(max_length)[..., None, None], reps=(1,wr.shape[1], wr.shape[2]))  
+        rolls = np.tile(np.arange(max_length)[..., None, None], reps=(1,wr.shape[1], wr.shape[2]))
         r_H_mean = np.mean(np.sum(rolls*wr/wr_sum, axis=0))
         c_H_mean = np.mean(np.sum(rolls*wc/wc_sum, axis=0))
         return returns, creturns_med, r_H_mean, c_H_mean,
 
-    def train_dyn_model(self, samples, **kwargs):        
+    def train_dyn_model(self, samples, **kwargs):
         # check priors
         priors = self.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
@@ -581,3 +674,8 @@ class FakeEnv:
         r = np.expand_dims(np.random.rand(a.shape[1-axis]), axis=axis)
         return (a.cumsum(axis=axis) > r).argmax(axis=axis)
 
+    def tic(self, message='time since last tic', verbose=True):
+        tic = time.perf_counter()
+        if verbose:
+            print(message,tic-self.last_tic)
+        self.last_tic = tic
