@@ -13,6 +13,7 @@ from copy import deepcopy
 import os.path as osp, time, atexit, os
 from softlearning.policies.safe_utils.mpi_tools import proc_id, mpi_statistics_scalar
 from softlearning.policies.safe_utils.serialization_utils import convert_json
+from softlearning.environments.utils import get_environment_from_params
 
 from tensorflow.python.lib.io import file_io        ###@anyboby not good!
 import traceback
@@ -44,6 +45,52 @@ def colorize(string, color, bold=False, highlight=False):
     if bold: attr.append('1')
     return '\x1b[%sm%s\x1b[0m' % (';'.join(attr), string)
 
+def load_policy(fpath, itr='last', deterministic=False):
+
+    # handle which epoch to load from
+    if itr=='last':
+        saves = [int(x[11:]) for x in os.listdir(fpath) if 'simple_save' in x and len(x)>11]
+        itr = '%d'%max(saves) if len(saves) > 0 else ''
+    else:
+        itr = '%d'%itr
+
+    # load the things!
+    gpu_options = tf.GPUOptions(allow_growth=True)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    tf.keras.backend.set_session(sess)
+    sess = tf.keras.backend.get_session()
+    
+    #sess = tf.Session(graph=tf.Graph())
+    
+    saver = Saver()
+    model = saver.restore_tf_graph(sess, fpath)
+
+    # get the correct op for executing actions
+    if deterministic and 'mu' in model.keys():
+        # 'deterministic' is only a valid option for SAC policies
+        print('Using deterministic action op.')
+        action_op = model['mu']
+    else:
+        print('Using default action op.')
+        action_op = model['pi']
+
+    # make function for producing an action given a single state
+    get_action = lambda x : sess.run(action_op, feed_dict={model['x']: x[None,:]})[0]
+
+    # try to load environment from save
+    # (sometimes this will fail because the environment could not be pickled)
+    try:
+        state = joblib.load(osp.join(fpath, 'vars'+itr+'.pkl'))
+        env = state['env']
+    except:
+        environment_params = {}
+        environment_params['universe'] = 'gym'
+        environment_params['task'] = 'v0'
+        environment_params['domain'] = 'Safexp-PointGoal2'
+        environment_params['kwargs'] = {}
+        env = get_environment_from_params(environment_params)
+
+    return env, get_action, sess
 
 class Saver:
     def __init__(self, verbose=False):
@@ -226,10 +273,10 @@ class Saver:
             builder._export_dir = export_dir
             return builder
         else:
-            builder = tf.saved_model.builder.SavedModelBuilder(export_dir=export_dir)
+            builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir=export_dir)
             signature_def_map = {
-                tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                    tf.saved_model.signature_def_utils.predict_signature_def(inputs, outputs)
+                tf.compat.v1.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                    tf.compat.v1.saved_model.signature_def_utils.predict_signature_def(inputs, outputs)
             }
             assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS)
             builder.add_meta_graph_and_variables(sess,

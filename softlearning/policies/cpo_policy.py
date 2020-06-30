@@ -877,7 +877,7 @@ class CPOPolicy(BasePolicy):
 
     def save(self, checkpoint_dir):
         tf_path, model_info_path, success = self.saver.save_tf(self.sess, inputs={'x':self.obs_ph},
-                        outputs={'pi':self.pi, 'v':self.v, 'vc':self.vc}, 
+                        outputs={'pi':self.pi},  #, 'v':self.v, 'vc':self.vc}, ## v and vc not working because BNN class and not tensor
                         output_dir=checkpoint_dir)
         return tf_path, model_info_path, success
 

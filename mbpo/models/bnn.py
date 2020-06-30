@@ -530,7 +530,6 @@ class BNN:
                     #               ._max_epochs_since_update model-bnn train epochs
                     break_train = self._save_best(epoch, holdout_losses)
                     pass
-
             progress.update()
             t = time.time() - t0
             if (break_train and epoch>min_epoch_before_break) or (max_grad_updates and grad_updates > max_grad_updates):

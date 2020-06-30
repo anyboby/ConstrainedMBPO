@@ -92,7 +92,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(3000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'CMBPO': {
@@ -343,6 +343,7 @@ def get_variant_spec_base(universe, domain, task, policy, algorithm, env_params)
             'checkpoint_at_end': True,
             'checkpoint_frequency': NUM_EPOCHS_PER_DOMAIN.get(    #@anyboby uncomment
                 domain, DEFAULT_NUM_EPOCHS) // NUM_CHECKPOINTS,
+            # 'checkpoint_frequency': 1,
             'checkpoint_replay_pool': False,
         },
     }
