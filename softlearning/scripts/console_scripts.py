@@ -183,7 +183,6 @@ def launch_example_ec2_cmd(*args, **kwargs):
     """
     return launch_example_ec2(*args, **kwargs)
 
-
 cli.add_command(run_example_local_cmd)
 cli.add_command(run_example_dry_cmd)
 cli.add_command(run_example_cluster_cmd)

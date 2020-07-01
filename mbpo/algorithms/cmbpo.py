@@ -217,28 +217,15 @@ class CMBPO(RLAlgorithm):
 
         ### model sampler and buffer
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=250, 
-                                        observation_space = self.obs_space, 
-                                        action_space = self.act_space)
+                                        max_path_length=30, 
+                                        env = self.fake_env)
         self.model_pool.initialize(pi_info_shapes,
-                                gamma = self._policy.gamma,
-                                lam = self._policy.lam,
-                                cost_gamma = self._policy.cost_gamma,
-                                cost_lam = self._policy.cost_lam)        
+                                    gamma = self._policy.gamma,
+                                    lam = self._policy.lam,
+                                    cost_gamma = self._policy.cost_gamma,
+                                    cost_lam = self._policy.cost_lam)        
         
-        # self.model_pool_debug = CPOBuffer(size=1000, 
-        #                 archive_size=100000, 
-        #                 observation_space = self.obs_space, 
-        #                 action_space = self.act_space)
-        
-        # self.model_pool_debug.initialize(pi_info_shapes,
-        #                 gamma = self._policy.gamma,
-        #                 lam = self._policy.lam,
-        #                 cost_gamma = self._policy.cost_gamma,
-        #                 cost_lam = self._policy.cost_lam)     
-
-        
-        self.model_sampler = ModelSampler(max_path_length=250,
+        self.model_sampler = ModelSampler(max_path_length=30,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -303,8 +290,8 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 0e3
-            max_samples = 150e3
+            min_samples = 40e3
+            max_samples = 70e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -398,8 +385,6 @@ class CMBPO(RLAlgorithm):
                 ))                
                 
                 ### set initial states
-                # batch = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations', 'returns', 'creturns'])
-                # start_states = batch['observations']
                 if self._epoch==0:
                     real_samples = self._pool.get_archive([     #### include initial expl. hook samples
                             'observations',
@@ -419,31 +404,24 @@ class CMBPO(RLAlgorithm):
                 else:
                     real_samples= self._pool.get()
                 
-                a = np.repeat(real_samples[1][None], repeats=7, axis=0)
-                rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
+                #=====================================================================#
+                #                           update critic                             #
+                #=====================================================================#
+                self._policy.update_critic(real_samples)
 
+                #=====================================================================#
+                #                           Model Rollouts                            #
+                #=====================================================================#
+                rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
                 start_states = real_samples[0][rand_inds]
 
                 self.model_sampler.reset(start_states)
                 
-                ### debug
-                # self._pool.get()
-                # next_obs, rew, terminal, info = self.sampler.sample()
-                # self.model_sampler.reset(np.concatenate((next_obs[np.newaxis,:], next_obs[np.newaxis,:]), axis=0))
-                
-
-                ### skip rollout twice if model has been reset
                 for i in count():
-                    print(f'Sampling step Nr. {i+1}')
+                    print(f'Model Sampling step Nr. {i+1}')
 
                     _,_,_,info = self.model_sampler.sample()
                     alive_ratio = info.get('alive_ratio', 1)
-
-                    ### debug
-                    # mn_obs,mr,mt,minfo = self.model_sampler.sample()
-                    # mc = minfo.get
-                    # rn_obs,rr,rt,rinfo = self.sampler.sample()
-                    # alive_ratio = minfo.get('alive_ratio', 1)
 
                     if alive_ratio<0.2 or \
                         self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
@@ -453,11 +431,16 @@ class CMBPO(RLAlgorithm):
                 ### diagnostics for rollout ###
                 gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
+
                 model_metrics.update(rollout_diagnostics)
                 samples_added += self.model_sampler._total_samples
-                ### get model_samples after rollout
-                model_samples = self.model_pool.get()
-                
+
+                ######################################################################
+                ### get model_samples, get() invokes the inverse variance rollouts ###
+                model_samples, buffer_diagnostics = self.model_pool.get()
+                model_metrics.update(buffer_diagnostics)
+                ######################################################################
+
                 ### run diagnostics on model data
                 model_data_diag = self._policy.run_diagnostics(model_samples)
                 model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
@@ -467,29 +450,6 @@ class CMBPO(RLAlgorithm):
                 real_data_diag = self._policy.run_diagnostics(real_samples)
                 real_data_diag = {k+'_r':v for k,v in real_data_diag.items()}
                 model_metrics.update(real_data_diag)
-
-                mret, mcret, r_H_mean, c_H_mean = self.fake_env.invVarRollout(start_states, a, rand_inds, real_samples)
-                rret, rcret = real_samples[4][rand_inds], real_samples[5][rand_inds]
-
-                v_pred, vc_pred = np.mean(self._policy.get_v(start_states), axis=0), np.mean(self._policy.get_vc(start_states), axis=0)
-
-                L_iv_ret = np.mean((rret-mret)**2)
-                L_iv_cret = np.mean((rcret-mcret)**2)
-
-                L_v = np.mean((rret-v_pred)**2)
-                L_vc = np.mean((rcret-vc_pred)**2)
-
-                model_metrics.update(
-                    {
-                        'InvVar/LossIVRet':L_iv_ret, 
-                        'InvVar/LossIVCRet':L_iv_cret,
-                        'InvVar/LossV':L_v, 
-                        'InvVar/LossVC':L_vc,
-                        'InvVar/roll_H_Ret':r_H_mean,
-                        'InvVar/roll_H_CRet':c_H_mean,
-                        })
-                #### testing
-                model_samples = None
                 
                 if train_samples is None:
                     train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
@@ -503,12 +463,14 @@ class CMBPO(RLAlgorithm):
             #  Update Policy                                                      #
             #=====================================================================#
             if len(train_samples[0])>=min_samples or self._epoch==0:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
-                self._policy.update(train_samples)
+                self._policy.update_policy(train_samples)
                 gt.stamp('train')
                 surr_cost_delta = self.logger.get_stats('SurrCostDelta')
+                
                 #### empty train_samples
                 train_samples = None
                 samples_added = 0
+
                 #### log policy diagnostics
                 self._policy.log()
                 model_metrics.update({'Policy Update?':1})

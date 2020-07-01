@@ -170,7 +170,7 @@ class CPOAgent(TrustRegionAgent):
         self.margin_lr = 0.05
         self.margin_discount = 0.9
         self.c_gamma = kwargs['c_gamma']
-        self.d_control = True
+        self.d_control = False
         self.delta = 0.6
         self.decayed_surr_cost = 0
         self.surr_cost_decay = 0.6
@@ -233,7 +233,7 @@ class CPOAgent(TrustRegionAgent):
         c += self.margin
 
         # c + rescale * b^T (theta - theta_k) <= 0, equiv c/rescale + b^T(...)
-        c /= (rescale + EPS)
+        c /= (self.max_path_length + EPS)
 
         # Core calculations for CPO
         v = tro.cg(Hx, g)
@@ -617,7 +617,7 @@ class CPOPolicy(BasePolicy):
         self.logger = logger
         self.agent.set_logger(logger) #share logger with agent
 
-    def update(self, buf_inputs):
+    def update_policy(self, buf_inputs):
         #=====================================================================#
         #  Prepare feed dict                                                  #
         #=====================================================================#
@@ -625,7 +625,6 @@ class CPOPolicy(BasePolicy):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
                 
         actor_inputs = self.actor_fd(inputs)
-        critic_inputs = self.critic_fd(inputs)
         
         #=====================================================================#
         #  Make some measurements before updating                             #
@@ -637,7 +636,6 @@ class CPOPolicy(BasePolicy):
                         Entropy=self.ent)
 
         pre_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
-        pre_update_measures.update(self.compute_v_losses(buf_inputs))
 
         self.logger.store(**pre_update_measures)
 
@@ -662,6 +660,37 @@ class CPOPolicy(BasePolicy):
         self.agent.update_pi(actor_inputs)
 
         #=====================================================================#
+        #  Make some measurements after updating                              #
+        #=====================================================================#
+
+        del measures['Entropy']
+        measures['KL'] = self.d_kl
+
+        post_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
+
+        deltas = dict()
+        for k in post_update_measures:
+            if k in pre_update_measures:
+                deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
+        self.logger.store(KL=post_update_measures['KL'], **deltas)
+
+    def update_critic(self, buf_inputs):
+        #=====================================================================#
+        #  Prepare feed dict                                                  #
+        #=====================================================================#
+
+        inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+                
+        critic_inputs = self.critic_fd(inputs)
+        
+        #=====================================================================#
+        #  Make some measurements before updating                             #
+        #=====================================================================#
+        pre_update_measures = self.compute_v_losses(buf_inputs)
+
+        self.logger.store(**pre_update_measures)
+
+        #=====================================================================#
         #  Update value function                                              #
         #=====================================================================#
         self.train_critic(
@@ -675,18 +704,13 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         #  Make some measurements after updating                              #
         #=====================================================================#
-
-        del measures['Entropy']
-        measures['KL'] = self.d_kl
-
-        post_update_measures = self.sess.run(measures, feed_dict=actor_inputs)
-        post_update_measures.update(self.compute_v_losses(buf_inputs))
+        post_update_measures = self.compute_v_losses(buf_inputs)
 
         deltas = dict()
         for k in post_update_measures:
             if k in pre_update_measures:
                 deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
-        self.logger.store(KL=post_update_measures['KL'], **deltas)
+        self.logger.store(**deltas)
 
     def train_critic(self, inputs, **kwargs):
         obs_in = inputs[self.obs_ph]

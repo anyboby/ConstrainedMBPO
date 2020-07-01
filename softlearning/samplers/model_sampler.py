@@ -271,13 +271,6 @@ class ModelSampler(CpoSampler):
         self._total_Vs += v_t.sum()
         self._total_CVs += vc_t.sum()
 
-        # # debug !
-        # self.pool_debug.store(self._current_observation, a[0], next_observation, reward, v_t[0], c, vc_t[0], logp_t[0], {k:v[0] for k,v in pi_info_t.items()}, terminal)
-        # if terminal:
-        #     last_val = self.policy.get_v(self._current_observation)
-        #     last_cval = self.policy.get_vc(self._current_observation)
-        #     self.pool_debug.finish_path(last_val, last_cval)
-
         #### update some sampler infos
         self._path_uncertainty[alive_paths] += en_disag
         self._path_length[alive_paths] += 1
@@ -336,28 +329,7 @@ class ModelSampler(CpoSampler):
         if not term_mask.any():
             return np.logical_not(term_mask)
 
-        # init final values
-        last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-
-        ## rebase last_val and last_cval to terminating paths
-        last_val = last_val[term_mask]
-        last_cval = last_cval[term_mask]
-
-        cur_obs = self._current_observation
-
-        # We do not count env time out (mature termination) as true terminal state, append values
-        if append_vals:
-            if self.policy.agent.reward_penalized:
-                last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
-                #last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
-
-            else:
-                last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
-                last_cval = np.squeeze(np.mean(self.policy.get_vc(cur_obs[term_mask]), axis=0))
-                # last_val = np.squeeze(self.policy.get_v(cur_obs[term_mask]))
-                # last_cval = np.squeeze(self.policy.get_vc(cur_obs[term_mask]))
-
-        self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+        self.pool.finish_path_multiple(term_mask)
         remaining_path_mask = np.logical_not(term_mask)
 
         return remaining_path_mask
@@ -369,21 +341,10 @@ class ModelSampler(CpoSampler):
         # Note: we do not count env time out as true terminal state
         if self._current_observation is None: return
         assert len(self._current_observation) == alive_paths.sum()
-        current_obs = self._current_observation
 
         if alive_paths.any():
-            last_val, last_cval = np.zeros(shape=alive_paths.sum()), np.zeros(shape=alive_paths.sum())
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
-            if self.policy.agent.reward_penalized:
-                last_val = np.squeeze(np.mean(self.policy.get_v(current_obs), axis=0))
-                # last_val = np.squeeze(self.policy.get_v(current_obs))
-            else:
-                last_val = np.squeeze(np.mean(self.policy.get_v(current_obs), axis=0))
-                last_cval = np.squeeze(np.mean(self.policy.get_vc(current_obs), axis=0))
-                # last_val = np.squeeze(self.policy.get_v(current_obs))
-                # last_cval = np.squeeze(self.policy.get_vc(current_obs))
-
-            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+            self.pool.finish_path_multiple(term_mask)
 
         alive_paths = self.pool.alive_paths
         assert alive_paths.sum()==0   ## something went wrong with finishing all paths
@@ -391,7 +352,7 @@ class ModelSampler(CpoSampler):
         if not alive_paths.any():
             #@anyboby TODO handle logger /diagnostics for model
             # self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-            print('All trajectories finished. @anyboby implement some logging magic here')
+            print('All trajectories already finished. @anyboby implement some logging magic here')
         
         return self.get_diagnostics()
 

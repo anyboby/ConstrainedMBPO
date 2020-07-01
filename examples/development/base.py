@@ -41,8 +41,8 @@ CPO_POLICY_PARAMS_BASE = {
         'cvf_cliprange':        0.1,
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         80,
-        'cost_lim':             80,
+        'cost_lim_end':         30,
+        'cost_lim':             30,
         'cost_lam':             1.0,
         'cost_gamma':           0.99,
         'lam':                  1.0,
@@ -104,7 +104,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(10000), #5000
         }
     },
     'SQL': {

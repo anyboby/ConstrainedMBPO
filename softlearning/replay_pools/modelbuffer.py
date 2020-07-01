@@ -9,16 +9,17 @@ from softlearning.replay_pools.cpobuffer import CPOBuffer
 
 class ModelBuffer(CPOBuffer):
 
-    def __init__(self, batch_size, max_path_length,
-                 observation_space, action_space, 
+    def __init__(self, batch_size, env, max_path_length,
                  *args,
                  **kwargs,
                  ):
         
-        self.obs_shape = observation_space.shape
-        self.act_shape = action_space.shape
         self.max_path_length = max_path_length
         self.batch_size = batch_size
+        self.env = env
+        self.obs_shape = self.env.observation_space.shape
+        self.act_shape = self.env.action_space.shape
+
         ## ignore other args and kwargs
 
         obs_buf_shape = combined_shape(batch_size, combined_shape(max_path_length, self.obs_shape))
@@ -124,6 +125,7 @@ class ModelBuffer(CPOBuffer):
     #     self.ptr += 1
     #     self.populated_mask[np.logical_not(self.terminated_paths_mask), self.ptr] = True
 
+    @DeprecationWarning
     def finish_path(self, last_val=0, last_cval=0):
         path_slice = slice(self.path_start_idx, self.ptr)
         rews = np.append(self.rew_buf[path_slice], last_val)
@@ -142,11 +144,9 @@ class ModelBuffer(CPOBuffer):
 
         self.path_start_idx = self.ptr
 
-    def finish_path_multiple(self, term_mask, 
-                                last_val, 
-                                last_cval):
+    def finish_path_multiple(self, term_mask):
         """
-        finished multiple paths according to term_mask. 
+        finishes multiple paths according to term_mask. 
         Note: if the term_mask indicates to terminate a path that has not yet been populated,
         it will terminate, but samples won't be marked as terminated (they won't be included 
         in get())
@@ -160,39 +160,15 @@ class ModelBuffer(CPOBuffer):
         """
         if not term_mask.any(): return                    ### skip if not terminating anything
         assert self.alive_paths.sum() == len(term_mask)   ### terminating a non-alive path!
-        if len(last_val.shape)>0 and len(last_val.shape)>0:
-            assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
-        else:
-            assert term_mask.sum()==1
-            last_val = last_val[..., np.newaxis]
-            last_cval = last_cval[..., np.newaxis]
-
         alive_paths = self.alive_paths
 
         ## concat masks for fancy indexing. (expand term_mask to buf dim)
         finish_mask = np.zeros(len(self.alive_paths), dtype=np.bool)
         finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
-        path_slice = slice(self.path_start_idx, self.ptr)
-        
-        rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
-        vals = np.append(self.val_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
-        deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
-        self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)
-
-        # self.ret_buf[finish_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[:, :-1]
-        self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[finish_mask, path_slice]
-
-        costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
-        cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
-        cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
-        self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)
-        
-        # self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
-        self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
         
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
-
+                    
     def get(self):
         """
         Returns a list of predetermined values in the buffer.
@@ -202,31 +178,37 @@ class ModelBuffer(CPOBuffer):
                 self.cadv_buf, self.ret_buf, self.cret_buf,
                 self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
         """
-        # assert self.ptr == self.max_size    # buffer has to be full before you can get
-                                                # This doesn't make sense for parallel paths:
-                                                # buffer doesn't have to be full to get
+        assert self.terminated_paths_mask.all()         ### all paths have to be finished
+
+        #######  start inv var rollouts to estimate returns, and advantages  ########
+        start_states = self.obs_buf[self.populated_mask]
+        returns, creturns, adv, c_adv, diagnostics = self.env.invVarRollout(
+                    start_states,
+                    gamma=self.gamma,
+                    c_gamma=self.cost_gamma,
+                    lam=self.lam,
+                    c_lam=self.cost_lam,
+                    horizon=100,
+                    stop_var=1e3
+                )
         
-        # Advantage normalizing trick for policy gradient
-        adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
-        self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
-
-        # Center, but do NOT rescale advantages for cost gradient 
-        # (since we're not just minimizing but aiming for a specific c)
-        cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
-        self.cadv_buf -= cadv_mean
-
-        res = [self.obs_buf, self.act_buf, self.adv_buf, 
-                self.cadv_buf, self.ret_buf, self.cret_buf, 
-                self.logp_buf, self.val_buf, self.cval_buf,
-                self.cost_buf] \
-                + values_as_sorted_list(self.pi_info_bufs)
-
-        # filter out unpopulated entries / finished paths
-        res = [buf[self.populated_mask] for buf in res]
+        #############################################################################
+        res = [
+            self.obs_buf[self.populated_mask], 
+            self.act_buf[self.populated_mask], 
+            adv, 
+            c_adv, 
+            returns, 
+            creturns, 
+            self.logp_buf[self.populated_mask], 
+            self.val_buf[self.populated_mask], 
+            self.cval_buf[self.populated_mask],
+            self.cost_buf[self.populated_mask]] \
+              + [v[self.populated_mask] for v in values_as_sorted_list(self.pi_info_bufs)]
 
         # reset
         self.ptr, self.path_start_idx = 0, 0
         self.populated_mask = np.zeros(shape=self.populated_mask.shape, dtype=np.bool)
         self.terminated_paths_mask = np.zeros(shape=self.terminated_paths_mask.shape, dtype=np.bool)
 
-        return res
+        return res, diagnostics
