@@ -31,12 +31,12 @@ CPO_POLICY_PARAMS_BASE = {
         'squash': True,
         'vf_lr':                9e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
-        'vf_epochs':            15,                 
+        'vf_epochs':            8,                 
         'vf_batch_size':        256,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
+        'vf_loss':              'MSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber'
         'vf_cliprange':         0.01,
         'cvf_cliprange':        0.1,
         'ent_reg':              0.0,

@@ -291,10 +291,10 @@ class FakeEnv:
 
         tic = time.perf_counter()
         
-        cvals, _ = self.policy.get_vc(obs, inc_var=True)
+        cvals = self.policy.get_vc(obs, inc_var=False)
         cvals = np.mean(cvals, axis=0)
 
-        vals, _ = self.policy.get_v(obs, inc_var=True)
+        vals = self.policy.get_v(obs, inc_var=False)
         vals = np.mean(vals, axis=0)
 
         self.tic(verbose=False) #reset timer
@@ -375,18 +375,21 @@ class FakeEnv:
             # d_obs = (obs_deb-obs_real)**2
             #########################
 
-            next_val, next_val_var = self.policy.get_v(next_obs, inc_var=True)
-            next_cval, next_cval_var = self.policy.get_vc(next_obs, inc_var=True)
+            next_val = self.policy.get_v(next_obs)
+            next_cval = self.policy.get_vc(next_obs)
 
             next_val *= np.logical_not(terminals)
             next_cval *= np.logical_not(terminals)
 
-            next_val_var *= np.logical_not(terminals)
-            next_cval_var *= np.logical_not(terminals)
+            # next_val_var *= np.logical_not(terminals)
+            # next_cval_var *= np.logical_not(terminals)
 
             #### variance for gaussian mixture, add dispersion of means to variance
-            next_val_var = np.mean(next_cval_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
-            next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
+            # next_val_var = np.mean(next_cval_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
+            # next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
+            next_val_var = np.var(next_val, axis=0)
+            next_cval_var = np.var(next_cval, axis=0)
+
             ####
 
             disc_ret = np.sum(rew_buf[:, alive_mask, 0:i+1], axis=-1)

@@ -366,6 +366,8 @@ class CPOPolicy(BasePolicy):
         self.vf_elites = kwargs.get('vf_elites', 3)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
+        self.inc_var_v = self.vf_loss=='NLL'
+
         self.vf_cliprange = kwargs.get('vf_cliprange', 0.1)
         self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.3)
 
@@ -697,7 +699,7 @@ class CPOPolicy(BasePolicy):
             critic_inputs, 
             batch_size=self.vf_batch_size, 
             min_epoch_before_break=self.vf_epochs, 
-            max_epochs=2*self.vf_epochs, 
+            max_epochs=self.vf_epochs, 
             holdout_ratio=0.1
             )
 
@@ -838,30 +840,44 @@ class CPOPolicy(BasePolicy):
                 else:
                     get_action_outs[k] = v.reshape(orig_shape[:2]+(v.shape[1:]))
 
+        # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
 
         if inc_v:
-            v, _ = self.v.predict(feed_obs, factored=True)
-            vc, _ = self.vc.predict(feed_obs, factored=True)
+            if self.inc_var_v:
+                v, v_var = self.v.predict(feed_obs, factored=True)
+                vc, vc_var = self.vc.predict(feed_obs, factored=True)
 
-            # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
-            get_action_outs['v'] = np.squeeze(v, axis=-1)
-            get_action_outs['vc'] = np.squeeze(vc, axis=-1)
+                get_action_outs['v'] = np.squeeze(v, axis=-1)
+                get_action_outs['vc'] = np.squeeze(vc, axis=-1)
+                get_action_outs['v_var'] = np.squeeze(v_var, axis=-1)
+                get_action_outs['vc_var'] = np.squeeze(vc_var, axis=-1)
+            else: 
+                v = self.v.predict(feed_obs, factored=True)
+                vc = self.vc.predict(feed_obs, factored=True)
+
+                get_action_outs['v'] = np.squeeze(v, axis=-1)
+                get_action_outs['vc'] = np.squeeze(vc, axis=-1)
+
         return get_action_outs
 
     def get_v(self, obs, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
-        v, v_var = self.v.predict(feed_obs, factored=True)
-        if inc_var:
+
+        if self.inc_var_v and inc_var:
+            v, v_var = self.v.predict(feed_obs, factored=True)
             return np.squeeze(v, axis=-1), np.squeeze(v_var, axis=-1)
         else:
+            v = self.v.predict(feed_obs, factored=True)
             return np.squeeze(v, axis=-1)
 
     def get_vc(self, obs, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
-        vc, vc_var = self.vc.predict(feed_obs, factored=True)
-        if inc_var:
+
+        if self.inc_var_v and inc_var:
+            vc, vc_var = self.vc.predict(feed_obs, factored=True)
             return np.squeeze(vc, axis=-1), np.squeeze(vc_var, axis=-1)
         else:
+            vc = self.vc.predict(feed_obs, factored=True)
             return np.squeeze(vc, axis=-1)
 
     @contextmanager

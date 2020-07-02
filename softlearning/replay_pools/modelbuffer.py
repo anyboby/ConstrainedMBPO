@@ -187,9 +187,9 @@ class ModelBuffer(CPOBuffer):
                     gamma=self.gamma,
                     c_gamma=self.cost_gamma,
                     lam=self.lam,
-                    c_lam=self.cost_lam,
+                    c_lam=1.03,          #self.cost_lam,
                     horizon=100,
-                    stop_var=1e3
+                    stop_var=5e3
                 )
         
         #############################################################################

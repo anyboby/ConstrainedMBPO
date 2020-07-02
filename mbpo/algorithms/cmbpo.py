@@ -412,8 +412,9 @@ class CMBPO(RLAlgorithm):
                 #=====================================================================#
                 #                           Model Rollouts                            #
                 #=====================================================================#
-                rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
-                start_states = real_samples[0][rand_inds]
+                # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
+                # start_states = real_samples[0][rand_inds]
+                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
 
                 self.model_sampler.reset(start_states)
                 
