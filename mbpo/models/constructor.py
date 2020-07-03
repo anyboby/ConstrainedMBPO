@@ -29,7 +29,7 @@ def construct_model(in_dim,
 	"""
 	Constructs a tf model.
 	Args:
-		loss: Choose from 'NLL', 'MSE', 'Huber' or 'CE'. 
+		loss: Choose from 'NLL', 'MSE', 'Huber', 'ClippedMSE',  or 'CE'. 
 				choosing NLL will construct a model with variance output
 	"""
 	print('[ BNN ] dim in / out: {} / {} | Hidden dim: {}'.format(in_dim, out_dim, hidden_dims))

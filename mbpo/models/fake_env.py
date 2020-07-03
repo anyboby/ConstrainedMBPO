@@ -64,6 +64,7 @@ class FakeEnv:
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
                                         name='BNN',
+                                        loss='MSE',
                                         hidden_dims=hidden_dims,
                                         lr=3e-4, 
                                         # lr_decay=0.96,
@@ -71,10 +72,10 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weights=self.target_weights,    
-                                        use_scaler=True,
-                                        sc_factor=.99,
-                                        max_logvar=-1,
-                                        min_logvar=-10,
+                                        use_scaler=False,
+                                        # sc_factor=.99,
+                                        # max_logvar=-5,
+                                        # min_logvar=-10,
                                         session=self._session)
 
         if self.cares_about_cost:                                                    
@@ -88,8 +89,8 @@ class FakeEnv:
                                         # decay_steps=10000, 
                                         num_networks=num_networks,
                                         num_elites=num_elites,
-                                        use_scaler=True,
-                                        sc_factor=.99,
+                                        use_scaler=False,
+                                        # sc_factor=.99,
                                         session=self._session)
             
         else:
@@ -147,7 +148,8 @@ class FakeEnv:
         else:
             inputs = np.concatenate((obs, act), axis=-1)
 
-        ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+        # ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+        ensemble_model_means = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
 
         ####@anyboby TODO only as an example, do a better disagreement measurement later
         # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
@@ -156,38 +158,40 @@ class FakeEnv:
         # ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
 
         ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
-        ensemble_model_stds = np.sqrt(ensemble_model_vars)
-        mean_ensemble_var = ensemble_model_vars.mean()
+        # ensemble_model_stds = np.sqrt(ensemble_model_vars)
+        # mean_ensemble_var = ensemble_model_vars.mean()
+        mean_ensemble_var = np.mean(np.var(ensemble_model_means, axis=0))
 
         #### check for negative vars (can happen towards end of training)
-        if (ensemble_model_vars<=0).any():
-            neg_var = ensemble_model_vars.min()
-            np.clip(ensemble_model_vars, a_min=1e-8, a_max=None)
-            warnings.warn(f'Negative variance of {neg_var} encountered. Clipping...')
+        # if (ensemble_model_vars<=0).any():
+        #     neg_var = ensemble_model_vars.min()
+        #     np.clip(ensemble_model_vars, a_min=1e-8, a_max=None)
+        #     warnings.warn(f'Negative variance of {neg_var} encountered. Clipping...')
 
         ### calc disagreement of elites
         elite_means = ensemble_model_means[self._model.elite_inds]
-        elite_stds = ensemble_model_stds[self._model.elite_inds]
-        average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
-        average_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
-        ensemble_disagreement = average_dkl_mean
+        # elite_stds = ensemble_model_stds[self._model.elite_inds]
+        # average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
+        # average_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
+        # ensemble_disagreement = average_dkl_mean
 
         ### directly use means, if deterministic
-        if deterministic:   
-            ensemble_samples = ensemble_model_means                     
-        else:
-            ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
+        # if deterministic:   
+        #     ensemble_samples = ensemble_model_means                     
+        # else:
+        #     ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
+        ensemble_samples = ensemble_model_means                     
 
         #### choose one model from ensemble randomly
         num_models, batch_size, _ = ensemble_model_means.shape
         model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
         batch_inds = np.arange(0, batch_size)
         samples = ensemble_samples[model_inds, batch_inds]
-        model_means = ensemble_model_means[model_inds, batch_inds]
-        model_stds = ensemble_model_stds[model_inds, batch_inds]
+        # model_means = ensemble_model_means[model_inds, batch_inds]
+        # model_stds = ensemble_model_stds[model_inds, batch_inds]
         ####
 
-        log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
+        # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         #### retrieve r and done for new state
         rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
@@ -226,10 +230,10 @@ class FakeEnv:
         else:
             costs = np.zeros_like(rewards)
 
-        batch_size = model_means.shape[0]
+        # batch_size = model_means.shape[0]
         ###@anyboby TODO this calculation seems a bit suspicious to me
-        return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
-        return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
+        # return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
+        # return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
 
         ### save state and action
         self._current_obs = next_obs
@@ -243,12 +247,14 @@ class FakeEnv:
             terminals = terminals[0]
             costs = costs[0]
         
-        info = {'return_mean': return_means,
-                'return_std': return_stds,
-                'log_prob': log_prob,
-                'dev': dev,
+        info = {# 'return_mean': return_means,
+                # 'return_std': return_stds,
+                # 'log_prob': log_prob,
+                # 'dev': dev,
                 'ensemble_disagreement':ensemble_disagreement,
                 'ensemble_var':mean_ensemble_var,
+                'rew':rewards,
+                'rew_mean': rewards.mean(),
                 'cost':costs,
                 'cost_mean': costs.mean(),
                 }
@@ -318,7 +324,8 @@ class FakeEnv:
             else:
                 inputs = np.concatenate((alive_obs, a), axis=-1)
 
-            ens_means, ens_vars = self._model.predict(inputs)
+            # ens_means, ens_vars = self._model.predict(inputs)
+            ens_means = self._model.predict(inputs)
 
             ens_means[...,:-self.rew_dim] += alive_obs         #### models output state change rather than state completely
 
@@ -441,21 +448,21 @@ class FakeEnv:
         wr[(wr-np.mean(wr, axis=-1)[...,None])/(np.sqrt(np.var(wr, axis=-1))+EPS)[...,None]<0]=0        ### normalize and remove outliers
         wr_sum = np.sum(wr, axis=-1)[...,None]
 
-        wr_iod2 = np.where(population_mask, 1/(ret_iod2_buf+EPS), 0)
-        wr_iod2[(wr_iod2-np.mean(wr_iod2, axis=-1)[...,None])/(np.sqrt(np.var(wr_iod2, axis=-1))+EPS)[...,None]<0]=0        ### normalize and remove outliers
-        wr_iod2_sum = np.sum(wr_iod2, axis=-1)[...,None]
+        # wr_iod2 = np.where(population_mask, 1/(ret_iod2_buf+EPS), 0)
+        # wr_iod2[(wr_iod2-np.mean(wr_iod2, axis=-1)[...,None])/(np.sqrt(np.var(wr_iod2, axis=-1))+EPS)[...,None]<0]=0        ### normalize and remove outliers
+        # wr_iod2_sum = np.sum(wr_iod2, axis=-1)[...,None]
 
         returns = np.sum(ret_buf*wr/wr_sum, axis=-1)
-        returns_med_iod2 = np.sum(ret_buf_med*wr_iod2*1/(wr_iod2_sum+EPS), axis=-1)
+        # returns_med_iod2 = np.sum(ret_buf_med*wr_iod2*1/(wr_iod2_sum+EPS), axis=-1)
 
         a_rew = returns - vals
         a_rew = (a_rew-np.mean(a_rew))/(np.sqrt(np.var(a_rew))+EPS)
 
-        a_rew_iod2 = returns_med_iod2 - vals
-        a_rew_iod2 = (a_rew_iod2-np.mean(a_rew_iod2))/(np.sqrt(np.var(a_rew_iod2))+EPS)
+        # a_rew_iod2 = returns_med_iod2 - vals
+        # a_rew_iod2 = (a_rew_iod2-np.mean(a_rew_iod2))/(np.sqrt(np.var(a_rew_iod2))+EPS)
 
-        a_rew_td0 = ret_buf[:,0] - cvals
-        a_rew_td0 = (a_rew_td0-np.mean(a_rew_td0))/(np.sqrt(np.var(a_rew_td0))+EPS)
+        # a_rew_td0 = ret_buf[:,0] - cvals
+        # a_rew_td0 = (a_rew_td0-np.mean(a_rew_td0))/(np.sqrt(np.var(a_rew_td0))+EPS)
 
         # e_rew_1 = np.mean((returns-real_samples[4][rand_inds])**2)
         # e_rew_2 = np.mean((returns_med_iod2-real_samples[4][rand_inds])**2)
@@ -473,63 +480,63 @@ class FakeEnv:
         wc[(wc-np.mean(wc, axis=-1)[..., None])/(np.sqrt(np.var(wc, axis=-1))+EPS)[..., None]<0]=0
         wc_sum = np.sum(wc, axis=-1)[..., None]
 
-        wc_iod = np.where(population_mask, 1/(cret_iod_buf+EPS), 0)
-        wc_iod[(wc_iod-np.mean(wc_iod, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod, axis=-1))+EPS)[..., None]<0]=0
-        wc_sum_iod = np.sum(wc_iod, axis=-1)[..., None]
+        # wc_iod = np.where(population_mask, 1/(cret_iod_buf+EPS), 0)
+        # wc_iod[(wc_iod-np.mean(wc_iod, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod, axis=-1))+EPS)[..., None]<0]=0
+        # wc_sum_iod = np.sum(wc_iod, axis=-1)[..., None]
         
-        wc_iod2 = np.where(population_mask, 1/(cret_iod2_buf+EPS), 0)
-        wc_iod2[(wc_iod2-np.mean(wc_iod2, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod2, axis=-1))+EPS)[..., None]<0]=0
-        wc_sum_iod2 = np.sum(wc_iod2, axis=-1)[..., None]
+        # wc_iod2 = np.where(population_mask, 1/(cret_iod2_buf+EPS), 0)
+        # wc_iod2[(wc_iod2-np.mean(wc_iod2, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod2, axis=-1))+EPS)[..., None]<0]=0
+        # wc_sum_iod2 = np.sum(wc_iod2, axis=-1)[..., None]
 
-        wc_iod4 = np.where(population_mask, 1/(cret_iod4_buf+EPS), 0)
-        wc_iod4[(wc_iod4-np.mean(wc_iod4, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod4, axis=-1))+EPS)[..., None]<0]=0
-        wc_sum_iod4 = np.sum(wc_iod4, axis=-1)[..., None]
+        # wc_iod4 = np.where(population_mask, 1/(cret_iod4_buf+EPS), 0)
+        # wc_iod4[(wc_iod4-np.mean(wc_iod4, axis=-1)[..., None])/(np.sqrt(np.var(wc_iod4, axis=-1))+EPS)[..., None]<0]=0
+        # wc_sum_iod4 = np.sum(wc_iod4, axis=-1)[..., None]
 
-        creturns_med = np.sum(cret_buf*wc*1/wc_sum, axis=-1)
-        creturns_med_iod = np.sum(cret_buf*wc_iod*1/wc_sum_iod, axis=-1)
-        creturns_mean = np.sum(cret_buf_mean*wc*1/wc_sum, axis=-1)
-        creturns_mean_iod = np.sum(cret_buf_mean*wc_iod*1/wc_sum_iod, axis=-1)
+        # creturns_med = np.sum(cret_buf*wc*1/wc_sum, axis=-1)
+        # creturns_med_iod = np.sum(cret_buf*wc_iod*1/wc_sum_iod, axis=-1)
+        # creturns_mean = np.sum(cret_buf_mean*wc*1/wc_sum, axis=-1)
+        # creturns_mean_iod = np.sum(cret_buf_mean*wc_iod*1/wc_sum_iod, axis=-1)
         creturns_med_cl = np.sum(cret_buf_median_cl*wc*1/wc_sum, axis=-1)
-        creturns_mean_cl = np.sum(cret_buf_mean_cl*wc*1/wc_sum, axis=-1)
-        creturns_med_cl_iod = np.sum(cret_buf_median_cl*wc_iod*1/wc_sum_iod, axis=-1)
-        creturns_mean_cl_iod = np.sum(cret_buf_mean_cl*wc_iod*1/wc_sum_iod, axis=-1)
-        creturns_med_cl_iod2 = np.sum(cret_buf_median_cl*wc_iod2*1/wc_sum_iod2, axis=-1)
-        creturns_med_cl_iod4 = np.sum(cret_buf_median_cl*wc_iod4*1/wc_sum_iod4, axis=-1)
+        # creturns_mean_cl = np.sum(cret_buf_mean_cl*wc*1/wc_sum, axis=-1)
+        # creturns_med_cl_iod = np.sum(cret_buf_median_cl*wc_iod*1/wc_sum_iod, axis=-1)
+        # creturns_mean_cl_iod = np.sum(cret_buf_mean_cl*wc_iod*1/wc_sum_iod, axis=-1)
+        # creturns_med_cl_iod2 = np.sum(cret_buf_median_cl*wc_iod2*1/wc_sum_iod2, axis=-1)
+        # creturns_med_cl_iod4 = np.sum(cret_buf_median_cl*wc_iod4*1/wc_sum_iod4, axis=-1)
 
-        a_med = creturns_med - cvals
-        a_med -= np.mean(a_med)
+        # a_med = creturns_med - cvals
+        # a_med -= np.mean(a_med)
 
-        a_med_iod = creturns_med_iod - cvals
-        a_med_iod -= np.mean(a_med_iod)
+        # a_med_iod = creturns_med_iod - cvals
+        # a_med_iod -= np.mean(a_med_iod)
 
-        a_mean = creturns_mean - cvals
-        a_mean -= np.mean(a_mean)
+        # a_mean = creturns_mean - cvals
+        # a_mean -= np.mean(a_mean)
 
-        a_mean_iod = creturns_mean_iod - cvals
-        a_mean_iod -= np.mean(a_mean_iod)
+        # a_mean_iod = creturns_mean_iod - cvals
+        # a_mean_iod -= np.mean(a_mean_iod)
 
         a_med_cl = creturns_med_cl - cvals
         a_med_cl -= np.mean(a_med_cl)
 
-        a_mean_cl = creturns_mean_cl - cvals
-        a_mean_cl -= np.mean(a_mean_cl)
+        # a_mean_cl = creturns_mean_cl - cvals
+        # a_mean_cl -= np.mean(a_mean_cl)
         
-        a_med_cl_iod = creturns_med_cl_iod - cvals
-        a_med_cl_iod -= np.mean(a_med_cl_iod)
+        # a_med_cl_iod = creturns_med_cl_iod - cvals
+        # a_med_cl_iod -= np.mean(a_med_cl_iod)
 
-        a_mean_cl_iod = creturns_mean_cl_iod - cvals
-        a_mean_cl_iod -= np.mean(a_mean_cl_iod)
+        # a_mean_cl_iod = creturns_mean_cl_iod - cvals
+        # a_mean_cl_iod -= np.mean(a_mean_cl_iod)
 
-        a_med_cl_iod2 = creturns_med_cl_iod2 - cvals
-        a_med_cl_iod2 -= np.mean(a_med_cl_iod2)
-        a_med_cl_iod2 *= self.running_mean_stdscale
+        # a_med_cl_iod2 = creturns_med_cl_iod2 - cvals
+        # a_med_cl_iod2 -= np.mean(a_med_cl_iod2)
+        # a_med_cl_iod2 *= self.running_mean_stdscale
         
-        a_med_cl_iod4 = creturns_med_cl_iod4 - cvals
-        a_med_cl_iod4 -= np.mean(a_med_cl_iod4)
-        a_med_cl_iod4 *= self.running_mean_stdscale
+        # a_med_cl_iod4 = creturns_med_cl_iod4 - cvals
+        # a_med_cl_iod4 -= np.mean(a_med_cl_iod4)
+        # a_med_cl_iod4 *= self.running_mean_stdscale
 
-        a_td0 = cret_buf[:, 0] - cvals
-        a_td0 -= np.mean(a_td0)
+        # a_td0 = cret_buf[:, 0] - cvals
+        # a_td0 -= np.mean(a_td0)
 
         # self.running_mean_stdscale += 0.1 * (np.sqrt(np.var(real_samples[3][rand_inds]))/np.sqrt(np.var(a_med))-self.running_mean_stdscale)
         # a_med_resc = a_med * self.running_mean_stdscale
@@ -564,11 +571,16 @@ class FakeEnv:
         rolls = np.tile(np.arange(horizon)[None, ...], reps=(wr.shape[0], 1))
         r_H_mean = np.mean(np.sum(rolls*wr/wr_sum, axis=-1))
         c_H_mean = np.mean(np.sum(rolls*wc/wc_sum, axis=-1))
-        diagnostics = dict(r_H_mean=r_H_mean, c_H_mean=c_H_mean)
+        diagnostics = dict(
+                r_H_mean=r_H_mean, 
+                c_H_mean=c_H_mean, 
+                returns_mean = returns.mean(), 
+                creturns_mean = creturns_med_cl.mean(),
+            )
         print(f'Inverse Variance Rollout Finished')
         print(f'average return horizon: {r_H_mean}, average cost horizon: {c_H_mean}')
         
-        return returns, creturns_med, a_rew, a_med_cl, diagnostics
+        return returns, creturns_med_cl, a_rew, a_med_cl, diagnostics
 
     def train_dyn_model(self, samples, **kwargs):
         # check priors
