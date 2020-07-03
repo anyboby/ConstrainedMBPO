@@ -101,7 +101,7 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 		delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
 		
 		## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
-		outlier_threshold = 0.2
+		outlier_threshold = 0.3
 		mask = np.invert(terms)
 		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,3:19]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
 		mask = mask*mask_outlier
@@ -123,6 +123,7 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 		inputs = np.concatenate((obs, act), axis=-1)
 
 	outputs = 10*np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
+	outputs[:,2] *= 35
 	# add noise
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 

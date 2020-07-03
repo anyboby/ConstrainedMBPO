@@ -422,39 +422,39 @@ class FakeEnv:
         #                                 # max_logvar=-5,
         #                                 # min_logvar=-10,
         #                                 session=self._session)                                          
-        # self._model21 = construct_model(in_dim=input_dim_dyn, 
-        #                                 out_dim=output_dim_dyn,
-        #                                 name='DynamicsNN21',
-        #                                 loss='Huber',
-        #                                 hidden_dims=hidden_dims,
-        #                                 lr=3e-3, 
-        #                                 decay=1e-7,
-        #                                 # lr_decay=0.96,
-        #                                 # decay_steps=10000,  
+        # self._model21 = construct_model(in_dim=input_dim_dyn,  
+        #                                 out_dim=output_dim_dyn, 
+        #                                 name='DynamicsNN21', 
+        #                                 loss='Huber', 
+        #                                 hidden_dims=hidden_dims, 
+        #                                 lr=3e-3,  
+        #                                 decay=1e-7, 
+        #                                 # lr_decay=0.96, 
+        #                                 # decay_steps=10000,   
         #                                 num_networks=num_networks, 
-        #                                 num_elites=num_elites,
+        #                                 num_elites=num_elites, 
         #                                 # weights=self.target_weights,    
-        #                                 use_scaler=False,
-        #                                 # sc_factor=.99,
-        #                                 # max_logvar=-5,
-        #                                 # min_logvar=-10,
-        #                                 session=self._session)                                          
+        #                                 use_scaler=False, 
+        #                                 # sc_factor=.99, 
+        #                                 # max_logvar=-5, 
+        #                                 # min_logvar=-10, 
+        #                                 session=self._session)   
 
         if self.cares_about_cost:                                                    
-            self._cost_model = construct_model(in_dim=input_dim_c, 
-                                        out_dim=1,
-                                        loss='MSE',
-                                        name='CostNN',
-                                        hidden_dims=(128, 128, 128),
-                                        lr=1e-6, 
-                                        decay=1e-6,
+            self._cost_model = construct_model(in_dim=input_dim_c,  
+                                        out_dim=1, 
+                                        loss='MSE', 
+                                        name='CostNN', 
+                                        hidden_dims=(128, 128, 128), 
+                                        lr=1e-4, 
+                                        decay=1e-6, 
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
-                                        num_networks=num_networks,
-                                        num_elites=num_elites,
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites, 
                                         use_scaler=False,
                                         # sc_factor=.99,
-                                        session=self._session)
+                                        session=self._session) 
             
         else:
             self._cost_model = None
@@ -513,7 +513,7 @@ class FakeEnv:
 
         # ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
         ensemble_model_means = self._model.predict(inputs, factored=True)/10       #### self.model outputs whole ensembles outputs
-
+        ensemble_model_means[:,:,2] /= 35
         ####@anyboby TODO only as an example, do a better disagreement measurement later
         # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
         # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))*self.target_weights
@@ -689,7 +689,8 @@ class FakeEnv:
 
             # ens_means, ens_vars = self._model.predict(inputs)
             ens_means = self._model.predict(inputs)/10
-
+            ens_means[:,:,2] /= 35
+            
             ens_means[...,:-self.rew_dim] += alive_obs         #### models output state change rather than state completely
 
             # @TODO anyboby
@@ -953,7 +954,8 @@ class FakeEnv:
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     safe_config=self.safe_config,
-                                                                    noise=1e-4)
+                                                                    #noise=1e-4
+                                                                    )
         
         model_metrics = self._model.train(train_inputs_dyn, 
                                             train_outputs_dyn, 
@@ -1049,7 +1051,8 @@ class FakeEnv:
         inputs, targets = format_samples_for_cost(samples, 
                                                     one_hot=False,
                                                     priors=priors,
-                                                    noise=1e-4)
+                                                    # noise=1e-4
+                                                    )
         #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
         cost_model_metrics = self._cost_model.train(inputs,
