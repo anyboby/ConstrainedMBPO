@@ -238,11 +238,11 @@ class BNN:
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
             
             elif self.loss_type == 'Huber':
-                train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights, delta=0.01))
+                train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3))
                 train_loss += tf.add_n(self.decays)
                 # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-                self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.01)
-                self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.01)
+                self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3)
+                self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.3)
             
             elif self.loss_type == 'CE':
                 train_loss = tf.reduce_sum(self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=weights))
@@ -798,7 +798,7 @@ class BNN:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
-            total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean(tf.square(mean - targets), axis=-1), axis=-1)
+            total_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
 
@@ -919,7 +919,7 @@ class BNN:
                                                     0.5*tf.square(mean - targets),
                                                     delta*tf.abs(targets - mean) - 0.5*(delta**2)) * weights_tensor,
                                                 axis=-2)
-                return total_losses
+                return total_losses, mean
 
             if inc_var_loss:
                 assert self.include_var

@@ -353,6 +353,9 @@ class CMBPO(RLAlgorithm):
                 #self.fake_env.reset_model()    # this behaves weirdly
                 min_epochs = 150 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
                 max_epochs = 500 if self._epoch<10 else 10
+                # if len(samples['observations'])>30000:
+                #     samples = {k:v[-30000:] for k,v in samples.items()} 
+
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 

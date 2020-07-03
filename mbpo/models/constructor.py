@@ -122,7 +122,7 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 	else:
 		inputs = np.concatenate((obs, act), axis=-1)
 
-	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
+	outputs = 10*np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
 	# add noise
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
