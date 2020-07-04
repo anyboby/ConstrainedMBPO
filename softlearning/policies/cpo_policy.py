@@ -718,38 +718,39 @@ class CPOPolicy(BasePolicy):
         obs_in = inputs[self.obs_ph]
         vc_targets = inputs[self.cret_ph][:, np.newaxis]
         v_targets = inputs[self.ret_ph][:, np.newaxis]
-        old_v = inputs[self.old_v_ph][:, None]
-        #old_v = np.repeat(old_v, axis=0, repeats = self.vf_ensemble_size)
         
-        old_vc = inputs[self.old_vc_ph][:, None]
-        #old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
+        if self.vf_loss == 'ClippedMSE':    
+            old_v = inputs[self.old_v_ph][..., None]
+            # old_v = np.repeat(old_v, axis=0, repeats = self.vf_ensemble_size)
+            
+            old_vc = inputs[self.old_vc_ph][..., None]
+            # old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
 
-        # v_metrics = self.v.train(
-        #     obs_in,
-        #     v_targets,
-        #     old_pred = old_v,
-        #     **kwargs,
-        #     )                                      
+            v_metrics = self.v.train(
+                obs_in,
+                v_targets,
+                old_pred = old_v,
+                **kwargs,
+                )                                      
 
-        # vc_metrics = self.vc.train(
-        #     obs_in,
-        #     vc_targets,
-        #     old_pred = old_vc,
-        #     **kwargs,
-        #     )                                            
+            vc_metrics = self.vc.train(
+                obs_in,
+                vc_targets,
+                old_pred = old_vc,
+                **kwargs,
+                )                                            
+        else:
+            v_metrics = self.v.train(
+                obs_in,
+                v_targets,
+                **kwargs,
+                )                                      
 
-
-        v_metrics = self.v.train(
-            obs_in,
-            v_targets,
-            **kwargs,
-            )                                      
-
-        vc_metrics = self.vc.train(
-            obs_in,
-            vc_targets,
-            **kwargs,
-            )                       
+            vc_metrics = self.vc.train(
+                obs_in,
+                vc_targets,
+                **kwargs,
+                )                       
 
         v_metrics.update(vc_metrics)
         return v_metrics

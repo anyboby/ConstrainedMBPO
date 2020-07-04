@@ -790,7 +790,7 @@ class BNN:
 
             mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
             var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
-            
+
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
         else:
@@ -820,12 +820,10 @@ class BNN:
         Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
         """
 
-        mean = self._compile_outputs(inputs)
-
         pred = self._compile_outputs(inputs)
-        pred_cl = pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
+        pred_cl = old_pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
 
-        loss = tf.square(mean-targets)      ## unclipped loss
+        loss = tf.square(pred-targets)      ## unclipped loss
         loss_cl = tf.square(pred_cl-targets)    ##loss of the clipped prediction
 
         total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
