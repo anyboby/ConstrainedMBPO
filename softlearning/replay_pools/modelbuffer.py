@@ -10,6 +10,7 @@ from softlearning.replay_pools.cpobuffer import CPOBuffer
 class ModelBuffer(CPOBuffer):
 
     def __init__(self, batch_size, env, max_path_length,
+                 use_inv_var=False,
                  *args,
                  **kwargs,
                  ):
@@ -21,6 +22,7 @@ class ModelBuffer(CPOBuffer):
         self.act_shape = self.env.action_space.shape
 
         ## ignore other args and kwargs
+        self.use_inv_var = use_inv_var
 
         obs_buf_shape = combined_shape(batch_size, combined_shape(max_path_length, self.obs_shape))
         act_buf_shape = combined_shape(batch_size, combined_shape(max_path_length, self.act_shape))
@@ -144,7 +146,7 @@ class ModelBuffer(CPOBuffer):
 
         self.path_start_idx = self.ptr
 
-    def finish_path_multiple(self, term_mask):
+    def finish_path_multiple(self, term_mask, last_val=0, last_cval=0):
         """
         finishes multiple paths according to term_mask. 
         Note: if the term_mask indicates to terminate a path that has not yet been populated,
@@ -166,6 +168,32 @@ class ModelBuffer(CPOBuffer):
         finish_mask = np.zeros(len(self.alive_paths), dtype=np.bool)
         finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
         
+        if not self.use_inv_var:
+            if len(last_val.shape)>0 and len(last_val.shape)>0:
+                assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
+            else:
+                assert term_mask.sum()==1
+                last_val = last_val[..., np.newaxis]
+                last_cval = last_cval[..., np.newaxis]
+
+            path_slice = slice(self.path_start_idx, self.ptr)
+            
+            rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
+            vals = np.append(self.val_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
+            deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
+            self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)
+
+            # self.ret_buf[finish_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[:, :-1]
+            self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[finish_mask, path_slice]
+
+            costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
+            cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
+            cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
+            self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)
+            
+            # self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
+            self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
+
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
                     
@@ -180,31 +208,52 @@ class ModelBuffer(CPOBuffer):
         """
         assert self.terminated_paths_mask.all()         ### all paths have to be finished
 
-        #######  start inv var rollouts to estimate returns, and advantages  ########
-        start_states = self.obs_buf[self.populated_mask]
-        returns, creturns, adv, c_adv, diagnostics = self.env.invVarRollout(
-                    start_states,
-                    gamma=self.gamma,
-                    c_gamma=self.cost_gamma,
-                    lam=1.025,            #self.lam
-                    c_lam=1.04,          #self.cost_lam,
-                    horizon=100,
-                    stop_var=5e3
-                )
-        
-        #############################################################################
-        res = [
-            self.obs_buf[self.populated_mask], 
-            self.act_buf[self.populated_mask], 
-            adv, 
-            c_adv, 
-            returns, 
-            creturns, 
-            self.logp_buf[self.populated_mask], 
-            self.val_buf[self.populated_mask], 
-            self.cval_buf[self.populated_mask],
-            self.cost_buf[self.populated_mask]] \
-              + [v[self.populated_mask] for v in values_as_sorted_list(self.pi_info_bufs)]
+        if self.use_inv_var:
+            #### _________________________________ ####
+            ####      Inverse Variance Rollouts    ####
+            #### _________________________________ ####
+    
+            start_states = self.obs_buf[self.populated_mask]
+            returns, creturns, adv, c_adv, diagnostics = self.env.invVarRollout(
+                        start_states,
+                        gamma=self.gamma,
+                        c_gamma=self.cost_gamma,
+                        lam=1.03,            #self.lam
+                        c_lam=1.04,          #self.cost_lam,
+                        horizon=100,
+                        stop_var=5e3
+                    )
+            res = [
+                self.obs_buf[self.populated_mask], 
+                self.act_buf[self.populated_mask], 
+                adv, 
+                c_adv, 
+                returns, 
+                creturns, 
+                self.logp_buf[self.populated_mask], 
+                self.val_buf[self.populated_mask], 
+                self.cval_buf[self.populated_mask],
+                self.cost_buf[self.populated_mask]] \
+                + [v[self.populated_mask] for v in values_as_sorted_list(self.pi_info_bufs)]
+        else:
+            # Advantage normalizing trick for policy gradient
+            adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
+            self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
+
+            # Center, but do NOT rescale advantages for cost gradient 
+            # (since we're not just minimizing but aiming for a specific c)
+            cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
+            self.cadv_buf -= cadv_mean
+
+            res = [self.obs_buf, self.act_buf, self.adv_buf, 
+                    self.cadv_buf, self.ret_buf, self.cret_buf, 
+                    self.logp_buf, self.val_buf, self.cval_buf,
+                    self.cost_buf] \
+                    + values_as_sorted_list(self.pi_info_bufs)
+
+            # filter out unpopulated entries / finished paths
+            res = [buf[self.populated_mask] for buf in res]
+            diagnostics = dict(returns_mean=res[4].mean(), creturns_mean = res[5].mean())
 
         # reset
         self.ptr, self.path_start_idx = 0, 0

@@ -789,8 +789,8 @@ class BNN:
             inv_var = tf.exp(-log_var)
 
             mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) \
-                + tf.reduce_mean(tf.reduce_mean(tf.square(tf.maximum(log_var-2, 0)),axis=-1), axis=-1)  ##testing
+            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+            
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
         else:
@@ -798,7 +798,7 @@ class BNN:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
-            total_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets), axis=-1), axis=-1)
+            total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean( tf.square(mean - targets), axis=-1), axis=-1)
 
         return total_losses
 

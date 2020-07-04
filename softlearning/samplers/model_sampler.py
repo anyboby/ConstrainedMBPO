@@ -23,12 +23,14 @@ class ModelSampler(CpoSampler):
                  store_last_n_paths = 10,
                  preprocess_type='default',
                  max_uncertainty = 1e8,
+                 use_inv_var = False,
                  logger = None):
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
         self._path_return = np.zeros(batch_size)
         self._path_cost = np.zeros(batch_size)
         self._path_uncertainty = np.zeros(batch_size)
+        self.use_inv_var = use_inv_var
 
         if logger:
             self.logger = logger
@@ -329,7 +331,31 @@ class ModelSampler(CpoSampler):
         if not term_mask.any():
             return np.logical_not(term_mask)
 
-        self.pool.finish_path_multiple(term_mask)
+
+        if not self.use_inv_var:                ### only need to append vals if 
+            # init final values
+            last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
+
+            ## rebase last_val and last_cval to terminating paths
+            last_val = last_val[term_mask]
+            last_cval = last_cval[term_mask]
+
+            cur_obs = self._current_observation
+
+            # We do not count env time out (mature termination) as true terminal state, append values
+            if append_vals:
+                if self.policy.agent.reward_penalized:
+                    last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
+
+                else:
+                    last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
+                    last_cval = np.squeeze(np.mean(self.policy.get_vc(cur_obs[term_mask]), axis=0))
+
+            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+
+        else:
+            self.pool.finish_path_multiple(term_mask)
+
         remaining_path_mask = np.logical_not(term_mask)
 
         return remaining_path_mask
@@ -344,7 +370,20 @@ class ModelSampler(CpoSampler):
 
         if alive_paths.any():
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
-            self.pool.finish_path_multiple(term_mask)
+
+            if not self.use_inv_var:
+                last_val, last_cval = np.zeros(shape=alive_paths.sum()), np.zeros(shape=alive_paths.sum())
+                term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
+                if self.policy.agent.reward_penalized:
+                    last_val = np.squeeze(np.mean(self.policy.get_v(self._current_observation), axis=0))
+                else:
+                    last_val = np.squeeze(np.mean(self.policy.get_v(self._current_observation), axis=0))
+                    last_cval = np.squeeze(np.mean(self.policy.get_vc(self._current_observation), axis=0))
+
+                self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+            
+            else:
+                self.pool.finish_path_multiple(term_mask)
 
         alive_paths = self.pool.alive_paths
         assert alive_paths.sum()==0   ## something went wrong with finishing all paths

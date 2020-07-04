@@ -29,10 +29,10 @@ CPO_POLICY_PARAMS_BASE = {
     'kwargs': {
         'a_hidden_layer_sizes':   (M, M),
         'squash': True,
-        'vf_lr':                14e-5,
+        'vf_lr':                8e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
         'vf_epochs':            6,                 
-        'vf_batch_size':        512,
+        'vf_batch_size':        256,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
@@ -41,8 +41,8 @@ CPO_POLICY_PARAMS_BASE = {
         'cvf_cliprange':        0.5,
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         50,
-        'cost_lim':             50,
+        'cost_lim_end':         2000,
+        'cost_lim':             2000,
         'cost_lam':             .97,
         'cost_gamma':           0.99,
         'lam':                  .97,
@@ -104,7 +104,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(12000), #5000
+            'n_initial_exploration_steps': int(10000), #5000
         }
     },
     'SQL': {

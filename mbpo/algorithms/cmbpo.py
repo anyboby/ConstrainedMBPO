@@ -216,21 +216,25 @@ class CMBPO(RLAlgorithm):
         self._action_shape = action_shape
 
         ### model sampler and buffer
+        self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=30, 
-                                        env = self.fake_env)
+                                        max_path_length=100, 
+                                        env = self.fake_env,
+                                        use_inv_var = self.use_inv_var,
+                                        )
         self.model_pool.initialize(pi_info_shapes,
                                     gamma = self._policy.gamma,
                                     lam = self._policy.lam,
                                     cost_gamma = self._policy.cost_gamma,
                                     cost_lam = self._policy.cost_lam)        
         
-        self.model_sampler = ModelSampler(max_path_length=30,
+        self.model_sampler = ModelSampler(max_path_length=100,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
                                             max_uncertainty = self._max_uncertainty,
                                             logger=None,
+                                            use_inv_var =self.use_inv_var,
                                             )
 
         # provide policy and sampler with the same logger
@@ -291,7 +295,7 @@ class CMBPO(RLAlgorithm):
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
             min_samples = 40e3
-            max_samples = 70e3
+            max_samples = 100e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -468,6 +472,8 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             if len(train_samples[0])>=min_samples or self._epoch==0:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update_policy(train_samples)
+                self._policy.update_critic(train_samples)
+
                 gt.stamp('train')
                 surr_cost_delta = self.logger.get_stats('SurrCostDelta')
                 
