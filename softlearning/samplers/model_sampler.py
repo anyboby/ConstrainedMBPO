@@ -54,6 +54,7 @@ class ModelSampler(CpoSampler):
         self._cum_var = 0
         self._cum_var_v = 0
         self._cum_var_vc = 0
+        self._cum_dkl_dyn = 0
 
 
 
@@ -92,8 +93,8 @@ class ModelSampler(CpoSampler):
     def get_diagnostics(self):
         diagnostics = OrderedDict({'pool-size': self.pool.size})
         mean_rollout_length = self._total_samples / (self.batch_size+EPS)
-        mean_ensemble_dkl_cum = np.mean(self._path_uncertainty)
-        mean_ensemble_dkl = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+EPS))
+        mean_ensemble_uncertainty_cum = np.mean(self._path_uncertainty)
+        mean_ensemble_uncertainty = np.mean((self._path_uncertainty.sum()+1e-8)/(self._path_length.sum()+EPS))
         mean_ensemble_var = self._cum_var/(self._total_samples+EPS)
         cost_rate = self._cum_cost/(self._total_samples+EPS)
         return_rate = self._path_return.sum()/(self._total_samples+EPS)
@@ -102,20 +103,22 @@ class ModelSampler(CpoSampler):
 
         CostV_mean = self._total_CVs / (self._total_samples+EPS)
         CostV_var = self._cum_var_vc / (self._total_samples+EPS)
+        Dyn_Dkl_mean = self._cum_dkl_dyn / (self._total_samples+EPS)
 
         diagnostics.update({
             'samples_added': self._total_samples,
             'rollout_length_max': self._n_episodes,
             'rollout_length_mean': mean_rollout_length,
-            'ensemble_dkl_mean': mean_ensemble_dkl,
-            'ensemble_dkl_cum_mean' : mean_ensemble_dkl_cum,
+            'ensemble_uncertainty_mean': mean_ensemble_uncertainty,
+            'ensemble_uncertainty_cum_mean' : mean_ensemble_uncertainty_cum,
             'ensemble_var_mean' : mean_ensemble_var,
-            'cost_rate': cost_rate,
-            'return_rate': return_rate,
-            'VVals':VVals_mean,
-            'VVals_var':VVals_var,
-            'CostVVals':CostV_mean,
-            'CostV_var':CostV_var,
+            # 'ensemble_cost_rate': cost_rate,
+            # 'ensemble_return_rate': return_rate,
+            'ensemble_VVals':VVals_mean,
+            'ensemble_VVals_var':VVals_var,
+            'ensemble_CostVVals':CostV_mean,
+            'ensemble_CostV_var':CostV_var,
+            'ensemble_dyn_DKL_mean': Dyn_Dkl_mean,
         })
 
         return diagnostics
@@ -186,6 +189,7 @@ class ModelSampler(CpoSampler):
         self._cum_var = 0
         self._cum_var_v = 0
         self._cum_var_vc = 0
+        self._cum_dkl_dyn = 0
 
     def sample(self):
         assert self.pool.has_room           #pool full! empty before sampling.
@@ -283,6 +287,7 @@ class ModelSampler(CpoSampler):
         self._cum_var += info.get('ensemble_var', 0)*alive_paths.sum()
         self._cum_var_v += v_var.sum()
         self._cum_var_vc += vc_var.sum()
+        self._cum_dkl_dyn += info.get('ensemble_dkl_mean', 0)
         self._max_path_return = max(self._max_path_return,
                             max(self._path_return))
 

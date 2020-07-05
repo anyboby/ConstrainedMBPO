@@ -227,7 +227,7 @@ class BNN:
             if self.loss_type == 'NLL':
                 train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
                 train_loss += tf.add_n(self.decays)
-                # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
             
@@ -240,7 +240,7 @@ class BNN:
             elif self.loss_type == 'Huber':
                 train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3))
                 train_loss += tf.add_n(self.decays)
-                # train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3)
                 self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.3)
             

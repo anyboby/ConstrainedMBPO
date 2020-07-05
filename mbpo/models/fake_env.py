@@ -61,42 +61,42 @@ class FakeEnv:
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
         input_dim_c = self.obs_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
-        self.dyn_loss = 'NLL'
+        self.dyn_loss = 'MSE'
         self.inc_var_dyn = self.dyn_loss == 'NLL'
-        self._model = construct_model(in_dim=input_dim_dyn, 
-                                        out_dim=output_dim_dyn,
-                                        name='BNN',
-                                        loss=self.dyn_loss,
-                                        hidden_dims=hidden_dims,
-                                        lr=3e-4, 
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000,  
-                                        num_networks=num_networks, 
-                                        num_elites=num_elites,
-                                        weights=self.target_weights,    
-                                        use_scaler=True,
-                                        sc_factor=.99,
-                                        max_logvar=.5,
-                                        min_logvar=-10,
-                                        session=self._session)
- 
         # self._model = construct_model(in_dim=input_dim_dyn, 
         #                                 out_dim=output_dim_dyn,
-        #                                 name='DynamicsNN',
-        #                                 loss='MSE',
+        #                                 name='BNN',
+        #                                 loss=self.dyn_loss,
         #                                 hidden_dims=hidden_dims,
-        #                                 lr=1e-3, 
-        #                                 decay=1e-6,
+        #                                 lr=3e-4, 
         #                                 # lr_decay=0.96,
         #                                 # decay_steps=10000,  
         #                                 num_networks=num_networks, 
         #                                 num_elites=num_elites,
-        #                                 # weights=self.target_weights,    
-        #                                 use_scaler=False,
-        #                                 # sc_factor=.99,
-        #                                 # max_logvar=-5,
-        #                                 # min_logvar=-10,
-        #                                 session=self._session)                                    
+        #                                 weights=self.target_weights,    
+        #                                 use_scaler=True,
+        #                                 sc_factor=.99,
+        #                                 max_logvar=.5,
+        #                                 min_logvar=-10,
+        #                                 session=self._session)
+ 
+        self._model = construct_model(in_dim=input_dim_dyn, 
+                                        out_dim=output_dim_dyn,
+                                        name='DynamicsNN',
+                                        loss=self.dyn_loss,
+                                        hidden_dims=hidden_dims,
+                                        lr=1e-3, 
+                                        decay=1e-6,
+                                        # lr_decay=0.96,
+                                        # decay_steps=10000,  
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites,
+                                        # weights=self.target_weights,    
+                                        use_scaler=False,
+                                        # sc_factor=.99,
+                                        # max_logvar=-5,
+                                        # min_logvar=-10,
+                                        session=self._session)                                    
         # self._model = construct_model(in_dim=input_dim_dyn, 
         #                                 out_dim=output_dim_dyn,
         #                                 name='DynamicsNN',
@@ -556,10 +556,10 @@ class FakeEnv:
         # ensemble_model_means[:,:,2] /= 35
         
         ####@anyboby TODO only as an example, do a better disagreement measurement later
-        # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)*self.target_weights
-        # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))*self.target_weights
-        # ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
-        # ensemble_disagreement = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
+        ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)
+        ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))
+        #ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
+        ensemble_dkl_mean = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
 
         ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
         
@@ -656,6 +656,7 @@ class FakeEnv:
                 # 'log_prob': log_prob,
                 # 'dev': dev,
                 'ensemble_disagreement':ensemble_disagreement,
+                'ensemble_dkl_mean' : ensemble_dkl_mean,
                 'ensemble_var':mean_ensemble_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),

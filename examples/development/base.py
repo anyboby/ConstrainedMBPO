@@ -37,8 +37,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_elites':            5,
         'vf_activation':        'swish',
         'vf_loss':              'ClippedMSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
-        'vf_cliprange':         0.02,
-        'cvf_cliprange':        0.5,
+        'vf_cliprange':         0.1,
+        'cvf_cliprange':        1,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         2000,
