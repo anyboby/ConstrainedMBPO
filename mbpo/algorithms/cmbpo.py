@@ -34,17 +34,6 @@ from mbpo.utils.visualization import visualize_policy
 from mbpo.utils.logging import Progress
 import mbpo.utils.filesystem as filesystem
 
-from multiprocessing import Pool
-
-
-def f(name):
-    print('hello', name)
-
-if __name__ == '__main__':
-    p = Process(target=f, args=('bob',))
-    p.start()
-    p.join()
-
 
 def td_target(reward, discount, next_value):
     return reward + discount * next_value
@@ -371,19 +360,10 @@ class CMBPO(RLAlgorithm):
                 # if len(samples['observations'])>30000:
                 #     samples = {k:v[-30000:] for k,v in samples.items()} 
 
-                p = Process(target=self.fake_env.train_dyn_model, args=(
-                        samples, 
-                        batch_size= 512, 
-                        max_epochs=max_epochs, 
-                        min_epoch_before_break=min_epochs, 
-                        holdout_ratio=0.2, 
-                        max_t=self._max_model_t
-                    ))
-
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
-                        batch_size= 512, 
+                        batch_size=512, 
                         max_epochs=max_epochs, 
                         min_epoch_before_break=min_epochs, 
                         holdout_ratio=0.2, 
