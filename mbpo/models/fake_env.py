@@ -79,7 +79,6 @@ class FakeEnv:
                                         max_logvar=.5,
                                         min_logvar=-10,
                                         session=self._session)
- 
         # self._model = construct_model(in_dim=input_dim_dyn, 
         #                                 out_dim=output_dim_dyn,
         #                                 name='DynamicsNN',
@@ -628,8 +627,9 @@ class FakeEnv:
 
             costs = self._cost_model.predict(inputs_cost, factored=True)
             # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
+            
+            ensemble_disagreement = np.var(np.squeeze(costs), axis=0) + np.mean(np.var(elite_means, axis=0), axis=-1)
             costs = np.squeeze(np.clip(costs, -1, 1))
-            ensemble_disagreement = np.var(costs, axis=0)
             costs = np.mean(costs, axis=0)
 
         else:
