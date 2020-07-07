@@ -60,6 +60,7 @@ class BNN:
         self.loss_type = params.get('loss', 'NLL')
         self.include_var = True if self.loss_type == 'NLL' else False
         self.cliprange = params.get('cliprange', 0.2)   #### Only relevant if losstype is ClippedMSE
+        self.constant_prior = params.get('constant_prior', 0)
 
         # Instance variables
         self.finalized = False
@@ -720,7 +721,9 @@ class BNN:
                 self.layers_deb.append(cur_out)
 
         mean = cur_out[:, :, :dim_output//2] if self.include_var else cur_out
-        
+        if self.constant_prior is not 0:
+            mean = mean + tf.constant(self.constant_prior, dtype=tf.float32)
+
         if self.end_act is not None and not raw_output:
             mean = self.end_act(mean)
 

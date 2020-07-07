@@ -364,6 +364,7 @@ class CPOPolicy(BasePolicy):
         self.vf_batch_size = kwargs.get('vf_batch_size', 64)
         self.vf_ensemble_size = kwargs.get('vf_ensemble_size', 5)
         self.vf_elites = kwargs.get('vf_elites', 3)
+        self.vc_prior = kwargs.get('vc_prior', 0)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
         self.inc_var_v = self.vf_loss=='NLL'
@@ -490,7 +491,7 @@ class CPOPolicy(BasePolicy):
 
             self.v = construct_model(name='VEnsemble', max_logvar=-1, min_logvar=-10, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, **vf_kwargs)
+            self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, constant_prior=self.vc_prior, **vf_kwargs)
 
 
             # Organize placeholders for zipping with data from buffer on updates
