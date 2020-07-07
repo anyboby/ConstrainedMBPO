@@ -629,7 +629,7 @@ class FakeEnv:
             # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
             
             ensemble_disagreement = np.var(np.squeeze(costs), axis=0) + np.mean(np.var(elite_means, axis=0), axis=-1)
-            costs = np.squeeze(np.clip(costs, -1, 1))
+            costs = np.squeeze(np.clip(costs, 0, 1))
             costs = np.mean(costs, axis=0)
 
         else:

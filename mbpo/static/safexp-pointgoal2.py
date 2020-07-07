@@ -57,7 +57,7 @@ class StaticFns:
         obs_indices = safe_config['obs_indices']
 
         ### rebuild only if we already started in a goal
-        goal_dist = obs[...,obs_indices['goal_dist']] 
+        goal_dist = next_obs[...,obs_indices['goal_dist']] 
         goal_size = safe_config['goal_size']
         
         ## seems a bit undirect

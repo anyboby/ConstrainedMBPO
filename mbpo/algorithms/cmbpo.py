@@ -359,11 +359,12 @@ class CMBPO(RLAlgorithm):
                 max_epochs = 500 if self._epoch<10 else 10
                 # if len(samples['observations'])>30000:
                 #     samples = {k:v[-30000:] for k,v in samples.items()} 
+                batch_size = 512 + min(self._epoch//50*512, 7*512)
 
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
-                        batch_size=512, 
+                        batch_size=batch_size, #512
                         max_epochs=max_epochs, 
                         min_epoch_before_break=min_epochs, 
                         holdout_ratio=0.2, 
@@ -374,7 +375,7 @@ class CMBPO(RLAlgorithm):
                 if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
                     model_train_metrics_cost = self.fake_env.train_cost_model(
                         samples, 
-                        batch_size=max(min(len(samples['observations'])//100, 16384), 64), #512, 
+                        batch_size=batch_size, #512, 
                         min_epoch_before_break=min_epochs,
                         max_epochs=max_epochs, 
                         holdout_ratio=0.2, 
