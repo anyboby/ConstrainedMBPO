@@ -629,11 +629,13 @@ class BNN:
         """See predict() above for documentation.
         """
         if self.include_var:
-            factored_mean, factored_variance = self._compile_outputs(inputs, debug=True)
+            factored_mean, factored_variance = self._compile_outputs(inputs)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
-                variance = tf.reduce_mean(tf.square(factored_mean - mean), axis=0) + \
-                        tf.reduce_mean(factored_variance, axis=0)
+                variance = tf.reduce_mean(tf.square(factored_mean), axis=0) - tf.reduce_mean(tf.square(factored_mean), axis=0) \
+                        + tf.reduce_mean(factored_variance, axis=0)
+                # variance = tf.reduce_mean(tf.square(factored_mean - mean), axis=0) + \
+                #         tf.reduce_mean(factored_variance, axis=0)
                 return mean, variance
             return factored_mean, factored_variance
         else: 
