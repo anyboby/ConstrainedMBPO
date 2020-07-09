@@ -75,7 +75,7 @@ class FakeEnv:
                                         num_elites=num_elites,
                                         weights=self.target_weights,    
                                         use_scaler=True,
-                                        sc_factor=.99,
+                                        sc_factor=1,
                                         max_logvar=.5,
                                         min_logvar=-10,
                                         session=self._session)
@@ -470,7 +470,7 @@ class FakeEnv:
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         use_scaler=True,
-                                        sc_factor=.99,
+                                        sc_factor=1,
                                         session=self._session)
 
         # if self.cares_about_cost:                                                    

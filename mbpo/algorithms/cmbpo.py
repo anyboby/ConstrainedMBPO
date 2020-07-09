@@ -218,7 +218,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=100, 
+                                        max_path_length=150, 
                                         env = self.fake_env,
                                         use_inv_var = self.use_inv_var,
                                         )
@@ -226,9 +226,11 @@ class CMBPO(RLAlgorithm):
                                     gamma = self._policy.gamma,
                                     lam = self._policy.lam,
                                     cost_gamma = self._policy.cost_gamma,
-                                    cost_lam = self._policy.cost_lam)        
+                                    cost_lam=.99,
+                                    #cost_lam = self._policy.cost_lam
+                                    )        
         
-        self.model_sampler = ModelSampler(max_path_length=100,
+        self.model_sampler = ModelSampler(max_path_length=150,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',

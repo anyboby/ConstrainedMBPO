@@ -201,7 +201,7 @@ class ModelSampler(CpoSampler):
         current_obs = self._current_observation
 
         # Get outputs from policy
-        get_action_outs = self.policy.get_action_outs(current_obs)
+        get_action_outs = self.policy.get_action_outs(current_obs, factored=False, inc_var=True)
 
         a = get_action_outs['pi']
         v_t = get_action_outs['v']
@@ -209,13 +209,20 @@ class ModelSampler(CpoSampler):
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
+        # test_obs = np.tile(current_obs[None, ...], (7,1,1))
+        # test_obs += np.random.normal(size=test_obs.shape)*.001
+        # get_action_outs_test = self.policy.get_action_outs(test_obs)
+
         ##### @anyboby temporary
         ### unpack ensemble outputs
-        v_var = np.var(v_t, axis=0)
-        vc_var = np.var(vc_t, axis=0)
+        v_var = get_action_outs['v_var']
+        vc_var = get_action_outs.get('vc_var', 0)  # Agent may not use cost value func
 
-        v_t = np.mean(v_t, axis=0)
-        vc_t = np.mean(vc_t, axis=0)
+        # v_var = np.var(v_t, axis=0)
+        # vc_var = np.var(vc_t, axis=0)
+
+        # v_t = np.mean(v_t, axis=0)
+        # vc_t = np.mean(vc_t, axis=0)
         #####
 
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
@@ -350,11 +357,11 @@ class ModelSampler(CpoSampler):
             # We do not count env time out (mature termination) as true terminal state, append values
             if append_vals:
                 if self.policy.agent.reward_penalized:
-                    last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
+                    last_val = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=False)
 
                 else:
-                    last_val = np.squeeze(np.mean(self.policy.get_v(cur_obs[term_mask]), axis=0))
-                    last_cval = np.squeeze(np.mean(self.policy.get_vc(cur_obs[term_mask]), axis=0))
+                    last_val = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=False)
+                    last_cval = self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=False)
 
             self.pool.finish_path_multiple(term_mask, last_val, last_cval)
 
@@ -380,10 +387,10 @@ class ModelSampler(CpoSampler):
                 last_val, last_cval = np.zeros(shape=alive_paths.sum()), np.zeros(shape=alive_paths.sum())
                 term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
                 if self.policy.agent.reward_penalized:
-                    last_val = np.squeeze(np.mean(self.policy.get_v(self._current_observation), axis=0))
+                    last_val = self.policy.get_v(self._current_observation, factored=False, inc_var=False)
                 else:
-                    last_val = np.squeeze(np.mean(self.policy.get_v(self._current_observation), axis=0))
-                    last_cval = np.squeeze(np.mean(self.policy.get_vc(self._current_observation), axis=0))
+                    last_val = self.policy.get_v(self._current_observation, factored=False, inc_var=False)
+                    last_cval = self.policy.get_vc(self._current_observation, factored=False, inc_var=False)
 
                 self.pool.finish_path_multiple(term_mask, last_val, last_cval)
             

@@ -359,6 +359,7 @@ class CPOPolicy(BasePolicy):
         self.hidden_sizes_a = kwargs.get('a_hidden_layer_sizes')
         self.hidden_sizes_c = kwargs.get('vf_hidden_layer_sizes')
 
+        self.dyn_ensemble_size = kwargs.get('dyn_ensemble_size', 1)
         self.vf_lr = kwargs.get('vf_lr', 1e-4)
         self.vf_epochs = kwargs.get('vf_epochs', 10)
         self.vf_batch_size = kwargs.get('vf_batch_size', 64)
@@ -367,7 +368,7 @@ class CPOPolicy(BasePolicy):
         self.vc_prior = kwargs.get('vc_prior', 0)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
-        self.inc_var_v = self.vf_loss=='NLL'
+        self.gaussian_vf = self.vf_loss=='NLL'
 
         self.vf_cliprange = kwargs.get('vf_cliprange', 0.1)
         self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.3)
@@ -460,12 +461,16 @@ class CPOPolicy(BasePolicy):
             a_kwargs=dict()
             a_kwargs['action_space'] = self.act_space
             a_kwargs['hidden_sizes'] = self.hidden_sizes_a
-
+            a_kwargs['ensemble_size_3d'] = self.dyn_ensemble_size
             self.actor = mlp_actor
 
             actor_outs = self.actor(self.obs_ph, self.a_ph, **a_kwargs)
-            self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent \
-                = actor_outs
+            if self.dyn_ensemble_size==1:
+                self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent \
+                    = actor_outs
+            else:
+                self.pi, self.logp, self.logp_pi, self.pi_info, self.pi_info_phs, self.d_kl, self.ent, \
+                    self.pi_3d, self.logp_3d, self.logp_pi_3d, self.pi_info_3d = actor_outs
 
             #### _________________________________ ####
             ####       Create Critic (Ensemble)    ####
@@ -527,6 +532,12 @@ class CPOPolicy(BasePolicy):
             self.ops_for_action = dict(pi=self.pi, 
                                 logp_pi=self.logp_pi,
                                 pi_info=self.pi_info)
+
+            if self.dyn_ensemble_size>1:
+                self.ops_for_action_3d = dict(pi=self.pi_3d, 
+                    logp_pi=self.logp_pi_3d,
+                    pi_info=self.pi_info_3d)
+
 
             # organize tf ops for diagnostics
             self.ops_for_diagnostics = dict(pi=self.pi,
@@ -816,71 +827,90 @@ class CPOPolicy(BasePolicy):
     def log_pis(self, obs, a):
         pass
 
-    def get_action_outs(self, obs, inc_v = True):
+    def get_action_outs(self, obs, factored=False, inc_var = True):
         '''
         takes obs of shape [batch_size, a_dim] or [ensemble, batch_size, a_dim]
         returns a dict with actions, v, vc and pi_info
-        '''
+        '''        
         # check if single obs or multiple
         # remove single dims
         feed_obs = self.format_obs_for_tf(obs)
         orig_shape = feed_obs.shape
-        ### reshape to batch size, since we don't have a policy ensemble
-        if len(orig_shape)>2:
-            feed_obs = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
 
-        get_action_outs = self.sess.run(self.ops_for_action, 
+        if len(orig_shape)>3:
+            raise NotImplementedError('bad observation shape')
+
+        ### reshape to batch size, since we don't have a policy ensemble
+        if len(orig_shape)==3:
+            assert self.dyn_ensemble_size>1
+
+            ### the 3d versions of action ops return the according shape, when fed a flattened feed
+            ### but also act with the same randomness along the ensemble axis
+            feed_obs = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
+            get_action_outs = self.sess.run(self.ops_for_action_3d, 
                         feed_dict={self.obs_ph: feed_obs})
 
-        if len(orig_shape)>2:
-            for k,v in get_action_outs.items():
-                if k == 'pi_info':
-                    get_action_outs[k] = {
-                        k_pi:v_pi.reshape(orig_shape[:2]+(v_pi.shape[1:])) \
-                        for k_pi, v_pi in v.items()
-                        }
-                else:
-                    get_action_outs[k] = v.reshape(orig_shape[:2]+(v.shape[1:]))
+        else:
+            get_action_outs = self.sess.run(self.ops_for_action, 
+                            feed_dict={self.obs_ph: feed_obs})
+
+        # if len(orig_shape)>2:
+        #     for k,v in get_action_outs.items():
+        #         if k == 'pi_info':
+        #             get_action_outs[k] = {
+        #                 k_pi:v_pi.reshape(orig_shape[:2]+(v_pi.shape[1:])) \
+        #                 for k_pi, v_pi in v.items()
+        #                 }
+        #         else:
+        #             get_action_outs[k] = v.reshape(orig_shape[:2]+(v.shape[1:]))
 
         # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
 
-        if inc_v:
-            if self.inc_var_v:
-                v, v_var = self.v.predict(feed_obs, factored=True)
-                vc, vc_var = self.vc.predict(feed_obs, factored=True)
+        if inc_var:
+            assert self.gaussian_vf
+            v, v_var = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
+            vc, vc_var = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
 
-                get_action_outs['v'] = np.squeeze(v, axis=-1)
-                get_action_outs['vc'] = np.squeeze(vc, axis=-1)
-                get_action_outs['v_var'] = np.squeeze(v_var, axis=-1)
-                get_action_outs['vc_var'] = np.squeeze(vc_var, axis=-1)
-            else: 
-                v = self.v.predict(feed_obs, factored=True)
-                vc = self.vc.predict(feed_obs, factored=True)
+            get_action_outs['v'] = np.squeeze(v)
+            get_action_outs['vc'] = np.squeeze(vc)
+            get_action_outs['v_var'] = np.squeeze(v_var)
+            get_action_outs['vc_var'] = np.squeeze(vc_var)
+        else: 
+            v = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
+            vc = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
 
-                get_action_outs['v'] = np.squeeze(v, axis=-1)
-                get_action_outs['vc'] = np.squeeze(vc, axis=-1)
+            get_action_outs['v'] = np.squeeze(v)
+            get_action_outs['vc'] = np.squeeze(vc)
 
         return get_action_outs
 
-    def get_v(self, obs, inc_var = False):
+    def get_v(self, obs, factored=False, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
 
-        if self.inc_var_v and inc_var:
-            v, v_var = self.v.predict(feed_obs, factored=True)
-            return np.squeeze(v, axis=-1), np.squeeze(v_var, axis=-1)
+        if inc_var:
+            assert self.gaussian_vf
+            v, v_var = self.v.predict(feed_obs, factored=factored)
+            return np.squeeze(v), np.squeeze(v_var)
         else:
-            v = self.v.predict(feed_obs, factored=True)
-            return np.squeeze(v, axis=-1)
+            if self.gaussian_vf:
+                v, _ = self.v.predict(feed_obs, factored=factored)
+            else:
+                v = self.v.predict(feed_obs, factored=factored)
+            return np.squeeze(v)
 
-    def get_vc(self, obs, inc_var = False):
+    def get_vc(self, obs, factored=False, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
 
-        if self.inc_var_v and inc_var:
-            vc, vc_var = self.vc.predict(feed_obs, factored=True)
-            return np.squeeze(vc, axis=-1), np.squeeze(vc_var, axis=-1)
+        if inc_var:
+            assert self.gaussian_vf
+            vc, vc_var = self.vc.predict(feed_obs, factored=factored)
+            return np.squeeze(vc), np.squeeze(vc_var, axis=-1)
         else:
-            vc = self.vc.predict(feed_obs, factored=True)
-            return np.squeeze(vc, axis=-1)
+            if self.gaussian_vf:
+                vc, _ = self.vc.predict(feed_obs, factored=factored)
+            else:
+                vc = self.vc.predict(feed_obs, factored=factored)
+            return np.squeeze(vc)
 
     @contextmanager
     def set_deterministic(self, deterministic=True):

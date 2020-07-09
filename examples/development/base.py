@@ -29,6 +29,10 @@ CPO_POLICY_PARAMS_BASE = {
     'kwargs': {
         'a_hidden_layer_sizes':   (M, M),
         'squash': True,
+        'dyn_ensemble_size':    tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['algorithm_params']['kwargs']['num_networks'] 
+            )),
         'vf_lr':                8e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
         'vf_epochs':            8,                 
@@ -36,10 +40,10 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'ClippedMSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
+        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
         'vf_cliprange':         0.1,
         'cvf_cliprange':        1,
-        'vc_prior':             15,
+        'vc_prior':             10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         50,

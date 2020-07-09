@@ -160,7 +160,7 @@ class CpoSampler():
         # Get outputs from policy
         # test_obs = [self._current_observation[np.newaxis] for i in range(100)]
         # test_obs = np.concatenate(test_obs, axis=0)
-        get_action_outs = self.policy.get_action_outs(self._current_observation)
+        get_action_outs = self.policy.get_action_outs(self._current_observation, factored=False, inc_var=False)
         #get_action_outs = self.policy.get_action_outs(self._current_observation)
 
         a = get_action_outs['pi']
@@ -244,11 +244,11 @@ class CpoSampler():
                 last_val, last_cval = 0, 0
             else:
                 if self.policy.agent.reward_penalized:
-                    last_val = np.mean(self.policy.get_v(self._current_observation))
+                    last_val = self.policy.get_v(self._current_observation, factored=False, inc_var=False)
                     last_cval = 0
                 else:
-                    last_val, last_cval = np.mean(self.policy.get_v(self._current_observation)), \
-                                            np.mean(self.policy.get_vc(self._current_observation))
+                    last_val, last_cval = self.policy.get_v(self._current_observation, factored=False, inc_var=False), \
+                                            self.policy.get_vc(self._current_observation, factored=False, inc_var=False)
             self.pool.finish_path(last_val, last_cval)
 
             # Only save EpRet / EpLen if trajectory finished

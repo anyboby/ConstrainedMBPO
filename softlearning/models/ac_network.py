@@ -102,11 +102,12 @@ def mlp_categorical_policy(x, a, hidden_sizes, activation, output_activation, ac
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
 
 
-def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, action_space):
+def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, action_space, ensemble_size_3d=1):
     act_dim = a.shape.as_list()[-1]
     mu = mlp(x, list(hidden_sizes)+[act_dim], activation, output_activation)
     log_std = tf.get_variable(name='log_std', initializer=-0.5*np.ones(act_dim, dtype=np.float32))
-    std = tf.exp(log_std)
+    std = tf.exp(log_std)    
+
     pi = mu + tf.random_normal(tf.shape(mu)) * std
     logp = gaussian_likelihood(a, mu, log_std)
     logp_pi = gaussian_likelihood(pi, mu, log_std)
@@ -120,6 +121,26 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, actio
     log_std_info = tf.tensordot(tf.ones(tf.shape(x)[0]), log_std, axes=0)
     pi_info = {'mu': mu, 'log_std': log_std_info}
     pi_info_phs = {'mu': old_mu_ph, 'log_std': old_log_std_ph}
+
+    #### for 3d inputs we want the same randomness among ensemble inputs
+    if ensemble_size_3d > 1:
+        shape_flat = tf.shape(mu)
+        shape_single_model = (shape_flat[0]//ensemble_size_3d, shape_flat[1])
+        shape_3d = (ensemble_size_3d, shape_flat[0]//ensemble_size_3d, shape_flat[1])
+        
+        random = tf.random_normal(shape_single_model)* std
+        random = tf.tile(random, multiples=(ensemble_size_3d, 1))
+        
+        pi_3d = mu + random*std
+        logp_3d = gaussian_likelihood(a, mu, log_std)
+        logp_pi_3d = gaussian_likelihood(pi_3d, mu, log_std)
+        
+        pi_3d = tf.reshape(pi_3d, shape=shape_3d)
+        logp_3d = tf.reshape(logp_3d, shape=shape_3d[:-1])
+        logp_pi_3d = tf.reshape(logp_pi_3d, shape=shape_3d[:-1])
+
+        pi_info_3d = {'mu': tf.reshape(mu, shape=shape_3d), 'log_std': tf.reshape(log_std_info, shape=shape_3d)}
+        return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, pi_3d, logp_3d, logp_pi_3d, pi_info_3d
 
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
 
@@ -193,7 +214,7 @@ def mlp_actor_critic(x, a, hidden_sizes_a=(64,64), hidden_sizes_c=(64,64), criti
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, v, vc
 
 def mlp_actor(x, a, hidden_sizes=(64,64), activation=tf.tanh,
-                     output_activation=None, policy=None, action_space=None):
+                     output_activation=None, policy=None, action_space=None, ensemble_size_3d=1):
 
     # default policy builder depends on action space
     if policy is None and isinstance(action_space, Box):
@@ -202,9 +223,12 @@ def mlp_actor(x, a, hidden_sizes=(64,64), activation=tf.tanh,
         policy = mlp_categorical_policy
 
     with tf.variable_scope('pi'):
-        policy_outs = policy(x, a, hidden_sizes, activation, output_activation, action_space)
-        pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent = policy_outs
-    
+        policy_outs = policy(x, a, hidden_sizes, activation, output_activation, action_space, ensemble_size_3d)
+        if ensemble_size_3d>1:
+            pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, pi_3d, logp_3d, logp_pi_3d, pi_info_3d = policy_outs
+            return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent, pi_3d, logp_3d, logp_pi_3d, pi_info_3d
+        else:
+            pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent = policy_outs
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
 
 def mlp_critic (x, hidden_sizes=(64,64), activation=tf.tanh,

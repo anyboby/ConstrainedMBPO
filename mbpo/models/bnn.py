@@ -722,7 +722,7 @@ class BNN:
 
         mean = cur_out[:, :, :dim_output//2] if self.include_var else cur_out
         if self.constant_prior is not 0:
-            mean = mean + tf.constant(self.constant_prior, dtype=tf.float32)
+            mean += tf.constant(self.constant_prior, dtype=tf.float32)
 
         if self.end_act is not None and not raw_output:
             mean = self.end_act(mean)
@@ -730,6 +730,9 @@ class BNN:
         if self.include_var:
             logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
             logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
+
+            if self.constant_prior is not 0:
+                logvar += tf.log(tf.constant(self.constant_prior, dtype=tf.float32))
 
             if ret_log_var: 
                 var = logvar
