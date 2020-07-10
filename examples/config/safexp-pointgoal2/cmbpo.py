@@ -45,8 +45,10 @@ params = {
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
         'dyn_model_train_schedule': [50, 100, 1, 1],
-        'cost_model_train_schedule': [25, 80, 1, 1],                                                    
-        'max_uncertainty' : 3,
+        'cost_model_train_schedule': [25, 80, 1, 1],       
+        'dyn_m_discount': 0.99,
+        'cost_m_discount' : 0.96,                     
+        'max_uncertainty' : 5,
     }
 }
 

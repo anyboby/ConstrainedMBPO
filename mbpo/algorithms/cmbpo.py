@@ -81,6 +81,8 @@ class CMBPO(RLAlgorithm):
             rollout_schedule=[20,100,1,1],
             dyn_model_train_schedule=[20, 100, 1, 5],
             cost_model_train_schedule=[20, 100, 1, 30],
+            dyn_m_discount = 1,
+            cost_m_discount = 1,                     
             max_uncertainty = None,
             hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
@@ -125,8 +127,12 @@ class CMBPO(RLAlgorithm):
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
         self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
-        if self.safe_config: weighted=True 
-        else: weighted=False
+        # if self.safe_config: weighted=True 
+        # else: weighted=False
+
+        self._dyn_m_discount = dyn_m_discount
+        self._cost_m_discount = cost_m_discount
+
         #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
 
         # #### create fake env from model 
@@ -143,7 +149,10 @@ class CMBPO(RLAlgorithm):
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment, policy,
                                     static_fns, num_networks=7, 
-                                    num_elites=5, hidden_dims=hidden_dims, 
+                                    num_elites=5, 
+                                    hidden_dims=hidden_dims, 
+                                    dyn_discount = self._dyn_m_discount,
+                                    cost_m_discount = self._cost_m_discount,
                                     cares_about_cost=True,
                                     safe_config=self.safe_config,
                                     session = self._session)
@@ -161,6 +170,7 @@ class CMBPO(RLAlgorithm):
 
         self._dyn_model_train_schedule = dyn_model_train_schedule
         self._cost_model_train_schedule = cost_model_train_schedule
+
         self._dyn_model_train_freq = 1
         self._cost_model_train_freq = 1
         self._rollout_batch_size = int(rollout_batch_size)
@@ -218,7 +228,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=150, 
+                                        max_path_length=200, 
                                         env = self.fake_env,
                                         use_inv_var = self.use_inv_var,
                                         )
@@ -226,11 +236,11 @@ class CMBPO(RLAlgorithm):
                                     gamma = self._policy.gamma,
                                     lam = self._policy.lam,
                                     cost_gamma = self._policy.cost_gamma,
-                                    cost_lam=.99,
+                                    cost_lam = .99,
                                     #cost_lam = self._policy.cost_lam
-                                    )        
+                                    ) 
         
-        self.model_sampler = ModelSampler(max_path_length=150,
+        self.model_sampler = ModelSampler(max_path_length=200,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -280,6 +290,7 @@ class CMBPO(RLAlgorithm):
         gt.reset_root()
         gt.rename_root('RLAlgorithm')
         gt.set_def_unique(False)
+        self.policy_epoch = 0       ### count policy updates
 
         #### not implemented, could train policy before hook
         self._training_before_hook()
@@ -314,7 +325,7 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('timestep_before_hook')
 
                 ##### śampling from the real world ! #####
-                _,_, _, _ = self._do_sampling(timestep=self._total_timestep)
+                _,_, _, _ = self._do_sampling(timestep=self.policy_epoch)
                 gt.stamp('sample')
 
                 self._timestep_after_hook()
@@ -350,7 +361,9 @@ class CMBPO(RLAlgorithm):
                                                         'next_observations',
                                                         'rewards',
                                                         'costs',
-                                                        'terminals'])
+                                                        'terminals',
+                                                        'epochs',
+                                                        ])
                 # if len(samples['observations'])>25000:
                 #     dyn_samples = {k:v[-25000:] for k,v in samples.items()} 
                 # if len(samples['observations'])>10000:
@@ -366,6 +379,7 @@ class CMBPO(RLAlgorithm):
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
+                        discount = self._dyn_m_discount,
                         batch_size=batch_size, #512
                         max_epochs=max_epochs, 
                         min_epoch_before_break=min_epochs, 
@@ -377,6 +391,7 @@ class CMBPO(RLAlgorithm):
                 if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
                     model_train_metrics_cost = self.fake_env.train_cost_model(
                         samples, 
+                        discount = self._cost_m_discount,
                         batch_size=batch_size, #512, 
                         min_epoch_before_break=min_epochs,
                         max_epochs=max_epochs, 
@@ -417,7 +432,7 @@ class CMBPO(RLAlgorithm):
                 #=====================================================================#
                 #                           update critic                             #
                 #=====================================================================#
-                self._policy.update_critic(real_samples)
+                # self._policy.update_critic(real_samples)
 
                 #=====================================================================#
                 #                           Model Rollouts                            #
@@ -476,10 +491,10 @@ class CMBPO(RLAlgorithm):
             if len(train_samples[0])>=min_samples or self._epoch==0:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update_policy(train_samples)
                 self._policy.update_critic(train_samples)
-
-                gt.stamp('train')
-                surr_cost_delta = self.logger.get_stats('SurrCostDelta')
                 
+                gt.stamp('train')
+                self.policy_epoch += 1
+
                 #### empty train_samples
                 train_samples = None
                 samples_added = 0
@@ -591,11 +606,13 @@ class CMBPO(RLAlgorithm):
 
         self.sampler.initialize(env, initial_exploration_policy, pool)
         while pool.arch_size < self._n_initial_exploration_steps:
-            self.sampler.sample()
+            self.sampler.sample(timestep=0)
             if self.ready_to_train:
                 self.sampler.finish_all_paths(append_val=True)
                 pool.dump_to_archive() # move old policy samples to archive
 
+    def _do_sampling(self, timestep):
+        return self.sampler.sample(timestep = timestep)
 
     def _set_model_train_freq(self, var, schedule):
         min_epoch, max_epoch, min_freq, max_freq = schedule

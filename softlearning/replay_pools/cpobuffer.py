@@ -71,6 +71,9 @@ class CPOBuffer:
         self.term_buf = np.zeros(size, dtype=np.bool_)
         self.term_archive = np.zeros(archive_size, dtype=np.bool_)
         
+        self.epoch_buf = np.zeros(size, dtype=np.float32)
+        self.epoch_archive = np.zeros(archive_size, dtype=np.float32)
+
         self.buf_dict = {
             'observations': self.obs_buf,
             'actions':      self.act_buf,
@@ -85,6 +88,7 @@ class CPOBuffer:
             'cvalues':      self.cval_buf,
             'log_policies': self.logp_buf,
             'terminals':    self.term_buf,
+            'epochs':        self.epoch_buf,
         }
 
         self.arch_dict = {
@@ -101,6 +105,7 @@ class CPOBuffer:
             'cvalues':      self.cval_archive,
             'log_policies': self.logp_archive,
             'terminals':    self.term_archive,
+            'epochs':        self.epoch_archive,
         }
 
         self.ptr, self.path_start_idx, self.archive_ptr, self.path_finished = 0,0,0, False
@@ -130,7 +135,7 @@ class CPOBuffer:
             return self.archive_ptr
         else: return self.archive_size
 
-    def store(self, obs, act, next_obs, rew, val, cost, cval, logp, pi_info, term):
+    def store(self, obs, act, next_obs, rew, val, cost, cval, logp, pi_info, term, epoch):
         assert self.ptr < self.max_size     # buffer has to have room so you can store
         self.obs_buf[self.ptr] = obs
         self.act_buf[self.ptr] = act
@@ -141,6 +146,8 @@ class CPOBuffer:
         self.cval_buf[self.ptr] = cval
         self.logp_buf[self.ptr] = logp
         self.term_buf[self.ptr] = term
+        self.epoch_buf[self.ptr] = epoch
+
         for k in self.sorted_pi_info_keys:
             self.pi_info_bufs[k][self.ptr] = pi_info[k]
         self.ptr += 1
@@ -199,6 +206,7 @@ class CPOBuffer:
         self.ret_archive[arch_slice] = self.ret_buf[buf_slice]
         self.cadv_archive[arch_slice] = self.cadv_buf[buf_slice]
         self.cret_archive[arch_slice] = self.cret_buf[buf_slice]
+        self.epoch_archive[arch_slice] = self.epoch_buf[buf_slice]
 
         for k in self.sorted_pi_info_keys:
             self.pi_info_archive[k][arch_slice] = self.pi_info_bufs[k][buf_slice]
@@ -230,7 +238,7 @@ class CPOBuffer:
                 self.cadv_buf, self.ret_buf, self.cret_buf,
                 self.logp_buf, self.val_buf, self.cval_buf,
                 self.cost_buf] \
-                + values_as_sorted_list(self.pi_info_bufs)
+                + values_as_sorted_list(self.pi_info_bufs) \
     
     def get_archive(self, fields=None):
         """
@@ -255,6 +263,7 @@ class CPOBuffer:
             'log_policies'
             'pi_infos'
             'terminals'
+            'epochs'
             'all'
 
         Args:

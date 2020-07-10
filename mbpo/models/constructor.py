@@ -19,7 +19,7 @@ def construct_model(in_dim,
 					lr = 1e-3,
 					lr_decay = None,
 					decay_steps=None,
-					weights=None, 
+					weighted=False, 
 					use_scaler = False,
 					sc_factor = 1,
 					cliprange = 0.1,
@@ -58,7 +58,7 @@ def construct_model(in_dim,
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,
 																"decay_steps":decay_steps}
-	model.finalize(tf.train.AdamOptimizer, opt_params, weights=weights, lr_decay=lr_decay)
+	model.finalize(tf.train.AdamOptimizer, opt_params, weighted=weighted, lr_decay=lr_decay)
 
 	total_parameters = 0
 	for variable in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name):
@@ -73,7 +73,7 @@ def construct_model(in_dim,
 
 	return model
 
-def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None):
+def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None, discount = 1):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -92,7 +92,6 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 	next_obs = np.squeeze(samples['next_observations'])
 	rew = np.squeeze(samples['rewards'])
 	terms = np.squeeze(samples['terminals'])
-
 
 
 	#### ---- preprocess samples for model training in safety gym -----####
@@ -125,15 +124,21 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None)
 		inputs = np.concatenate((obs, act), axis=-1)
 
 	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
+
 	# outputs[:,2] *= 25
 	# outputs[:,54:57] *= 10
 	# add noise
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
 
+	if discount<1:
+			epochs = np.squeeze(samples['epochs'])
+			weights = discount ** (np.max(epochs)- epochs)
+			return inputs, outputs, weights
+
 	return inputs, outputs
 
-def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, priors = None, noise=None):
+def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, priors = None, noise=None, discount=1):
 	"""
 	formats samples to fit training for cost, specifically returns: 
 
@@ -180,6 +185,11 @@ def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_cla
 	### ______ add noise _____ ###
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
+	
+	if discount<1:
+			epochs = np.squeeze(samples['epochs'])
+			weights = discount ** (np.max(epochs)- epochs)
+			return inputs, outputs, weights
 
 	return inputs, outputs
 

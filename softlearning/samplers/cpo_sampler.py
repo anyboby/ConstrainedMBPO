@@ -151,7 +151,7 @@ class CpoSampler():
 
         return processed_observation
 
-    def sample(self):
+    def sample(self, timestep):
         if self._current_observation is None:
             # Reset environment
             self._current_observation, reward, terminal, c = np.squeeze(self.env.reset()), 0, False, 0
@@ -195,7 +195,7 @@ class CpoSampler():
             reward = reward * self.penalty_mult(self.cum_cost)
 
         #save and log
-        self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal)
+        self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal, timestep)
         self.logger.store(VVals=v_t, CostVVals=vc_t, VVars = v_var, CostVVars=vc_var)
         
         self._path_length += 1

@@ -494,7 +494,7 @@ class CPOPolicy(BasePolicy):
 	
             # self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
 
-            self.v = construct_model(name='VEnsemble', max_logvar=-1, min_logvar=-10, **vf_kwargs)
+            self.v = construct_model(name='VEnsemble', max_logvar=-2, min_logvar=-10, **vf_kwargs)
 	
             self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, constant_prior=self.vc_prior, **vf_kwargs)
 

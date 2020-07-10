@@ -151,7 +151,7 @@ class BNN:
 
         return self.layers.pop()
 
-    def finalize(self, optimizer, optimizer_args=None, weights=None, *args, **kwargs):
+    def finalize(self, optimizer, optimizer_args=None, weighted=False, *args, **kwargs):
         """Finalizes the network.
 
         Arguments:
@@ -224,54 +224,59 @@ class BNN:
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
                                                 name="training_targets")
 
+            if weighted:
+                self.weights = tf.placeholder(dtype=tf.float32,
+                                                shape=[self.num_nets, None],
+                                                name="weighted_loss")
+            else:
+                self.weights=None
+
             #### set up losses
             if self.loss_type == 'NLL':
-                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=weights))
+                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=self.weights))
                 train_loss += tf.add_n(self.decays)
                 train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
-                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
+                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
+                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
             
             elif self.loss_type == 'MSE':
-                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights))
+                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights))
                 train_loss += tf.add_n(self.decays)
-                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)
-                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
+                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
+                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
             
             elif self.loss_type == 'Huber':
-                train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3))
+                train_loss = tf.reduce_sum(self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights, delta=0.3))
                 train_loss += tf.add_n(self.decays)
                 train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-                self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights, delta=0.3)
-                self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights, delta=0.3)
+                self.loss = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights, delta=0.3)
+                self.tensor_loss, self.debug_mean = self._huber_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights, delta=0.3)
             
             elif self.loss_type == 'CE':
-                train_loss = tf.reduce_sum(self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=weights))
+                train_loss = tf.reduce_sum(self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=self.weights))
                 train_loss += tf.add_n(self.decays)
-                self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=weights)
-                self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=weights)
+                self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=self.weights)
+                self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=self.weights)
 
             elif self.loss_type == 'ClippedMSE':
                 self.old_pred_ph = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
                                                 name="old_predictions")
-                self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights)                                       
+                self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)                                       
                 train_loss = tf.reduce_sum(self._clippedMSE_loss(self.sy_train_in, self.sy_train_targ, self.old_pred_ph))
                 train_loss += tf.add_n(self.decays)
-                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=weights) ### use normal loss for displaying
-                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=weights)            
+                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights) ### use normal loss for displaying
+                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
             #### _________________________ ####  
             ####      Optimization Ops     ####
             #### _________________________ ####
             
-            self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
+            # self.train_op = self.optimizer.minimize(train_loss, var_list=self.optvars)
             grads_a_vars = self.optimizer.compute_gradients(train_loss, var_list=self.optvars)
-            grads_a_vars = [(tf.clip_by_value(grad, -1, 1.), var) for grad, var in grads_a_vars]
+            # grads_a_vars = [(tf.clip_by_value(grad, -1, 1.), var) for grad, var in grads_a_vars]
             self.train_op = self.optimizer.apply_gradients(grads_and_vars=grads_a_vars, global_step=global_step)
-            
-            #self.train_op = self.optimizer.minimize(train_loss)
-        
+                    
         # Initialize all variables
         self.sess.run(tf.variables_initializer(self.optvars + self.nonoptvars + self.optimizer.variables()))
 
@@ -433,9 +438,13 @@ class BNN:
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
         if self.loss_type=='ClippedMSE':
-            if self.loss_type=='ClippedMSE':
-                old_pred = kwargs.get('old_pred', targets)
-                old_pred = old_pred[permutation[num_holdout:]]
+            old_pred = kwargs.get('old_pred', targets)
+            old_pred = old_pred[permutation[num_holdout:]]
+
+        if self.weights is not None:
+            weights = kwargs['weights']
+            weights, holdout_weights = weights[permutation[num_holdout:]], weights[permutation[:num_holdout]]
+            holdout_weights = np.tile(holdout_weights[None], [self.num_nets, 1])
 
         print(f'[ {self.name} ] Training {inputs.shape} | Holdout: {holdout_inputs.shape}')
 
@@ -463,62 +472,65 @@ class BNN:
             for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
                 batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
                 
+                feed_dict={
+                    self.sy_train_in: inputs[batch_idxs],
+                    self.sy_train_targ: targets[batch_idxs]
+                    }
+                
                 if self.loss_type == 'ClippedMSE':
-                    self.sess.run(
-                        self.train_op,
-                        feed_dict={
-                            self.sy_train_in: inputs[batch_idxs], 
-                            self.sy_train_targ: targets[batch_idxs], 
-                            self.old_pred_ph:old_pred[batch_idxs]
-                            }
-                    )
-                else:
-                    self.sess.run(
-                        self.train_op,
-                        feed_dict={
-                            self.sy_train_in: inputs[batch_idxs],
-                            self.sy_train_targ: targets[batch_idxs]
-                            }
-                    )
+                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs]})
+                if self.weights is not None:
+                    feed_dict.update({self.weights:weights[batch_idxs]})
+
+                self.sess.run(
+                    self.train_op,
+                    feed_dict=feed_dict
+                )
                 grad_updates += 1
 
             idxs = shuffle_rows(idxs)
             if not hide_progress:
                 ### no holdout evaluation
+                progress_feed_dict = {
+                        self.sy_train_in: inputs[idxs[:, :max_logging]],
+                        self.sy_train_targ: targets[idxs[:, :max_logging]]
+                    }
+                if self.weights is not None:
+                    progress_feed_dict.update({self.weights:weights[idxs[:, :max_logging]]})
+
                 if holdout_ratio < 1e-12:
+                    feed_dict={
+                        self.sy_train_in: inputs[idxs[:, :max_logging]],
+                        self.sy_train_targ: targets[idxs[:, :max_logging]]
+                    }                    
                     losses = self.sess.run(
                             self.loss,
-                            feed_dict={
-                                self.sy_train_in: inputs[idxs[:, :max_logging]],
-                                self.sy_train_targ: targets[idxs[:, :max_logging]]
-                            }
+                            feed_dict=progress_feed_dict
                         )
                     named_losses = [['M{}'.format(i), losses[i]] for i in range(len(losses))]
                     progress.set_description(named_losses)
                 ### eval_runs with holdout
                 else:
-                    losses = self.sess.run(
-                            self.loss,
-                            feed_dict={
-                                self.sy_train_in: inputs[idxs[:, :max_logging]],
-                                self.sy_train_targ: targets[idxs[:, :max_logging]]
-                            }
-                        )
-                    holdout_losses = self.sess.run(
-                            self.loss,
-                            feed_dict={
+                    holdout_feed_dict = {
                                 self.sy_train_in: holdout_inputs,
                                 self.sy_train_targ: holdout_targets
                             }
+                    if self.weights is not None:
+                        holdout_feed_dict.update({self.weights:holdout_weights})
+                        
+                    losses = self.sess.run(
+                            self.loss,
+                            feed_dict = progress_feed_dict
+                        )
+                    holdout_losses = self.sess.run(
+                            self.loss,
+                            feed_dict = holdout_feed_dict
                         )
 
                     ### just to debug, which parts of the output generate most losses ###
                     holdout_tensor_losses, holdout_outputs = self.sess.run(
                             [self.tensor_loss, self.debug_mean],
-                            feed_dict={
-                                self.sy_train_in: holdout_inputs,
-                                self.sy_train_targ: holdout_targets
-                            }
+                            feed_dict = holdout_feed_dict
                         )
 
                     ### just to debug, which parts of the output generate most losses ###
@@ -629,11 +641,13 @@ class BNN:
         """See predict() above for documentation.
         """
         if self.include_var:
-            factored_mean, factored_variance = self._compile_outputs(inputs, debug=True)
+            factored_mean, factored_variance = self._compile_outputs(inputs)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
-                variance = tf.reduce_mean(tf.square(factored_mean - mean), axis=0) + \
-                        tf.reduce_mean(factored_variance, axis=0)
+                variance = tf.reduce_mean(tf.square(factored_mean), axis=0) - tf.reduce_mean(tf.square(factored_mean), axis=0) \
+                        + tf.reduce_mean(factored_variance, axis=0)
+                # variance = tf.reduce_mean(tf.square(factored_mean - mean), axis=0) + \
+                #         tf.reduce_mean(factored_variance, axis=0)
                 return mean, variance
             return factored_mean, factored_variance
         else: 
@@ -775,11 +789,6 @@ class BNN:
         Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
         """
 
-        if weights is not None:
-            mse_weights_tensor = tf.convert_to_tensor(weights, np.float32)
-        else:
-            mse_weights_tensor = 1
-
         #### just for debugging        
         if tensor_loss: 
             if self.include_var:
@@ -794,8 +803,12 @@ class BNN:
             mean, log_var = self._compile_outputs(inputs, ret_log_var=True)            
             inv_var = tf.exp(-log_var)
 
-            mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-            var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+            if weights is not None:
+                mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+                var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+            else:
+                mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+                var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
 
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
