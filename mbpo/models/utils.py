@@ -53,7 +53,35 @@ def average_dkl(mu, std):
             else: d_kl+= gaussian_kl_np(mu[i], log_std[i], mu[j], log_std[j])
     d_kl = d_kl/(num_models*(num_models-1)+EPS)
     return d_kl
+def median_dkl(mu, std):
+    """
+    Calculates the median kullback leiber divergences of multiple  univariate gaussian distributions.
+    
+    K(P1,…Pk) = 1/(k(k−1)) ∑_[k_(i,j)=1] DKL(Pi||Pj)
+    
+        (Andrea Sgarro, Informational divergence and the dissimilarity of probability distributions.)
+    
+    expects the distributions along axis 0, and samples along axis 1.
+    Output is reduced by axis 0
 
+    Args:
+        mu: array-like means
+        std: array-like stds
+    """
+    ## clip log
+    log_std = np.log(std)
+    log_std = np.clip(log_std, -100, 1e8)
+    assert len(mu.shape)>=2 and len(log_std.shape)>=2
+    num_models = len(mu)
+    d_kl = np.zeros(shape=(num_models*(num_models-1),) +  mu.shape[1:])
+    n = 0
+    for i in range(num_models):
+        for j in range(num_models):
+            if i != j:
+                d_kl[n] = gaussian_kl_np(mu[i], log_std[i], mu[j], log_std[j])
+                n += 1
+    d_kl_med = np.median(d_kl, axis=0)
+    return d_kl_med
 
 
 class TensorStandardScaler:

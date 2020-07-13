@@ -827,7 +827,7 @@ class CPOPolicy(BasePolicy):
     def log_pis(self, obs, a):
         pass
 
-    def get_action_outs(self, obs, factored=False, inc_var = True):
+    def get_action_outs(self, obs, factored=False, inc_var = False):
         '''
         takes obs of shape [batch_size, a_dim] or [ensemble, batch_size, a_dim]
         returns a dict with actions, v, vc and pi_info
@@ -846,25 +846,13 @@ class CPOPolicy(BasePolicy):
 
             ### the 3d versions of action ops return the according shape, when fed a flattened feed
             ### but also act with the same randomness along the ensemble axis
-            feed_obs = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
+            feed_obs_fl = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
             get_action_outs = self.sess.run(self.ops_for_action_3d, 
-                        feed_dict={self.obs_ph: feed_obs})
+                        feed_dict={self.obs_ph: feed_obs_fl})
 
         else:
             get_action_outs = self.sess.run(self.ops_for_action, 
                             feed_dict={self.obs_ph: feed_obs})
-
-        # if len(orig_shape)>2:
-        #     for k,v in get_action_outs.items():
-        #         if k == 'pi_info':
-        #             get_action_outs[k] = {
-        #                 k_pi:v_pi.reshape(orig_shape[:2]+(v_pi.shape[1:])) \
-        #                 for k_pi, v_pi in v.items()
-        #                 }
-        #         else:
-        #             get_action_outs[k] = v.reshape(orig_shape[:2]+(v.shape[1:]))
-
-        # get_action_outs['pi'] = get_action_outs['pi_info']['mu']        ###testing deterministic
 
         if inc_var:
             assert self.gaussian_vf
@@ -937,6 +925,10 @@ class CPOPolicy(BasePolicy):
         raise NotImplementedError
         # return self.ac_network.set_weights(*args, **kwargs)
         
+    @property
+    def vf_is_gaussian(self):
+        return self.gaussian_vf
+
     @property
     def trainable_variables(self):
         return get_vars()

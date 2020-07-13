@@ -4,7 +4,7 @@ import pdb
 
 from mbpo.models.constructor import construct_model, format_samples_for_dyn, format_samples_for_cost
 from mbpo.models.priors import WEIGHTS_PER_DOMAIN, PRIORS_BY_DOMAIN, PRIOR_DIMS, POSTS_BY_DOMAIN
-from mbpo.models.utils import average_dkl
+from mbpo.models.utils import average_dkl, median_dkl
 from mbpo.utils.logging import Progress, Silent
 
 from itertools import count
@@ -77,8 +77,8 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        use_scaler=True,
-                                        sc_factor=1-1e-5,
+                                        #use_scaler=True,
+                                        #sc_factor=1-1e-5,
                                         max_logvar=.5,
                                         min_logvar=-10,
                                         session=self._session)
@@ -98,8 +98,8 @@ class FakeEnv:
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
-                                        use_scaler=True,
-                                        sc_factor=1-1e-5,
+                                        #use_scaler=True,
+                                        #sc_factor=1-1e-5,
                                         # max_logvar=.5,
                                         # min_logvar=-8,
                                         # decay=1e-8,
@@ -152,8 +152,6 @@ class FakeEnv:
         else:
             return_single = False
 
-        unstacked_obs_size = int(obs.shape[1+self.stacking_axis]/self.stacks)               ### e.g. if a stacked obs is 88 with 4 stacks,
-                                                                                            ### unstacking it yields 22
         if self.prior_f:
             priors = self.static_fns.prior_f(obs, act)
             inputs = np.concatenate((obs, act, priors), axis=-1)
@@ -161,11 +159,10 @@ class FakeEnv:
             inputs = np.concatenate((obs, act), axis=-1)
 
         if self.inc_var_dyn:
-            ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
-            mean_ensemble_var = ensemble_model_vars.mean()
+            ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
         else:
-            ensemble_model_means = self._model.predict(inputs, factored=True)
-            mean_ensemble_var = np.mean(np.var(ensemble_model_means, axis=0))
+            ensemble_dyn_means = self._model.predict(inputs, factored=True)
+            ensemble_dyn_vars = np.tile(np.var(ensemble_dyn_means, axis=0)[None], reps=(self.num_networks, 1,1))
 
         # ensemble_model_means = self._model.predict(inputs, factored=True)/10       #### self.model outputs whole ensembles outputs
         # ensemble_model_means[:,:,2] /= 35
@@ -176,10 +173,14 @@ class FakeEnv:
         # #ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
         # ensemble_dkl_mean = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
 
-        ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
-        ensemble_model_stds = np.sqrt(ensemble_model_vars)
+        np.random.shuffle(ensemble_dyn_means)       ### shuffle obs
+        ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
+        ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
         
-        # mean_ensemble_var = ensemble_model_vars.mean()
+        # ensemble_dyn_var = np.mean(ensemble_dyn_vars, axis=0) + np.mean(ensemble_dyn_means**2, axis=0) - (np.mean(ensemble_dyn_means, axis=0))**2
+        # ensemble_dyn_var = np.mean(ensemble_dyn_var, axis=-1)
+        ensemble_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
+        ensemble_dyn_var = np.mean(ensemble_dyn_var, axis=-1)
 
         #### check for negative vars (can happen towards end of training)
         # if (ensemble_model_vars<=0).any():
@@ -188,34 +189,32 @@ class FakeEnv:
         #     warnings.warn(f'Negative variance of {neg_var} encountered. Clipping...')
 
         ### calc disagreement of elites
-        elite_means = ensemble_model_means[self._model.elite_inds]
+        elite_means = ensemble_dyn_means[self._model.elite_inds]
         elite_stds = ensemble_model_stds[self._model.elite_inds]
         average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
         ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
         ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
-        dyn_uncertainty = np.mean(np.var(elite_means, axis=0), axis=-1)
-        # ensemble_disagreement = average_dkl_mean
 
-        ### directly use means, if deterministic
-        # if deterministic:   
-        #     ensemble_samples = ensemble_model_means                     
-        # else:
-        #     ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
-        ensemble_samples = ensemble_model_means                     
+        median_dkl_per_output = median_dkl(ensemble_dyn_means, ensemble_model_stds)
+        ensemble_dkl_med = np.mean(median_dkl_per_output, axis=tuple(np.arange(1, len(median_dkl_per_output.shape))))
+        ensemble_dkl_med = np.mean(ensemble_dkl_med)
+        ###
+
+        ensemble_samples = ensemble_dyn_means
 
         #### choose one model from ensemble randomly
-        num_models, batch_size, _ = ensemble_model_means.shape
-        model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
-        batch_inds = np.arange(0, batch_size)
-        samples = ensemble_samples[model_inds, batch_inds]
-        # model_means = ensemble_model_means[model_inds, batch_inds]
-        # model_stds = ensemble_model_stds[model_inds, batch_inds]
-        ####
+        if obs_depth<3:
+            num_models, batch_size, _ = ensemble_dyn_means.shape
+            model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
+            batch_inds = np.arange(0, batch_size)
+            samples = ensemble_samples[model_inds, batch_inds]
+        else: 
+            samples = ensemble_samples
 
         # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         #### retrieve r and done for new state
-        rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
+        next_obs = samples[...,:-self.rew_dim]
 
         ## post_processing
         if self.post_f:
@@ -225,16 +224,14 @@ class FakeEnv:
         #### stack previous obs with newly predicted obs
         if self.safe_config:
             self.task = self.safe_config['task']
-            unstacked_obs = obs[:,-unstacked_obs_size:]
-            rewards = self.static_fns.reward_f(unstacked_obs, act, next_obs, self.safe_config)
-            terminals = self.static_fns.termination_fn(unstacked_obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
-            next_obs = self.static_fns.rebuild_goal(unstacked_obs, act, next_obs, unstacked_obs, self.safe_config)  ### rebuild goal if goal was met
-            if self.stacks > 1:
-                next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
-                next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))
+            rewards = self.static_fns.reward_f(obs, act, next_obs, self.safe_config)
+            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
+            next_obs = self.static_fns.rebuild_goal(obs, act, next_obs, obs, self.safe_config)  ### rebuild goal if goal was met
         #### ----- special steps for safety-gym ----- ####
+
         else:
             terminals = self.static_fns.termination_fn(obs, act, next_obs)
+        rew_var = np.squeeze(np.var(rewards, axis=0))
 
         if self.cares_about_cost:
             if self.prior_f:
@@ -245,31 +242,26 @@ class FakeEnv:
             if self.inc_var_c:
                 costs, cost_var = self._cost_model.predict(inputs_cost, factored=True)
                 costs, cost_var = np.squeeze(costs), np.squeeze(cost_var)
-                cost_uncertainty = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
-                
+                # cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
+                cost_var = np.var(costs, axis=0)
+
             else:
                 costs = self._cost_model.predict(inputs_cost, factored=True)
                 costs = np.squeeze(costs)
 
-                cost_uncertainty = np.var(costs, axis=0)
+                cost_var = np.var(costs, axis=0)
+            
             # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
             costs = np.squeeze(np.clip(costs, 0, 1))
-            costs = np.mean(costs, axis=0)
 
         else:
             costs = np.zeros_like(rewards)
-            cost_uncertainty = 0
-
-        ensemble_disagreement = cost_uncertainty + dyn_uncertainty
+            cost_var = 0
 
         # batch_size = model_means.shape[0]
         ###@anyboby TODO this calculation seems a bit suspicious to me
         # return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
         # return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
-
-        ### save state and action
-        self._current_obs = next_obs
-        self._last_act = act
 
         if return_single:
             next_obs = next_obs[0]
@@ -283,9 +275,11 @@ class FakeEnv:
                 # 'return_std': return_stds,
                 # 'log_prob': log_prob,
                 # 'dev': dev,
-                'ensemble_disagreement':ensemble_disagreement,
-                'ensemble_dkl_mean' : ensemble_dkl_mean,
-                'ensemble_var':mean_ensemble_var,
+                'dyn_ensemble_dkl_mean' : ensemble_dkl_mean,
+                'dyn_ensemble_dkl_med' : ensemble_dkl_med,
+                'dyn_ensemble_var' : ensemble_dyn_var,
+                'cost_ensemble_var' : cost_var,
+                'rew_ensemble_var' : rew_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,
@@ -683,6 +677,9 @@ class FakeEnv:
             
         return cost_model_metrics
 
+    @property
+    def random_inds(self, size):
+        return self._model.random_inds(batch_size=size)
 
     def reset_model(self):
         self._model.reset()
