@@ -141,6 +141,147 @@ class FakeEnv:
         stds = np.std(means,0).mean(-1)
 
         return log_prob, stds
+    
+    def step_deb(self, obs, act, deterministic=False):
+        assert len(obs.shape) == len(act.shape)
+        obs_depth = len(obs.shape)
+        if obs_depth == 1:
+            obs = obs[None]
+            act = act[None]
+            return_single=True
+        else:
+            return_single = False
+
+        unstacked_obs_size = int(obs.shape[1+self.stacking_axis]/self.stacks)               ### e.g. if a stacked obs is 88 with 4 stacks,
+                                                                                            ### unstacking it yields 22
+        if self.prior_f:
+            priors = self.static_fns.prior_f(obs, act)
+            inputs = np.concatenate((obs, act, priors), axis=-1)
+        else:
+            inputs = np.concatenate((obs, act), axis=-1)
+
+        if self.inc_var_dyn:
+            ensemble_model_means, ensemble_model_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
+            mean_ensemble_var = ensemble_model_vars.mean()
+        else:
+            ensemble_model_means = self._model.predict(inputs, factored=True)
+            mean_ensemble_var = np.mean(np.var(ensemble_model_means, axis=0))
+
+        # ensemble_model_means = self._model.predict(inputs, factored=True)/10       #### self.model outputs whole ensembles outputs
+        # ensemble_model_means[:,:,2] /= 35
+        
+        ####@anyboby TODO only as an example, do a better disagreement measurement later
+        # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)
+        # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))
+        # #ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
+        # ensemble_dkl_mean = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
+
+        ensemble_model_means[:,:,:-self.rew_dim] += obs[:,-unstacked_obs_size:]           #### models output state change rather than state completely
+        ensemble_model_stds = np.sqrt(ensemble_model_vars)
+        
+        # mean_ensemble_var = ensemble_model_vars.mean()
+
+        #### check for negative vars (can happen towards end of training)
+        # if (ensemble_model_vars<=0).any():
+        #     neg_var = ensemble_model_vars.min()
+        #     np.clip(ensemble_model_vars, a_min=1e-8, a_max=None)
+        #     warnings.warn(f'Negative variance of {neg_var} encountered. Clipping...')
+
+        ### calc disagreement of elites
+        elite_means = ensemble_model_means[self._model.elite_inds]
+        elite_stds = ensemble_model_stds[self._model.elite_inds]
+        average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
+        ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
+        ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
+        # ensemble_disagreement = average_dkl_mean
+
+        ### directly use means, if deterministic
+        # if deterministic:   
+        #     ensemble_samples = ensemble_model_means                     
+        # else:
+        #     ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
+        ensemble_samples = ensemble_model_means                     
+
+        #### choose one model from ensemble randomly
+        num_models, batch_size, _ = ensemble_model_means.shape
+        model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
+        batch_inds = np.arange(0, batch_size)
+        samples = ensemble_samples[model_inds, batch_inds]
+        # model_means = ensemble_model_means[model_inds, batch_inds]
+        # model_stds = ensemble_model_stds[model_inds, batch_inds]
+        ####
+
+        # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
+
+        #### retrieve r and done for new state
+        rewards, next_obs = samples[:,-self.rew_dim:], samples[:,:-self.rew_dim]
+
+        ## post_processing
+        if self.post_f:
+            next_obs = self.static_fns.post_f(next_obs, act)
+        
+        #### ----- special steps for safety-gym ----- ####
+        #### stack previous obs with newly predicted obs
+        if self.safe_config:
+            self.task = self.safe_config['task']
+            unstacked_obs = obs[:,-unstacked_obs_size:]
+            rewards = self.static_fns.reward_f(unstacked_obs, act, next_obs, self.safe_config)
+            terminals = self.static_fns.termination_fn(unstacked_obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
+            next_obs = self.static_fns.rebuild_goal(unstacked_obs, act, next_obs, unstacked_obs, self.safe_config)  ### rebuild goal if goal was met
+            if self.stacks > 1:
+                next_obs = np.concatenate((obs, next_obs), axis=-((obs_depth-1)-self.stacking_axis))
+                next_obs = np.delete(next_obs, slice(unstacked_obs_size), -((obs_depth-1)-self.stacking_axis))
+        #### ----- special steps for safety-gym ----- ####
+        else:
+            terminals = self.static_fns.termination_fn(obs, act, next_obs)
+
+        if self.cares_about_cost:
+            if self.prior_f:
+                inputs_cost = np.concatenate((next_obs, priors), axis=-1)
+            else:
+                inputs_cost = next_obs
+
+            costs = self._cost_model.predict(inputs_cost, factored=True)
+            # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
+            
+            ensemble_disagreement = np.var(np.squeeze(costs), axis=0) + np.mean(np.var(elite_means, axis=0), axis=-1)
+            costs = np.squeeze(np.clip(costs, -1, 1))
+            costs = np.mean(costs, axis=0)
+
+        else:
+            costs = np.zeros_like(rewards)
+
+        # batch_size = model_means.shape[0]
+        ###@anyboby TODO this calculation seems a bit suspicious to me
+        # return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
+        # return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
+
+        ### save state and action
+        self._current_obs = next_obs
+        self._last_act = act
+
+        if return_single:
+            next_obs = next_obs[0]
+            return_means = return_means[0]
+            return_stds = return_stds[0]
+            rewards = rewards[0]
+            terminals = terminals[0]
+            costs = costs[0]
+        
+        info = {# 'return_mean': return_means,
+                # 'return_std': return_stds,
+                # 'log_prob': log_prob,
+                # 'dev': dev,
+                'ensemble_disagreement':ensemble_disagreement,
+                'ensemble_dkl_mean' : ensemble_dkl_mean,
+                'ensemble_var':mean_ensemble_var,
+                'rew':rewards,
+                'rew_mean': rewards.mean(),
+                'cost':costs,
+                'cost_mean': costs.mean(),
+                }
+        return next_obs, rewards, terminals, info
+
 
     def step(self, obs, act, deterministic=False):
         assert len(obs.shape) == len(act.shape)

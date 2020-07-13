@@ -24,6 +24,7 @@ from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 from softlearning.replay_pools.modelbuffer import ModelBuffer
 from softlearning.replay_pools.cpobuffer import CPOBuffer
 from softlearning.samplers.model_sampler import ModelSampler
+from softlearning.samplers.model_sampler_deb import ModelSamplerDeb
 from softlearning.policies.safe_utils.logx import EpochLogger
 
 from mbpo.models.constructor import construct_model, format_samples_for_dyn, reset_model
@@ -240,7 +241,7 @@ class CMBPO(RLAlgorithm):
                                     #cost_lam = self._policy.cost_lam
                                     ) 
         
-        self.model_sampler = ModelSampler(max_path_length=300,
+        self.model_sampler = ModelSamplerDeb(max_path_length=300,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
