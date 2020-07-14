@@ -12,7 +12,7 @@ params = {
 
     'kwargs': {
         'n_epochs': 10000,
-        'epoch_length': 600, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 1000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 

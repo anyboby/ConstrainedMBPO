@@ -240,8 +240,20 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = .99,
                                     #cost_lam = self._policy.cost_lam
                                     ) 
-        
-        self.model_sampler = ModelSamplerDeb(max_path_length=300,
+        self.model_pool2 = ModelBuffer(batch_size=self._rollout_batch_size, 
+                                        max_path_length=300, 
+                                        env = self.fake_env,
+                                        use_inv_var = self.use_inv_var,
+                                        )
+        self.model_pool2.initialize(pi_info_shapes,
+                                    gamma = self._policy.gamma,
+                                    lam = self._policy.lam,
+                                    cost_gamma = self._policy.cost_gamma,
+                                    cost_lam = .99,
+                                    #cost_lam = self._policy.cost_lam
+                                    ) 
+        #@anyboby debug
+        self.model_sampler = ModelSampler(max_path_length=300,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -249,6 +261,15 @@ class CMBPO(RLAlgorithm):
                                             logger=None,
                                             use_inv_var =self.use_inv_var,
                                             )
+        self.model_sampler2 = ModelSamplerDeb(max_path_length=300,
+                                            batch_size=self._rollout_batch_size,
+                                            store_last_n_paths=10,
+                                            preprocess_type='default',
+                                            max_uncertainty = self._max_uncertainty,
+                                            logger=None,
+                                            use_inv_var =self.use_inv_var,
+                                            )
+
 
         # provide policy and sampler with the same logger
         self.logger = EpochLogger()
@@ -285,6 +306,10 @@ class CMBPO(RLAlgorithm):
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
         self.model_sampler.initialize(self.fake_env, policy, self.model_pool)
+        
+        #@anyboby debug
+        self.model_sampler2.initialize(self.fake_env, policy, self.model_pool2)
+
         # self.model_sampler.set_debug_buf(self.model_pool_debug)
 
         #### reset gtimer (for coverage of project development)
@@ -444,12 +469,17 @@ class CMBPO(RLAlgorithm):
 
                 self.model_sampler.reset(start_states)
                 
+                #@anyboby debug
+                self.model_sampler2.reset(start_states)
+
                 for i in count():
                     print(f'Model Sampling step Nr. {i+1}')
 
-                    _,_,_,info = self.model_sampler.sample()
+                    no,r,_,info = self.model_sampler.sample()
                     alive_ratio = info.get('alive_ratio', 1)
 
+                    #@anyboby debug
+                    no2, r2, _, _ = self.model_sampler2.sample()
                     if alive_ratio<0.2 or \
                         self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
                         print(f'Stopping Rollout at step {i+1}')
@@ -458,7 +488,11 @@ class CMBPO(RLAlgorithm):
                 ### diagnostics for rollout ###
                 gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
-
+                
+                #@anyboby debug
+                self.model_sampler2.finish_all_paths()
+                
+                
                 model_metrics.update(rollout_diagnostics)
                 samples_added += self.model_sampler._total_samples
 
@@ -467,6 +501,10 @@ class CMBPO(RLAlgorithm):
                 model_samples, buffer_diagnostics = self.model_pool.get()
                 model_metrics.update(buffer_diagnostics)
                 ######################################################################
+
+                model_samples2, buffer_diagnostics2 = self.model_pool2.get()
+
+
 
                 ### run diagnostics on model data
                 model_data_diag = self._policy.run_diagnostics(model_samples)

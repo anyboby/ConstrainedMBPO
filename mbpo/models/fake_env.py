@@ -299,22 +299,24 @@ class FakeEnv:
         else:
             inputs = np.concatenate((obs, act), axis=-1)
 
+        # if obs_depth==3:
+        #     inputs, shuffle_indxs = self.forward_shuffle(inputs)
+
         if self.inc_var_dyn:
             ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
         else:
             ensemble_dyn_means = self._model.predict(inputs, factored=True)
             ensemble_dyn_vars = np.tile(np.var(ensemble_dyn_means, axis=0)[None], reps=(self.num_networks, 1,1))
 
-        # ensemble_model_means = self._model.predict(inputs, factored=True)/10       #### self.model outputs whole ensembles outputs
-        # ensemble_model_means[:,:,2] /= 35
-        
+        # if obs_depth==3:
+        #     ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
+
         ####@anyboby TODO only as an example, do a better disagreement measurement later
         # ensemble_disagreement_means = np.nanvar(ensemble_model_means, axis=0)
         # ensemble_disagreement_stds = np.sqrt(np.var(ensemble_model_vars, axis=0))
         # #ensemble_disagreement_logstds = np.log(ensemble_disagreement_stds)
         # ensemble_dkl_mean = np.sum(ensemble_disagreement_means+ensemble_disagreement_stds, axis=-1)
 
-        np.random.shuffle(ensemble_dyn_means)       ### shuffle obs
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
         
@@ -818,7 +820,6 @@ class FakeEnv:
             
         return cost_model_metrics
 
-    @property
     def random_inds(self, size):
         return self._model.random_inds(batch_size=size)
 
@@ -826,6 +827,24 @@ class FakeEnv:
         self._model.reset()
         self._cost_model.reset()
         
+
+    def forward_shuffle(self, ndarray):
+        """
+        shuffles ndarray forward along axis 0 with random elite indices, 
+        Returns shuffled copy of ndarray and indices with which was shuffled
+        """
+        idxs = np.random.permutation(ndarray.shape[0])
+        shuffled = ndarray[idxs]
+        return shuffled, idxs
+
+    def inverse_shuffle(self, ndarray, idxs):
+        """
+        inverses a shuffle of ndarray forward along axis 0, given the used indices. 
+        Returns unshuffled copy of ndarray
+        """
+        unshuffled = ndarray[idxs]
+        return unshuffled
+
 
     ## for debugging computation graph
     def step_ph(self, obs_ph, act_ph, deterministic=False):

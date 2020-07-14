@@ -462,6 +462,7 @@ class CPOPolicy(BasePolicy):
             a_kwargs['action_space'] = self.act_space
             a_kwargs['hidden_sizes'] = self.hidden_sizes_a
             a_kwargs['ensemble_size_3d'] = self.dyn_ensemble_size
+            
             self.actor = mlp_actor
 
             actor_outs = self.actor(self.obs_ph, self.a_ph, **a_kwargs)

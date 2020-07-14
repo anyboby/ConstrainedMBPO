@@ -125,13 +125,13 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, actio
     #### for 3d inputs we want the same randomness among ensemble inputs
     if ensemble_size_3d > 1:
         shape_flat = tf.shape(mu)
-        shape_single_model = (shape_flat[0]//ensemble_size_3d, shape_flat[1])
-        shape_3d = (ensemble_size_3d, shape_flat[0]//ensemble_size_3d, shape_flat[1])
+        shape_single_model = (shape_flat[0]//ensemble_size_3d, act_dim)
+        shape_3d = (ensemble_size_3d, shape_flat[0]//ensemble_size_3d, act_dim)
         
-        random = tf.random_normal(shape_single_model)* std
+        random = tf.random_normal(shape_single_model)
         random = tf.tile(random, multiples=(ensemble_size_3d, 1))
         
-        pi_3d = mu + random*std
+        pi_3d = mu + random * std
         logp_3d = gaussian_likelihood(a, mu, log_std)
         logp_pi_3d = gaussian_likelihood(pi_3d, mu, log_std)
         
