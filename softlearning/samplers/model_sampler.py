@@ -183,15 +183,6 @@ class ModelSampler(CpoSampler):
 
         return processed_observation
 
-    def _make_model_mask(self, model_inds):
-        ### bit tricky indexing to access a random model for each trajectory
-        batch_size = model_inds.shape[0]
-        model_ind_mask = np.zeros(shape=(batch_size, self.ensemble_size), dtype='bool')
-        model_ind_mask[np.arange(batch_size), model_inds] = True
-        model_ind_mask = np.swapaxes(model_ind_mask, 1,0)
-        
-        return model_ind_mask
-
     def reset(self, observations):
         self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
 
@@ -203,7 +194,7 @@ class ModelSampler(CpoSampler):
         self._path_cost_var = np.zeros(self.batch_size)
         self._path_dyn_var = np.zeros(self.batch_size)
         
-        self.model_inds = self.env.random_inds(size=self.batch_size)
+        self.model_inds = self.env.random_inds(size=1)[0]
 
         self._total_samples = 0
         self._n_episodes = 0
@@ -245,9 +236,6 @@ class ModelSampler(CpoSampler):
 
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
 
-        # @anyboby debug
-        # next_obs, reward, terminal, info = self.env.step_deb(current_obs[0], a[0])
-
         reward = np.squeeze(reward, axis=-1)
         
         rew_var = info.get('rew_ensemble_var', np.zeros(reward.shape))
@@ -260,22 +248,11 @@ class ModelSampler(CpoSampler):
         dkl_mean_dyn = info.get('dyn_ensemble_dkl_mean', 0)
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
-        # dyn_var = info.get('dyn_ensemble_var', 0) * len(self.pool.alive_paths)
-
-        # @anyboby debug
-        # reward, next_obs, terminal, c = np.repeat(reward[None], axis=0, repeats=7), \
-        #                                 np.repeat(next_obs[None], axis=0, repeats=7), \
-        #                                 np.repeat(terminal[None], axis=0, repeats=7), \
-        #                                 np.repeat(c[None], axis=0, repeats=7)
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
 
-
-        # ##@anyboby debug
-        # en_disag = info.get('ensemble_disagreement', 0)
-        # path_uncertainty = self._path_cost_var[alive_paths] + en_disag
 
         ### check if too uncertain before storing info of the taken step
         path_uncertainty = self._path_cost_var[alive_paths] + c_var + self._path_dyn_var[alive_paths] + dyn_var
@@ -289,16 +266,9 @@ class ModelSampler(CpoSampler):
         remaining_paths = self._finish_paths(too_uncertain_mask, append_vals=True)
         alive_paths = self.pool.alive_paths
         
-        # if not remaining_paths.any():
-        #     self._current_observation = current_obs[:,remaining_paths]
-        #     return None, None, None, {'alive_ratio':0}
         ## ____________________________________________ ##
         ##    Store Info of the remaining paths         ##
         ## ____________________________________________ ##
-        #@anyboby debug
-        # self.model_ind_mask = self.model_ind_mask[:,remaining_paths]
-        self.model_inds = self.model_inds[remaining_paths]
-        model_mask = self._make_model_mask(self.model_inds)
 
         current_obs     = current_obs[:,remaining_paths]
         a               = a[:,remaining_paths]
@@ -318,68 +288,41 @@ class ModelSampler(CpoSampler):
 
         logp_t          = logp_t[:,remaining_paths]
         pi_info_t       = {k:v[:,remaining_paths] for k,v in pi_info_t.items()}
-        pi_info_t       = {k:np.transpose(v, (1,0,2))[np.transpose(model_mask, (1,0))] for k,v in pi_info_t.items()}
+        pi_info_t       = {k:v[self.model_inds] for k,v in pi_info_t.items()}
 
-        #@anyboby debug
-        # en_disag = en_disag[remaining_paths]
-
-        ## Store info in pool
-        # self.pool.store_multiple(current_obs[model_mask, :],
-        #                         a[model_mask, :],
-        #                         next_obs[model_mask, :],
-        #                         reward[model_mask],
-        #                         v_t[model_mask],
-        #                         c[model_mask],
-        #                         vc_t[model_mask],
-        #                         logp_t[model_mask],
-        #                         pi_info_t,
-        #                         terminal[model_mask])
-        self.pool.store_multiple(np.transpose(current_obs, (1,0,2))[np.transpose(model_mask, (1,0))],
-                                np.transpose(a, (1,0,2))[np.transpose(model_mask, (1,0))],
-                                np.transpose(next_obs, (1,0,2))[np.transpose(model_mask, (1,0))],
-                                np.transpose(reward, (1,0))[np.transpose(model_mask, (1,0))],
-                                np.transpose(v_t, (1,0))[np.transpose(model_mask, (1,0))],
-                                np.transpose(c, (1,0))[np.transpose(model_mask, (1,0))],
-                                np.transpose(vc_t, (1,0))[np.transpose(model_mask, (1,0))],
-                                np.transpose(logp_t, (1,0))[np.transpose(model_mask, (1,0))],
-                                pi_info_t,
-                                np.transpose(terminal, (1,0))[np.transpose(model_mask, (1,0))]
-                                )                                
-    #@anyboby debug
-        # self.pool.store_multiple(current_obs[self.model_inds],
-        #                                 a[self.model_inds],
-        #                                 next_obs[self.model_inds],
-        #                                 reward[self.model_inds],
-        #                                 v_t[self.model_inds],
-        #                                 c[self.model_inds],
-        #                                 vc_t[self.model_inds],
-        #                                 logp_t[self.model_inds],
-        #                                 pi_info_t,
-        #                                 terminal[self.model_inds])
+        #### only store one trajectory in buffer 
+        self.pool.store_multiple(current_obs[self.model_inds],
+                                        a[self.model_inds],
+                                        next_obs[self.model_inds],
+                                        reward[self.model_inds],
+                                        v_t[self.model_inds],
+                                        c[self.model_inds],
+                                        vc_t[self.model_inds],
+                                        logp_t[self.model_inds],
+                                        pi_info_t,
+                                        terminal[self.model_inds])
 
         #### update some sampler infos
         self._total_samples += alive_paths.sum()
 
-        self._total_cost += c[model_mask].sum()
-        self._total_rew += reward[model_mask].sum()
+        self._total_cost += c[self.model_inds].sum()
+        self._total_rew += reward[self.model_inds].sum()
 
         self._path_length[alive_paths] += 1
         self._path_return[:, alive_paths] += reward
         self._path_cost[:, alive_paths] += c
         self._path_return_var[alive_paths] = np.var(self._path_return[:, alive_paths], axis=0)
         self._path_cost_var[alive_paths] = np.var(self._path_cost[:, alive_paths], axis=0)
-        #@anyboby debug
-        # self._path_cost_var[alive_paths] += en_disag
 
         self._path_dyn_var[alive_paths] += dyn_var
         self._total_cost_var += dyn_var.sum()
         self._total_dyn_var += c_var.sum()
         self._total_rew_var += rew_var.sum()
 
-        self._total_Vs += v_t[model_mask].sum()
-        self._total_CVs += vc_t[model_mask].sum()
-        self._total_V_var += v_var[model_mask].sum()
-        self._total_CV_var += vc_var[model_mask].sum()
+        self._total_Vs += v_t[self.model_inds].sum()
+        self._total_CVs += vc_t[self.model_inds].sum()
+        self._total_V_var += v_var[self.model_inds].sum()
+        self._total_CV_var += vc_var[self.model_inds].sum()
         
         self._total_dkl_mean_dyn += dkl_mean_dyn*alive_paths.sum()
         self._total_dkl_med_dyn += dkl_med_dyn*alive_paths.sum()
@@ -396,9 +339,6 @@ class ModelSampler(CpoSampler):
         
         ## update remaining paths and obs
         self._current_observation = self._current_observation[:,remaining_paths]
-        # @anyboby debug
-        # self.model_ind_mask = self.model_ind_mask[:,remaining_paths]
-        self.model_inds = self.model_inds[remaining_paths]
 
         #### terminate real termination due to env end
         prem_term_mask = np.any(terminal[:,remaining_paths], axis=0)            ##@anyboby maybe check later, if terminal per model should be possible
@@ -407,9 +347,6 @@ class ModelSampler(CpoSampler):
         ### update alive paths
         alive_paths = self.pool.alive_paths
         self._current_observation = self._current_observation[:,remaining_paths]
-        # @anyboby debug
-        # self.model_ind_mask = self.model_ind_mask[:,remaining_paths]
-        self.model_inds = self.model_inds[remaining_paths]
 
         alive_ratio = sum(alive_paths)/self.batch_size
         info['alive_ratio'] = alive_ratio
@@ -447,10 +384,7 @@ class ModelSampler(CpoSampler):
         last_val, last_cval = last_val[term_mask], last_cval[term_mask]
         last_val_var, last_cval_var = last_val_var[term_mask], last_cval_var[term_mask]
 
-        # @anyboby debug 
-        # cur_obs = self._current_observation[self.model_ind_mask, :]
-        model_mask = self._make_model_mask(self.model_inds)
-        cur_obs = self._current_observation[model_mask, :]
+        cur_obs = self._current_observation[self.model_inds]
 
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
@@ -481,10 +415,7 @@ class ModelSampler(CpoSampler):
 
         if alive_paths.any():
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
-            # @anyboby debug
-            # cur_obs = self._current_observation[self.model_ind_mask, :]
-            model_mask = self._make_model_mask(self.model_inds)
-            cur_obs = self._current_observation[model_mask, :]
+            cur_obs = self._current_observation[self.model_inds]
 
             if self.policy.agent.reward_penalized:
                 last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \

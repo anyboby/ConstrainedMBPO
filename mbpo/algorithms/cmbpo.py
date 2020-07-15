@@ -24,7 +24,6 @@ from softlearning.replay_pools.mjc_state_replay_pool import MjcStateReplayPool
 from softlearning.replay_pools.modelbuffer import ModelBuffer
 from softlearning.replay_pools.cpobuffer import CPOBuffer
 from softlearning.samplers.model_sampler import ModelSampler
-from softlearning.samplers.model_sampler_deb import ModelSamplerDeb
 from softlearning.policies.safe_utils.logx import EpochLogger
 
 from mbpo.models.constructor import construct_model, format_samples_for_dyn, reset_model
@@ -133,19 +132,6 @@ class CMBPO(RLAlgorithm):
 
         self._dyn_m_discount = dyn_m_discount
         self._cost_m_discount = cost_m_discount
-
-        #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
-
-        # #### create fake env from model 
-        # self._model = construct_model(obs_dim_in=self.obs_dim, 
-        #                                 obs_dim_out=self.active_obs_dim,
-        #                                 act_dim=self.act_dim, 
-        #                                 hidden_dim=hidden_dim, 
-        #                                 num_networks=num_networks, 
-        #                                 num_elites=num_elites,
-        #                                 weighted=True)
-        # self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
-        # self.fake_env = FakeEnv(self._model, self._static_fns, safe_config=self.safe_config)
         
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment, policy,
@@ -162,10 +148,6 @@ class CMBPO(RLAlgorithm):
 
         self._rollout_schedule = rollout_schedule
         self._max_model_t = max_model_t
-
-        # self._model_pool_size = model_pool_size
-        # print('[ MBPO ] Model pool size: {:.2E}'.format(self._model_pool_size))
-        # self._model_pool = SimpleReplayPool(pool._observation_space, pool._action_space, self._model_pool_size)
 
         self._model_retain_epochs = model_retain_epochs
 
@@ -240,18 +222,6 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = .99,
                                     #cost_lam = self._policy.cost_lam
                                     ) 
-        self.model_pool2 = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=300, 
-                                        env = self.fake_env,
-                                        use_inv_var = self.use_inv_var,
-                                        )
-        self.model_pool2.initialize(pi_info_shapes,
-                                    gamma = self._policy.gamma,
-                                    lam = self._policy.lam,
-                                    cost_gamma = self._policy.cost_gamma,
-                                    cost_lam = .99,
-                                    #cost_lam = self._policy.cost_lam
-                                    ) 
         #@anyboby debug
         self.model_sampler = ModelSampler(max_path_length=300,
                                             batch_size=self._rollout_batch_size,
@@ -261,15 +231,6 @@ class CMBPO(RLAlgorithm):
                                             logger=None,
                                             use_inv_var =self.use_inv_var,
                                             )
-        self.model_sampler2 = ModelSamplerDeb(max_path_length=300,
-                                            batch_size=self._rollout_batch_size,
-                                            store_last_n_paths=10,
-                                            preprocess_type='default',
-                                            max_uncertainty = self._max_uncertainty,
-                                            logger=None,
-                                            use_inv_var =self.use_inv_var,
-                                            )
-
 
         # provide policy and sampler with the same logger
         self.logger = EpochLogger()
@@ -306,11 +267,6 @@ class CMBPO(RLAlgorithm):
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
         self.model_sampler.initialize(self.fake_env, policy, self.model_pool)
-        
-        #@anyboby debug
-        self.model_sampler2.initialize(self.fake_env, policy, self.model_pool2)
-
-        # self.model_sampler.set_debug_buf(self.model_pool_debug)
 
         #### reset gtimer (for coverage of project development)
         gt.reset_root()
@@ -469,17 +425,12 @@ class CMBPO(RLAlgorithm):
 
                 self.model_sampler.reset(start_states)
                 
-                #@anyboby debug
-                self.model_sampler2.reset(start_states)
-
                 for i in count():
                     print(f'Model Sampling step Nr. {i+1}')
 
-                    no,r,_,info = self.model_sampler.sample()
+                    _,_,_,info = self.model_sampler.sample()
                     alive_ratio = info.get('alive_ratio', 1)
 
-                    #@anyboby debug
-                    no2, r2, _, _ = self.model_sampler2.sample()
                     if alive_ratio<0.2 or \
                         self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
                         print(f'Stopping Rollout at step {i+1}')
@@ -488,10 +439,7 @@ class CMBPO(RLAlgorithm):
                 ### diagnostics for rollout ###
                 gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
-                
-                #@anyboby debug
-                self.model_sampler2.finish_all_paths()
-                
+                                
                 
                 model_metrics.update(rollout_diagnostics)
                 samples_added += self.model_sampler._total_samples
@@ -501,10 +449,6 @@ class CMBPO(RLAlgorithm):
                 model_samples, buffer_diagnostics = self.model_pool.get()
                 model_metrics.update(buffer_diagnostics)
                 ######################################################################
-
-                model_samples2, buffer_diagnostics2 = self.model_pool2.get()
-
-
 
                 ### run diagnostics on model data
                 model_data_diag = self._policy.run_diagnostics(model_samples)
