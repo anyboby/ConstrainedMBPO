@@ -40,14 +40,14 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'MSE',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
+        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
         'vf_cliprange':         0.1,
         'cvf_cliprange':        1,
         'vc_prior':             10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
-        'cost_lim_end':         2000,
-        'cost_lim':             2000,
+        'cost_lim_end':         500,
+        'cost_lim':             500,
         'cost_lam':             .97,
         'cost_gamma':           0.99,
         'lam':                  .97,

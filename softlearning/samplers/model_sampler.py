@@ -22,7 +22,8 @@ class ModelSampler(CpoSampler):
                  batch_size=1000,
                  store_last_n_paths = 10,
                  preprocess_type='default',
-                 max_uncertainty = 1e8,
+                 max_uncertainty_c = 1e3,
+                 max_uncertainty_r = 1e-2,
                  use_inv_var = False,
                  logger = None):
         self._max_path_length = max_path_length
@@ -48,7 +49,8 @@ class ModelSampler(CpoSampler):
         self._max_path_return = -np.inf
         self._current_observation = None
         self._last_action = None
-        self._max_uncertainty = max_uncertainty
+        self._max_uncertainty_c = max_uncertainty_c
+        self._max_uncertainty_rew = max_uncertainty_r,
 
         self._total_samples = 0
         self._n_episodes = 0
@@ -229,10 +231,14 @@ class ModelSampler(CpoSampler):
         pi_info_t = get_action_outs['pi_info']
 
         ##### @anyboby temporary
-        ### unpack ensemble outputs
+        ### unpack ensemble outputs, if gaussian
         v_var = get_action_outs.get('v_var', np.tile(np.var(v_t, axis=0)[None], reps=(self.ensemble_size, 1)))
-        vc_var = get_action_outs.get('vc_var', np.tile(np.var(vc_t, axis=0)[None], reps=(self.ensemble_size, 1)))  # Agent may not use cost value func
+        vc_var = get_action_outs.get('vc_var', np.tile(np.var(vc_t, axis=0)[None], reps=(self.ensemble_size, 1))) 
         #####
+
+        ## ____________________________________________ ##
+        ##                      Step                    ##
+        ## ____________________________________________ ##
 
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
 
@@ -249,15 +255,37 @@ class ModelSampler(CpoSampler):
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
 
+        next_val, next_val_var = self.policy.get_v(next_obs, factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
+                                    else (self.policy.get_v(next_obs, factored=False, inc_var=self.vf_is_gaussian), 0)
+
+        next_cval, next_cval_var = self.policy.get_vc(next_obs, factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
+                                    else (self.policy.get_vc(next_obs, factored=False, inc_var=self.vf_is_gaussian), 0)
+
+        #### variance for gaussian mixture, add dispersion of means to variance
+        next_val_var = np.mean(next_val_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
+        next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
+
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
 
 
-        ### check if too uncertain before storing info of the taken step
-        path_uncertainty = self._path_cost_var[alive_paths] + c_var + self._path_dyn_var[alive_paths] + dyn_var
+        ### check if too uncertain before storing info of the taken step 
+        ### (so we don't take a "bad step" by appending values of next state)
+        cost_uncertainty = self._path_cost_var[alive_paths] + c_var
+        rew_uncertainty = self._path_return_var[alive_paths] + rew_var 
 
-        too_uncertain_mask = path_uncertainty > self._max_uncertainty
+        ### running means of variances
+        cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
+        rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
+
+        # too_uncertain_mask = path_uncertainty > self._max_uncertainty
+        too_uncertain_mask_max = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
+                                            rew_uncertainty + next_val_var > self._max_uncertainty_rew) 
+        too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \
+                                            rew_uncertainty > next_val_var) 
+
+        too_uncertain_mask = np.logical_or(too_uncertain_mask_max, too_uncertain_mask_path)
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 
@@ -278,6 +306,8 @@ class ModelSampler(CpoSampler):
         v_t             = v_t[:,remaining_paths]
         v_var           = v_var[:,remaining_paths]
 
+        cost_uncertainty = cost_uncertainty[remaining_paths]
+        rew_uncertainty = rew_uncertainty[remaining_paths]
         c               = c[:,remaining_paths]
         c_var           = c_var[remaining_paths]
         vc_t            = vc_t[:, remaining_paths]
@@ -290,17 +320,6 @@ class ModelSampler(CpoSampler):
         pi_info_t       = {k:v[:,remaining_paths] for k,v in pi_info_t.items()}
         pi_info_t       = {k:v[self.model_inds] for k,v in pi_info_t.items()}
 
-        #### only store one trajectory in buffer 
-        self.pool.store_multiple(current_obs[self.model_inds],
-                                        a[self.model_inds],
-                                        next_obs[self.model_inds],
-                                        reward[self.model_inds],
-                                        v_t[self.model_inds],
-                                        c[self.model_inds],
-                                        vc_t[self.model_inds],
-                                        logp_t[self.model_inds],
-                                        pi_info_t,
-                                        terminal[self.model_inds])
 
         #### update some sampler infos
         self._total_samples += alive_paths.sum()
@@ -315,9 +334,9 @@ class ModelSampler(CpoSampler):
         self._path_cost_var[alive_paths] = np.var(self._path_cost[:, alive_paths], axis=0)
 
         self._path_dyn_var[alive_paths] += dyn_var
-        self._total_cost_var += dyn_var.sum()
-        self._total_dyn_var += c_var.sum()
-        self._total_rew_var += rew_var.sum()
+        self._total_cost_var += cost_uncertainty.sum()
+        self._total_dyn_var += dyn_var.sum()
+        self._total_rew_var += rew_uncertainty.sum()
 
         self._total_Vs += v_t[self.model_inds].sum()
         self._total_CVs += vc_t[self.model_inds].sum()
@@ -329,6 +348,22 @@ class ModelSampler(CpoSampler):
 
         self._max_path_return = max(self._max_path_return,
                             np.max(self._path_return))
+
+        #### only store one trajectory in buffer 
+        self.pool.store_multiple(current_obs[self.model_inds],
+                                        a[self.model_inds],
+                                        next_obs[self.model_inds],
+                                        reward[self.model_inds],
+                                        self._path_return_var[alive_paths],
+                                        v_t[self.model_inds],
+                                        v_var[self.model_inds],
+                                        c[self.model_inds],
+                                        self._path_cost_var[alive_paths],
+                                        vc_t[self.model_inds],
+                                        vc_var[self.model_inds],
+                                        logp_t[self.model_inds],
+                                        pi_info_t,
+                                        terminal[self.model_inds])
 
         #### terminate mature termination due to path length
         ## update obs before finishing paths (_finish_paths() uses current obs)
@@ -390,15 +425,15 @@ class ModelSampler(CpoSampler):
         if append_vals:
             if self.policy.agent.reward_penalized:
                 last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0 
+                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
 
             else:
                 last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0
+                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
                 last_cval, last_cval_var = self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0 
+                                            else (self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
 
-        self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+        self.pool.finish_path_multiple(term_mask, last_val, last_val_var, last_cval, last_cval_var)
 
         remaining_path_mask = np.logical_not(term_mask)
 
@@ -419,14 +454,14 @@ class ModelSampler(CpoSampler):
 
             if self.policy.agent.reward_penalized:
                 last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0 
+                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
             else:
                 last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0 
+                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
                 last_cval, last_cval_var = self.policy.get_vc(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0 
+                                            else (self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
 
-            self.pool.finish_path_multiple(term_mask, last_val, last_cval)
+            self.pool.finish_path_multiple(term_mask, last_val, last_val_var, last_cval, last_cval_var)
             
         alive_paths = self.pool.alive_paths
         assert alive_paths.sum()==0   ## something went wrong with finishing all paths

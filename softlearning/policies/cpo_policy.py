@@ -860,16 +860,16 @@ class CPOPolicy(BasePolicy):
             v, v_var = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
             vc, vc_var = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
 
-            get_action_outs['v'] = np.squeeze(v)
-            get_action_outs['vc'] = np.squeeze(vc)
-            get_action_outs['v_var'] = np.squeeze(v_var)
-            get_action_outs['vc_var'] = np.squeeze(vc_var)
+            get_action_outs['v'] = v
+            get_action_outs['vc'] = vc
+            get_action_outs['v_var'] = v_var
+            get_action_outs['vc_var'] = vc_var
         else: 
             v = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
             vc = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
 
-            get_action_outs['v'] = np.squeeze(v)
-            get_action_outs['vc'] = np.squeeze(vc)
+            get_action_outs['v'] = v
+            get_action_outs['vc'] = vc
 
         return get_action_outs
 
@@ -879,13 +879,13 @@ class CPOPolicy(BasePolicy):
         if inc_var:
             assert self.gaussian_vf
             v, v_var = self.v.predict(feed_obs, factored=factored)
-            return np.squeeze(v), np.squeeze(v_var)
+            return np.squeeze(v, axis=-1), np.squeeze(v_var, axis=-1)
         else:
             if self.gaussian_vf:
                 v, _ = self.v.predict(feed_obs, factored=factored)
             else:
                 v = self.v.predict(feed_obs, factored=factored)
-            return np.squeeze(v)
+            return np.squeeze(v, axis=-1)
 
     def get_vc(self, obs, factored=False, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
@@ -893,13 +893,13 @@ class CPOPolicy(BasePolicy):
         if inc_var:
             assert self.gaussian_vf
             vc, vc_var = self.vc.predict(feed_obs, factored=factored)
-            return np.squeeze(vc), np.squeeze(vc_var, axis=-1)
+            return np.squeeze(vc, axis=-1), np.squeeze(vc_var, axis=-1)
         else:
             if self.gaussian_vf:
                 vc, _ = self.vc.predict(feed_obs, factored=factored)
             else:
                 vc = self.vc.predict(feed_obs, factored=factored)
-            return np.squeeze(vc)
+            return np.squeeze(vc, axis=-1)
 
     @contextmanager
     def set_deterministic(self, deterministic=True):

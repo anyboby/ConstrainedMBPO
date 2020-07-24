@@ -31,13 +31,19 @@ class ModelBuffer(CPOBuffer):
         self.act_buf = np.zeros(act_buf_shape, dtype=np.float32)
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.adv_buf = np.zeros(scalar_shape, dtype=np.float32)
+        self.adv_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.rew_buf = np.zeros(scalar_shape, dtype=np.float32)
+        self.rew_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.ret_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.val_buf = np.zeros(scalar_shape, dtype=np.float32)
+        self.val_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.cadv_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost advantage
+        self.cadv_var_buf = np.zeros(scalar_shape, dtype=np.float32)   
         self.cost_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
+        self.cost_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
         self.cret_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost return
         self.cval_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost value
+        self.cval_var_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost value
         self.logp_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.term_buf = np.zeros(scalar_shape, dtype=np.bool_)
         
@@ -84,7 +90,7 @@ class ModelBuffer(CPOBuffer):
     def alive_paths(self):
         return np.logical_not(self.terminated_paths_mask)
 
-    def store_multiple(self, obs, act, next_obs, rew, val, cost, cval, logp, pi_info, term):
+    def store_multiple(self, obs, act, next_obs, rew, rew_var, val, val_var, cost, cost_var, cval, cval_var, logp, pi_info, term):
         assertion_mask = self.ptr < self.max_size
         alive_paths = self.alive_paths
         assert assertion_mask.all()     # buffer has to have room so you can store
@@ -94,9 +100,13 @@ class ModelBuffer(CPOBuffer):
         self.act_buf[alive_paths, self.ptr] = act
         self.nextobs_buf[alive_paths, self.ptr] = next_obs
         self.rew_buf[alive_paths, self.ptr] = rew
+        self.rew_path_var_buf[alive_paths, self.ptr] = rew_var
         self.val_buf[alive_paths, self.ptr] = val
+        self.val_var_buf[alive_paths, self.ptr] = val_var
         self.cost_buf[alive_paths, self.ptr] = cost
+        self.cost_path_var_buf[alive_paths, self.ptr] = cost_var
         self.cval_buf[alive_paths, self.ptr] = cval
+        self.cval_var_buf[alive_paths, self.ptr] = cval_var
         self.logp_buf[alive_paths, self.ptr] = logp
         self.term_buf[alive_paths, self.ptr] = term
         for k in self.sorted_pi_info_keys:
@@ -106,47 +116,7 @@ class ModelBuffer(CPOBuffer):
         self.ptr += 1
 
 
-    # def store_multiple(self, obs, act, rew, val, cost, cval, logp, pi_info, term):
-    #     """
-    #     stores samples of multiple paths running in parallel. Expects Args to be 
-    #     numpy arrays. 
-    #     """
-    #     assert self.ptr < self.max_size     # buffer has to have room so you can store
-    #     assert self.terminated_paths_mask.sum() < self.batch_size
-
-    #     self.obs_buf[self.ptr] = obs
-    #     self.act_buf[self.ptr] = act
-    #     self.rew_buf[self.ptr] = rew
-    #     self.val_buf[self.ptr] = val
-    #     self.cost_buf[self.ptr] = cost
-    #     self.cval_buf[self.ptr] = cval
-    #     self.logp_buf[self.ptr] = logp
-    #     self.term_buf[self.ptr] = term
-    #     for k in self.sorted_pi_info_keys:
-    #         self.pi_info_bufs[k][self.ptr] = pi_info[k]
-    #     self.ptr += 1
-    #     self.populated_mask[np.logical_not(self.terminated_paths_mask), self.ptr] = True
-
-    @DeprecationWarning
-    def finish_path(self, last_val=0, last_cval=0):
-        path_slice = slice(self.path_start_idx, self.ptr)
-        rews = np.append(self.rew_buf[path_slice], last_val)
-        vals = np.append(self.val_buf[path_slice], last_val)
-        deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
-        self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma * self.lam)
-        # self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
-        self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
-
-        costs = np.append(self.cost_buf[path_slice], last_cval)
-        cvals = np.append(self.cval_buf[path_slice], last_cval)
-        cdeltas = costs[:-1] + self.gamma * cvals[1:] - cvals[:-1]
-        self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam)
-        # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
-        self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
-
-        self.path_start_idx = self.ptr
-
-    def finish_path_multiple(self, term_mask, last_val=0, last_cval=0):
+    def finish_path_multiple(self, term_mask, last_val=0, last_val_var=0, last_cval=0, last_cval_var=0):
         """
         finishes multiple paths according to term_mask. 
         Note: if the term_mask indicates to terminate a path that has not yet been populated,
@@ -169,28 +139,51 @@ class ModelBuffer(CPOBuffer):
         finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
         
         if not self.use_inv_var:
-            if len(last_val.shape)>0 and len(last_val.shape)>0:
-                assert len(last_val) == term_mask.sum() and len(last_cval) == term_mask.sum()
-            else:
-                assert term_mask.sum()==1
-                last_val = last_val[..., np.newaxis]
-                last_cval = last_cval[..., np.newaxis]
-
             path_slice = slice(self.path_start_idx, self.ptr)
             
             rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
             vals = np.append(self.val_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
+
+            rew_vars = self.rew_path_var_buf[finish_mask, path_slice]-\
+                        np.append(np.zeros(shape=(len(rews),1)), self.rew_path_var_buf[finish_mask, path_slice], axis=-1)[...,:-1]
+            rew_vars = np.append(rew_vars, last_val_var[..., np.newaxis], axis=1)
+            val_vars = np.append(self.val_var_buf[finish_mask, path_slice], last_val_var[..., np.newaxis], axis=1)
+            
+            #### inv var:
             deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
-            self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma * self.lam, axis=1)
+            delta_vars = rew_vars[:,:-1] + self.gamma * val_vars[:, 1:] - val_vars[:, :-1]
+
+            r_ret_vars = (self.rew_path_var_buf[finish_mask, path_slice] + self.val_var_buf[finish_mask, path_slice])
+            r_vars_inv = 1/(r_ret_vars+EPS)
+            
+            self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=r_vars_inv, axis=1)
+            adv_vars = discount_cumsum(delta_vars, 1, self.lam, weights=r_vars_inv, axis=1) + self.val_var_buf[finish_mask, path_slice]
+            self.adv_var_buf[finish_mask, path_slice] = adv_vars
+
+            # deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
+            # self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=1)
 
             # self.ret_buf[finish_mask, path_slice] = discount_cumsum(rews, self.gamma, axis=1)[:, :-1]
             self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[finish_mask, path_slice]
 
             costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
             cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
+
+            cost_vars = self.cost_path_var_buf[finish_mask, path_slice]-\
+                            np.append(np.zeros(shape=(len(costs), 1)),self.cost_path_var_buf[finish_mask, path_slice], axis=-1)[...,:-1]
+            cost_vars = np.append(cost_vars, last_cval_var[..., np.newaxis], axis=1)
+            cval_vars = np.append(self.cval_var_buf[finish_mask, path_slice], last_cval_var[..., np.newaxis], axis=1)
+
+            # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
             cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
-            self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma * self.cost_lam, axis=1)
+            cdelta_vars = cost_vars[:, :-1] + self.gamma * cval_vars[:, 1:] - cval_vars[:, :-1]
             
+            cret_vars = (self.cost_path_var_buf[finish_mask, path_slice] + self.cval_var_buf[finish_mask, path_slice])
+            c_vars_inv = 1/(cret_vars+EPS)
+
+            self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1)
+            cadv_vars = discount_cumsum(cdelta_vars, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1) + self.cval_var_buf[finish_mask, path_slice]
+            self.cadv_var_buf[finish_mask, path_slice] = cadv_vars
             # self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
             self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
 
@@ -238,12 +231,12 @@ class ModelBuffer(CPOBuffer):
         else:
             # Advantage normalizing trick for policy gradient
             adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
-            self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
+            self.adv_buf[self.populated_mask] = (self.adv_buf[self.populated_mask] - adv_mean) / (adv_std + EPS)
 
             # Center, but do NOT rescale advantages for cost gradient 
             # (since we're not just minimizing but aiming for a specific c)
             cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
-            self.cadv_buf -= cadv_mean
+            self.cadv_buf[self.populated_mask] -= cadv_mean
 
             res = [self.obs_buf, self.act_buf, self.adv_buf, 
                     self.cadv_buf, self.ret_buf, self.cret_buf, 

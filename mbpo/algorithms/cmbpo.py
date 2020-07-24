@@ -83,7 +83,8 @@ class CMBPO(RLAlgorithm):
             cost_model_train_schedule=[20, 100, 1, 30],
             dyn_m_discount = 1,
             cost_m_discount = 1,                     
-            max_uncertainty = None,
+            max_uncertainty_rew = None,
+            max_uncertainty_c = None,
             hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
 
@@ -157,7 +158,8 @@ class CMBPO(RLAlgorithm):
         self._dyn_model_train_freq = 1
         self._cost_model_train_freq = 1
         self._rollout_batch_size = int(rollout_batch_size)
-        self._max_uncertainty = max_uncertainty
+        self._max_uncertainty_rew = max_uncertainty_rew
+        self._max_uncertainty_c = max_uncertainty_c
         self._deterministic = deterministic
         self._real_ratio = real_ratio
 
@@ -211,7 +213,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=300, 
+                                        max_path_length=150, 
                                         env = self.fake_env,
                                         use_inv_var = self.use_inv_var,
                                         )
@@ -223,18 +225,19 @@ class CMBPO(RLAlgorithm):
                                     #cost_lam = self._policy.cost_lam
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=300,
+        self.model_sampler = ModelSampler(max_path_length=150,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
-                                            max_uncertainty = self._max_uncertainty,
+                                            max_uncertainty_c = self._max_uncertainty_c,
+                                            max_uncertainty_r = self._max_uncertainty_rew,
                                             logger=None,
                                             use_inv_var =self.use_inv_var,
                                             )
 
         # provide policy and sampler with the same logger
         self.logger = EpochLogger()
-        self._policy.set_logger(self.logger)
+        self._policy.set_logger(self.logger)    
         self.sampler.set_logger(self.logger)
         #self.model_sampler.set_logger(self.logger)
 
