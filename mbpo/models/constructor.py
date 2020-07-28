@@ -25,7 +25,7 @@ def construct_model(in_dim,
 					cliprange = 0.1,
 					max_logvar = .5,
 					min_logvar = -6,
-					constant_prior=0,
+					logit_bias_std=0,
 					session=None):
 	"""
 	Constructs a tf model.
@@ -45,7 +45,7 @@ def construct_model(in_dim,
 				'cliprange':cliprange,
 				'max_logvar':max_logvar,
 				'min_logvar':min_logvar,
-				'constant_prior':constant_prior,
+				'logit_bias_std':logit_bias_std,
 				}
 	model = BNN(params)
 	model.add(FC(hidden_dims[0], input_dim=in_dim, activation=activation, weight_decay=decay/4))	# def dec: 0.000025))

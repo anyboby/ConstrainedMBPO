@@ -67,6 +67,7 @@ class CpoSampler():
         self.env = env
         self.policy = policy
         self.pool = pool
+        self.vf_is_gaussian = self.policy.vf_is_gaussian
 
     def set_policy(self, policy):
         self.policy = policy
@@ -160,7 +161,7 @@ class CpoSampler():
         # Get outputs from policy
         # test_obs = [self._current_observation[np.newaxis] for i in range(100)]
         # test_obs = np.concatenate(test_obs, axis=0)
-        get_action_outs = self.policy.get_action_outs(self._current_observation, factored=False, inc_var=False)
+        get_action_outs = self.policy.get_action_outs(self._current_observation, factored=False, inc_var=True)
         #get_action_outs = self.policy.get_action_outs(self._current_observation)
 
         a = get_action_outs['pi']
@@ -169,10 +170,12 @@ class CpoSampler():
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
+        v_var = get_action_outs.get('v_var', 0)
+        vc_var = get_action_outs.get('vc_var', 0) 
 
         ##### @anyboby temporary
-        v_var = np.var(v_t)
-        vc_var = np.var(vc_t)
+        v_var = np.mean(v_var)
+        vc_var = np.mean(vc_var)
 
         v_t = np.mean(v_t)
         vc_t = np.mean(vc_t)
@@ -195,7 +198,7 @@ class CpoSampler():
             reward = reward * self.penalty_mult(self.cum_cost)
 
         #save and log
-        self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal, timestep)
+        self.pool.store(self._current_observation, a, next_observation, reward, v_t, v_var, c, vc_t, vc_var, logp_t, pi_info_t, terminal, timestep)
         self.logger.store(VVals=v_t, CostVVals=vc_t, VVars = v_var, CostVVars=vc_var)
         
         self._path_length += 1
@@ -241,15 +244,15 @@ class CpoSampler():
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if not append_val:
                 # Note: we do not count env time out as true terminal state
-                last_val, last_cval = 0, 0
+                last_val, last_val_var, last_cval, last_cval_var = 0, 0, 0, 0
             else:
-                if self.policy.agent.reward_penalized:
+                if self.policy.agent.reward_penalized:          ##### not maintained
                     last_val = self.policy.get_v(self._current_observation, factored=False, inc_var=False)
                     last_cval = 0
                 else:
-                    last_val, last_cval = self.policy.get_v(self._current_observation, factored=False, inc_var=False), \
-                                            self.policy.get_vc(self._current_observation, factored=False, inc_var=False)
-            self.pool.finish_path(last_val, last_cval)
+                    last_val, last_val_var = self.policy.get_v(self._current_observation, factored=False, inc_var=True)
+                    last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=False, inc_var=True)
+            self.pool.finish_path(last_val, last_val_var, last_cval, last_cval_var)
 
             # Only save EpRet / EpLen if trajectory finished
             

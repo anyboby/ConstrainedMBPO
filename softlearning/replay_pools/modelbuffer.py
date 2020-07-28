@@ -23,10 +23,26 @@ class ModelBuffer(CPOBuffer):
 
         ## ignore other args and kwargs
         self.use_inv_var = use_inv_var
+        
+        self.reset()
+    
 
-        obs_buf_shape = combined_shape(batch_size, combined_shape(max_path_length, self.obs_shape))
-        act_buf_shape = combined_shape(batch_size, combined_shape(max_path_length, self.act_shape))
-        scalar_shape = (batch_size, max_path_length)
+    ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
+    def initialize(self, pi_info_shapes,
+                    gamma=0.99, lam = 0.95,
+                    cost_gamma = 0.99, cost_lam = 0.95,
+                    ):
+        self.pi_info_bufs = {k: np.zeros(shape=[self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
+                            for k,v in pi_info_shapes.items()}
+        self.sorted_pi_info_keys = keys_as_sorted_list(self.pi_info_bufs)
+        self.gamma, self.lam = gamma, lam
+        self.cost_gamma, self.cost_lam = cost_gamma, cost_lam
+
+    def reset(self):
+        obs_buf_shape = combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape))
+        act_buf_shape = combined_shape(self.batch_size, combined_shape(self.max_path_length, self.act_shape))
+        scalar_shape = (self.batch_size, self.max_path_length)
+        
         self.obs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.act_buf = np.zeros(act_buf_shape, dtype=np.float32)
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
@@ -46,7 +62,7 @@ class ModelBuffer(CPOBuffer):
         self.cval_var_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost value
         self.logp_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.term_buf = np.zeros(scalar_shape, dtype=np.bool_)
-        
+
         # ptr is a scalar to the current position in all paths. You are expected to store at the same timestep 
         #   in all parallel paths
         # path_start_idx is the path starting index, which will actually always be 0, since paths are parallel
@@ -61,20 +77,10 @@ class ModelBuffer(CPOBuffer):
         self.ptr, self.path_start_idx, self.max_size, self.populated_mask, self.terminated_paths_mask = \
                                                                                 0, \
                                                                                 0, \
-                                                                                np.ones(batch_size)*max_path_length, \
+                                                                                np.ones(self.batch_size)*self.max_path_length, \
                                                                                 np.zeros(scalar_shape, dtype=np.bool), \
-                                                                                np.zeros(batch_size, dtype=np.bool)
+                                                                                np.zeros(self.batch_size, dtype=np.bool)
 
-    ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
-    def initialize(self, pi_info_shapes,
-                    gamma=0.99, lam = 0.95,
-                    cost_gamma = 0.99, cost_lam = 0.95,
-                    ):
-        self.pi_info_bufs = {k: np.zeros(shape=[self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
-                            for k,v in pi_info_shapes.items()}
-        self.sorted_pi_info_keys = keys_as_sorted_list(self.pi_info_bufs)
-        self.gamma, self.lam = gamma, lam
-        self.cost_gamma, self.cost_lam = cost_gamma, cost_lam
 
     @property
     def size(self):
@@ -138,7 +144,7 @@ class ModelBuffer(CPOBuffer):
         finish_mask = np.zeros(len(self.alive_paths), dtype=np.bool)
         finish_mask[tuple([alive[term_mask] for alive in np.where(alive_paths)])] = True
         
-        if not self.use_inv_var:
+        if self.ptr>0:
             path_slice = slice(self.path_start_idx, self.ptr)
             
             rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
@@ -156,8 +162,9 @@ class ModelBuffer(CPOBuffer):
             r_ret_vars = (self.rew_path_var_buf[finish_mask, path_slice] + self.val_var_buf[finish_mask, path_slice])
             r_vars_inv = 1/(r_ret_vars+EPS)
             
+            # self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=1)
             self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=r_vars_inv, axis=1)
-            adv_vars = discount_cumsum(delta_vars, 1, self.lam, weights=r_vars_inv, axis=1) + self.val_var_buf[finish_mask, path_slice]
+            adv_vars = discount_cumsum(delta_vars, self.gamma, self.lam, weights=r_vars_inv, axis=1) + self.val_var_buf[finish_mask, path_slice]
             self.adv_var_buf[finish_mask, path_slice] = adv_vars
 
             # deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
@@ -181,6 +188,7 @@ class ModelBuffer(CPOBuffer):
             cret_vars = (self.cost_path_var_buf[finish_mask, path_slice] + self.cval_var_buf[finish_mask, path_slice])
             c_vars_inv = 1/(cret_vars+EPS)
 
+            # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
             self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1)
             cadv_vars = discount_cumsum(cdelta_vars, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1) + self.cval_var_buf[finish_mask, path_slice]
             self.cadv_var_buf[finish_mask, path_slice] = cadv_vars
@@ -229,16 +237,21 @@ class ModelBuffer(CPOBuffer):
                 self.cost_buf[self.populated_mask]] \
                 + [v[self.populated_mask] for v in values_as_sorted_list(self.pi_info_bufs)]
         else:
-            # Advantage normalizing trick for policy gradient
-            adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
-            self.adv_buf[self.populated_mask] = (self.adv_buf[self.populated_mask] - adv_mean) / (adv_std + EPS)
+            if self.size>0:
+                # Advantage normalizing trick for policy gradient
+                adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
+                self.adv_buf[self.populated_mask] = (self.adv_buf[self.populated_mask] - adv_mean) / (adv_std + EPS)
 
-            # Center, but do NOT rescale advantages for cost gradient 
-            # (since we're not just minimizing but aiming for a specific c)
-            cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
-            self.cadv_buf[self.populated_mask] -= cadv_mean
+                # Center, but do NOT rescale advantages for cost gradient 
+                # (since we're not just minimizing but aiming for a specific c)
+                cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
+                self.cadv_buf[self.populated_mask] -= cadv_mean
+                
+                diagnostics = dict(returns_mean=self.ret_buf[self.populated_mask].mean(), creturns_mean = self.cret_buf[self.populated_mask].mean())
+            else:
+                diagnostics = dict(returns_mean=0, creturns_mean = 0)
 
-            res = [self.obs_buf, self.act_buf, self.adv_buf, 
+            res = [self.obs_buf, self.act_buf, self.adv_buf,
                     self.cadv_buf, self.ret_buf, self.cret_buf, 
                     self.logp_buf, self.val_buf, self.cval_buf,
                     self.cost_buf] \
@@ -246,11 +259,11 @@ class ModelBuffer(CPOBuffer):
 
             # filter out unpopulated entries / finished paths
             res = [buf[self.populated_mask] for buf in res]
-            diagnostics = dict(returns_mean=res[4].mean(), creturns_mean = res[5].mean())
-
+            
         # reset
-        self.ptr, self.path_start_idx = 0, 0
-        self.populated_mask = np.zeros(shape=self.populated_mask.shape, dtype=np.bool)
-        self.terminated_paths_mask = np.zeros(shape=self.terminated_paths_mask.shape, dtype=np.bool)
+        self.reset()
+        # self.ptr, self.path_start_idx = 0, 0
+        # self.populated_mask = np.zeros(shape=self.populated_mask.shape, dtype=np.bool)
+        # self.terminated_paths_mask = np.zeros(shape=self.terminated_paths_mask.shape, dtype=np.bool)
 
         return res, diagnostics

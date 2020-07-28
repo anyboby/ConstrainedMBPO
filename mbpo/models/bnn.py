@@ -58,9 +58,8 @@ class BNN:
             self._sess = params.get('sess')
         
         self.loss_type = params.get('loss', 'NLL')
-        self.include_var = True if self.loss_type == 'NLL' else False
         self.cliprange = params.get('cliprange', 0.2)   #### Only relevant if losstype is ClippedMSE
-        self.constant_prior = params.get('constant_prior', 0)
+        self.logit_bias_std = params.get('logit_bias_std', 0)
 
         # Instance variables
         self.finalized = False
@@ -102,7 +101,7 @@ class BNN:
 
     @property
     def is_probabilistic(self):
-        return self.include_var
+        return True if self.loss_type == 'NLL' else False
 
     @property
     def is_tf_model(self):
@@ -180,7 +179,7 @@ class BNN:
 
         
         # Add variance output.
-        if self.include_var:
+        if self.is_probabilistic:
             self.layers[-1].set_output_dim(2 * self.layers[-1].get_output_dim())
 
         # Remove last activation (later applied manually, to isolate variance if included)
@@ -193,17 +192,20 @@ class BNN:
             with tf.variable_scope(self.name):
                 if self.use_scaler:
                     self.scaler = TensorStandardScaler(self.layers[0].get_input_dim(), sc_factor=self.sc_factor)
-                if self.include_var:
+                if self.is_probabilistic:
                     self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.max_logvar_param, dtype=tf.float32,
                                                 name="max_log_var")
                     self.min_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.min_logvar_param, dtype=tf.float32,
                                                 name="min_log_var")
                 for i, layer in enumerate(self.layers):
                     with tf.variable_scope("Layer%i" % i):
-                        layer.construct_vars()
+                        if i == len(self.layers)-1:             #### init biases of logits
+                            layer.construct_vars(self.logit_bias_std)
+                        else: 
+                            layer.construct_vars()
                         self.decays.extend(layer.get_decays())
                         self.optvars.extend(layer.get_vars())
-        if self.include_var:
+        if self.is_probabilistic:
             self.optvars.extend([self.max_logvar, self.min_logvar])
         if self.use_scaler:
             self.nonoptvars.extend(self.scaler.get_vars())
@@ -215,7 +217,7 @@ class BNN:
             self.sy_train_in = tf.placeholder(dtype=tf.float32,
                                               shape=[self.num_nets, None, self.layers[0].get_input_dim()],
                                               name="training_inputs")
-            if self.include_var:
+            if self.is_probabilistic:
                 self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
@@ -282,7 +284,7 @@ class BNN:
 
         # Set up prediction
         with tf.variable_scope(self.name):
-            if self.include_var:
+            if self.is_probabilistic:
                 self.sy_pred_in2d = tf.placeholder(dtype=tf.float32,
                                                 shape=[None, self.layers[0].get_input_dim()],
                                                 name="2D_training_inputs")
@@ -580,9 +582,20 @@ class BNN:
 
         # pdb.set_trace()
 
-    def predict(self, inputs, factored=False, *args, **kwargs):
+    def predict(self, inputs, factored=False, inc_var=True, *args, **kwargs):
         """Returns the distribution predicted by the model for each input vector in inputs.
         Behavior is affected by the dimensionality of inputs and factored as follows:
+
+        inc_var = True: if network is probabilistic and factored, variance outputs of each network are used 
+                            to calculate a GMM variance
+                        if network is not probabilistic, variances are output as var(ensemble_means)
+                            for factored=True this variance is repeated for [ensemble_size,...] 
+                            for factored=False this variance is output once
+                            
+                            caution: 3D inputs with inc_var for a non probabilistic network will be 
+                                        flattened to receive var(ensemble_means) and may therefore result
+                                        in higher computation time
+        inc_var = False: only means are returned
 
         inputs is 2D, factored=True: Each row is treated as an input vector.
             Returns a mean of shape [ensemble_size, batch_size, output_dim] and variance of shape
@@ -593,54 +606,87 @@ class BNN:
             Returns a mean of shape [batch_size, output_dim] and variance of shape
             [batch_size, output_dim], where aggregation is performed as described in the paper.
 
-        inputs is 3D, factored=True/False: Each row in the last dimension is treated as an input vector.
-            Returns a mean of shape [ensemble_size, batch_size, output_dim] and variance of sha
+        inputs is 3D, factored=False: Each row in the last dimension is treated as an input vector.
+            Returns a mean of shape [ensemble_size, batch_size, output_dim] and variance of shape
             [ensemble_size, batch_size, output_dim], where N(mean[i, j, :], diag([i, j, :])) is the
             predicted output distribution by the ith model in the ensemble on input vector [i, j].
+
+        inputs is 3D, factored=True: Each row in the last dimension is treated as an input vector.
+            Returns a mean of shape [ensemble_size, batch_size, output_dim] and variance of shape
+            [ensemble_size, batch_size, output_dim]. The input is flatten along the first dimension s.t. 
+            N(mean[i, j, :], diag([i, j, :])) is the predicted mean output mean / variance of 
+            of the entire ensemble on input vector [i, j].
 
         Arguments:
             inputs (np.ndarray): An array of input vectors in rows. See above for behavior.
             factored (bool): See above for behavior.
         """
-        if self.include_var:
-            if len(inputs.shape) == 2:
-                if factored:
+
+        if len(inputs.shape) == 2:
+            if factored:
+                if inc_var and self.is_probabilistic:
                     return self.sess.run(
-                        [self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac],
-                        feed_dict={self.sy_pred_in2d: inputs}
-                    )
-                else:
+                            [self.sy_pred_mean2d_fac, self.sy_pred_var2d_fac],
+                            feed_dict={self.sy_pred_in2d: inputs}
+                        )
+                elif inc_var and not self.is_probabilistic:
+                    means = self.sess.run(
+                            self.sy_pred_mean2d_fac,
+                            feed_dict={self.sy_pred_in2d: inputs}
+                        )
+                    rep_vars = np.repeat(np.var(means, axis=0)[None], repeats = means.shape[0], axis=0)
+                    return means, rep_vars
+                elif not inc_var:
+                    return self.sess.run(
+                            self.sy_pred_mean2d_fac,
+                            feed_dict={self.sy_pred_in2d: inputs}
+                        )
+            else:
+                if inc_var and self.is_probabilistic:
                     return self.sess.run(
                         [self.sy_pred_mean2d, self.sy_pred_var2d],
                         feed_dict={self.sy_pred_in2d: inputs}
                     )
-            else:
-                return self.sess.run(
-                    [self.sy_pred_mean3d_fac, self.sy_pred_var3d_fac],
-                    feed_dict={self.sy_pred_in3d: inputs}
-                )
-        else:
-            if len(inputs.shape) == 2:
-                if factored:
+                elif inc_var and not self.is_probabilistic:
+                    means = self.sess.run(
+                            self.sy_pred_mean2d_fac,
+                            feed_dict={self.sy_pred_in2d: inputs}
+                        )
+                    variances = np.var(means, axis=0)
+                    means = np.mean(means, axis=0)
+                    return means, variances
+                elif not inc_var:
                     return self.sess.run(
-                        self.sy_pred_mean2d_fac,
-                        feed_dict={self.sy_pred_in2d: inputs}
-                    )
-                else:
+                            self.sy_pred_mean2d,
+                            feed_dict={self.sy_pred_in2d: inputs}
+                        )
+        else:           ### 3d inputs
+                if inc_var and self.is_probabilistic:
                     return self.sess.run(
-                        self.sy_pred_mean2d,
-                        feed_dict={self.sy_pred_in2d: inputs}
+                        [self.sy_pred_mean3d_fac, self.sy_pred_var3d_fac],
+                        feed_dict={self.sy_pred_in3d: inputs}
                     )
-            else:
-                return self.sess.run(
-                    self.sy_pred_mean3d_fac,
-                    feed_dict={self.sy_pred_in3d: inputs}
-                )
-
+                elif inc_var and not self.is_probabilistic:
+                    orig_shape = inputs.shape
+                    inputs_2d = inputs.reshape([np.prod(inputs.shape[:-1]), inputs.shape[-1]])
+                    res2d_mean = self.sess.run(
+                            self.sy_pred_mean2d_fac,
+                            feed_dict={self.sy_pred_in2d: inputs_2d}
+                        )
+                    tar_shape = (orig_shape[0], orig_shape[1]) + res2d_mean.shape[2:]
+                    res3d_mean = np.mean(res2d_mean, axis=0).reshape(tar_shape)
+                    res3d_var = np.var(res2d_mean, axis=0).reshape(tar_shape)
+                    return res3d_mean, res3d_var
+                elif not inc_var:
+                    return self.sess.run(
+                            self.sy_pred_mean3d_fac,
+                            feed_dict={self.sy_pred_in3d: inputs}
+                        )
+            
     def create_prediction_tensors(self, inputs, factored=False, *args, **kwargs):
         """See predict() above for documentation.
         """
-        if self.include_var:
+        if self.is_probabilistic:
             factored_mean, factored_variance = self._compile_outputs(inputs)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
@@ -734,19 +780,20 @@ class BNN:
             if debug:
                 self.layers_deb.append(cur_out)
 
-        mean = cur_out[:, :, :dim_output//2] if self.include_var else cur_out
-        if self.constant_prior is not 0:
-            mean += tf.constant(self.constant_prior, dtype=tf.float32)
+        mean = cur_out[:, :, :dim_output//2] if self.is_probabilistic else cur_out
+        # mean_shape = mean.get_shape()
+        # mean += tf.Variable(tf.random_normal(mean_shape, mean=0, stddev=self.logit_bias_std, dtype=tf.float32))
+        # # mean += tf.constant(np.random.normal(loc=0, scale=self.constant_prior, size=mean_shape), dtype=tf.float32)
 
         if self.end_act is not None and not raw_output:
             mean = self.end_act(mean)
 
-        if self.include_var:
+        if self.is_probabilistic:
             logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
             logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
 
-            if self.constant_prior is not 0:
-                logvar += tf.log(tf.constant(self.constant_prior, dtype=tf.float32))
+            # if self.logit_bias_std is not 0:
+            #     logvar += tf.log(tf.constant(self.logit_bias_std**2, dtype=tf.float32))
 
             if ret_log_var: 
                 var = logvar
@@ -791,14 +838,14 @@ class BNN:
 
         #### just for debugging        
         if tensor_loss: 
-            if self.include_var:
+            if self.is_probabilistic:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
             return 0.5 * tf.square(mean - targets), mean
 
         if inc_var_loss:
-            assert self.include_var
+            assert self.is_probabilistic
 
             mean, log_var = self._compile_outputs(inputs, ret_log_var=True)            
             inv_var = tf.exp(-log_var)
@@ -813,7 +860,7 @@ class BNN:
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
         else:
-            if self.include_var:
+            if self.is_probabilistic:
                 mean, _ = self._compile_outputs(inputs)
             else:
                 mean = self._compile_outputs(inputs)
@@ -867,7 +914,7 @@ class BNN:
         Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
         """
 
-        assert not self.include_var
+        assert not self.is_probabilistic
 
         if weights is not None:
             weights_tensor = tf.convert_to_tensor(weights, np.float32)
@@ -911,7 +958,7 @@ class BNN:
                 delta * |x| - 0.5 * delta^2
         
         """
-        if self.include_var:
+        if self.is_probabilistic:
             mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
             inv_var = tf.exp(-log_var)
         else: 
@@ -939,7 +986,7 @@ class BNN:
                 return total_losses, mean
 
             if inc_var_loss:
-                assert self.include_var
+                assert self.is_probabilistic
                 
                 mean_losses = tf.reduce_mean(tf.reduce_mean(tf.where(tf.abs(targets-mean) < delta , 
                                                     0.5*tf.square(mean - targets),

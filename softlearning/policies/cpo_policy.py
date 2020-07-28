@@ -365,7 +365,8 @@ class CPOPolicy(BasePolicy):
         self.vf_batch_size = kwargs.get('vf_batch_size', 64)
         self.vf_ensemble_size = kwargs.get('vf_ensemble_size', 5)
         self.vf_elites = kwargs.get('vf_elites', 3)
-        self.vc_prior = kwargs.get('vc_prior', 0)
+        self.v_logit_bias = (kwargs.get('v_logit_bias', 0))
+        self.vc_logit_bias = kwargs.get('vc_logit_bias', 0)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
         self.gaussian_vf = self.vf_loss=='NLL'
@@ -436,6 +437,11 @@ class CPOPolicy(BasePolicy):
                 self.adv_ph = placeholder(None)
             with tf.variable_scope('cadv_ph'):
                 self.cadv_ph = placeholder(None)
+            # with tf.variable_scope('adv_var_ph'):
+            #     self.adv_var_ph = placeholder(None)
+            # with tf.variable_scope('cadv_var_ph'):
+            #     self.cadv_var_ph = placeholder(None)
+
             with tf.variable_scope('logp_old_ph'):
                 self.logp_old_ph = placeholder(None)
             with tf.variable_scope('surr_cost_rescale_ph'):
@@ -495,9 +501,9 @@ class CPOPolicy(BasePolicy):
 	
             # self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
 
-            self.v = construct_model(name='VEnsemble', max_logvar=-2, min_logvar=-10, **vf_kwargs)
+            self.v = construct_model(name='VEnsemble', max_logvar=-2, min_logvar=-10, logit_bias_std=self.v_logit_bias, **vf_kwargs)
 	
-            self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, constant_prior=self.vc_prior, **vf_kwargs)
+            self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, logit_bias_std=self.vc_logit_bias, **vf_kwargs)
 
 
             # Organize placeholders for zipping with data from buffer on updates
@@ -560,10 +566,10 @@ class CPOPolicy(BasePolicy):
             ratio = tf.exp(self.logp-self.logp_old_ph)
 
             # Surrogate advantage / clipped surrogate advantage
-            self.surr_adv = tf.reduce_mean(ratio * self.adv_ph)
+            self.surr_adv = tf.reduce_mean(ratio * self.adv_ph) #* (1/self.adv_var_ph)) / (tf.reduce_sum(1/self.adv_var_ph))
 
             # Surrogate cost (advantage)
-            self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)
+            self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)# * 1/(self.cadv_var_ph)) / (tf.reduce_sum(1/self.cadv_var_ph))
             
             # Current Cret
             self.cur_cret_avg = tf.reduce_mean(self.cret_ph)
@@ -828,7 +834,7 @@ class CPOPolicy(BasePolicy):
     def log_pis(self, obs, a):
         pass
 
-    def get_action_outs(self, obs, factored=False, inc_var = False):
+    def get_action_outs(self, obs, factored=False, inc_var=False):
         '''
         takes obs of shape [batch_size, a_dim] or [ensemble, batch_size, a_dim]
         returns a dict with actions, v, vc and pi_info
@@ -856,17 +862,16 @@ class CPOPolicy(BasePolicy):
                             feed_dict={self.obs_ph: feed_obs})
 
         if inc_var:
-            assert self.gaussian_vf
-            v, v_var = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
-            vc, vc_var = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
+                v, v_var = self.get_v(feed_obs, factored=factored, inc_var=True)
+                vc, vc_var = self.get_vc(feed_obs, factored=factored, inc_var=True)
 
-            get_action_outs['v'] = v
-            get_action_outs['vc'] = vc
-            get_action_outs['v_var'] = v_var
-            get_action_outs['vc_var'] = vc_var
+                get_action_outs['v'] = v
+                get_action_outs['vc'] = vc
+                get_action_outs['v_var'] = v_var
+                get_action_outs['vc_var'] = vc_var
         else: 
-            v = self.get_v(feed_obs, factored=factored, inc_var=inc_var)
-            vc = self.get_vc(feed_obs, factored=factored, inc_var=inc_var)
+            v = self.get_v(feed_obs, factored=factored, inc_var=False)
+            vc = self.get_vc(feed_obs, factored=factored, inc_var=False)
 
             get_action_outs['v'] = v
             get_action_outs['vc'] = vc
@@ -877,28 +882,20 @@ class CPOPolicy(BasePolicy):
         feed_obs = self.format_obs_for_tf(obs)
 
         if inc_var:
-            assert self.gaussian_vf
-            v, v_var = self.v.predict(feed_obs, factored=factored)
+            v, v_var = self.v.predict(feed_obs, factored=factored, inc_var=inc_var)
             return np.squeeze(v, axis=-1), np.squeeze(v_var, axis=-1)
         else:
-            if self.gaussian_vf:
-                v, _ = self.v.predict(feed_obs, factored=factored)
-            else:
-                v = self.v.predict(feed_obs, factored=factored)
+            v = self.v.predict(feed_obs, factored=factored, inc_var = inc_var)
             return np.squeeze(v, axis=-1)
 
     def get_vc(self, obs, factored=False, inc_var = False):
         feed_obs = self.format_obs_for_tf(obs)
 
         if inc_var:
-            assert self.gaussian_vf
-            vc, vc_var = self.vc.predict(feed_obs, factored=factored)
+            vc, vc_var = self.vc.predict(feed_obs, factored=factored, inc_var = inc_var)
             return np.squeeze(vc, axis=-1), np.squeeze(vc_var, axis=-1)
         else:
-            if self.gaussian_vf:
-                vc, _ = self.vc.predict(feed_obs, factored=factored)
-            else:
-                vc = self.vc.predict(feed_obs, factored=factored)
+            vc = self.vc.predict(feed_obs, factored=factored, inc_var=inc_var)
             return np.squeeze(vc, axis=-1)
 
     @contextmanager

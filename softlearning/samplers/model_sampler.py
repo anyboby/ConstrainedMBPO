@@ -78,7 +78,6 @@ class ModelSampler(CpoSampler):
         self.policy = policy
         self.pool = pool
         self.ensemble_size = env.num_networks
-        self.vf_is_gaussian = self.policy.vf_is_gaussian
 
     def set_debug_buf(self, pool):
         self.pool_debug = pool
@@ -222,7 +221,7 @@ class ModelSampler(CpoSampler):
         current_obs = self._current_observation
 
         # Get outputs from policy
-        get_action_outs = self.policy.get_action_outs(current_obs, factored=False, inc_var=self.vf_is_gaussian)
+        get_action_outs = self.policy.get_action_outs(current_obs, factored=True, inc_var=True)
         
         a = get_action_outs['pi']
         v_t = get_action_outs['v']
@@ -255,15 +254,14 @@ class ModelSampler(CpoSampler):
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
 
-        next_val, next_val_var = self.policy.get_v(next_obs, factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                    else (self.policy.get_v(next_obs, factored=False, inc_var=self.vf_is_gaussian), 0)
+        next_val, next_val_var = self.policy.get_v(next_obs, factored=True, inc_var=True)
 
-        next_cval, next_cval_var = self.policy.get_vc(next_obs, factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                    else (self.policy.get_vc(next_obs, factored=False, inc_var=self.vf_is_gaussian), 0)
+        next_cval, next_cval_var = self.policy.get_vc(next_obs, factored=True, inc_var=True)
 
         #### variance for gaussian mixture, add dispersion of means to variance
         next_val_var = np.mean(next_val_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
         next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
+        c_var = np.mean(c, axis=0) + np.mean(c**2, axis=0) - (np.mean(c_var, axis=0))**2
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -282,10 +280,10 @@ class ModelSampler(CpoSampler):
         # too_uncertain_mask = path_uncertainty > self._max_uncertainty
         too_uncertain_mask_max = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
                                             rew_uncertainty + next_val_var > self._max_uncertainty_rew) 
-        too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \
-                                            rew_uncertainty > next_val_var) 
+        # too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \
+        #                                     rew_uncertainty > next_val_var) 
 
-        too_uncertain_mask = np.logical_or(too_uncertain_mask_max, too_uncertain_mask_path)
+        too_uncertain_mask = too_uncertain_mask_max #np.logical_or(too_uncertain_mask_max), too_uncertain_mask_path)
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 
@@ -293,7 +291,10 @@ class ModelSampler(CpoSampler):
         # alive_paths refers to all original paths and therefore has shape batch_size
         remaining_paths = self._finish_paths(too_uncertain_mask, append_vals=True)
         alive_paths = self.pool.alive_paths
-        
+        if not alive_paths.any():
+            info['alive_ratio'] = 0
+            return next_obs, reward, terminal, info
+
         ## ____________________________________________ ##
         ##    Store Info of the remaining paths         ##
         ## ____________________________________________ ##
@@ -424,14 +425,13 @@ class ModelSampler(CpoSampler):
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.policy.agent.reward_penalized:
-                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
-
+                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=True)
             else:
-                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
-                last_cval, last_cval_var = self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian) if self.vf_is_gaussian \
-                                            else (self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
+                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=True)
+                last_cval, last_cval_var = self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=True)
+
+        # last_val_var = np.mean(last_val_var, axis=0) + np.mean(last_val**2, axis=0) - (np.mean(last_val, axis=0))**2
+        # last_cval_var = np.mean(last_cval_var, axis=0) + np.mean(last_cval**2, axis=0) - (np.mean(last_cval, axis=0))**2
 
         self.pool.finish_path_multiple(term_mask, last_val, last_val_var, last_cval, last_cval_var)
 
@@ -444,7 +444,7 @@ class ModelSampler(CpoSampler):
         alive_paths=self.pool.alive_paths ##any paths that are still alive did not terminate by env
         # init final values and quantify according to termination type
         # Note: we do not count env time out as true terminal state
-        if self._current_observation is None: return
+        if not alive_paths.any(): return self.get_diagnostics()
         assert self._current_observation.shape[1] == alive_paths.sum()
         #assert self.model_ind_mask.shape[1] == alive_paths.sum()
 
@@ -453,13 +453,13 @@ class ModelSampler(CpoSampler):
             cur_obs = self._current_observation[self.model_inds]
 
             if self.policy.agent.reward_penalized:
-                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
+                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=True)
             else:
-                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else (self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
-                last_cval, last_cval_var = self.policy.get_vc(cur_obs, factored=False, inc_var=self.vf_is_gaussian)  if self.vf_is_gaussian \
-                                            else (self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=self.vf_is_gaussian), 0)
+                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=True)
+                last_cval, last_cval_var = self.policy.get_vc(cur_obs, factored=False, inc_var=True)
+
+            # last_val_var = np.mean(last_val_var, axis=0) + np.mean(last_val**2, axis=0) - (np.mean(last_val, axis=0))**2
+            # last_cval_var = np.mean(last_cval_var, axis=0) + np.mean(last_cval**2, axis=0) - (np.mean(last_cval, axis=0))**2
 
             self.pool.finish_path_multiple(term_mask, last_val, last_val_var, last_cval, last_cval_var)
             

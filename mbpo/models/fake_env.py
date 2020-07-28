@@ -64,7 +64,6 @@ class FakeEnv:
         input_dim_c = self.obs_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
         self.dyn_loss = 'NLL'
-        self.inc_var_dyn = self.dyn_loss == 'NLL'
 
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
@@ -85,7 +84,6 @@ class FakeEnv:
         if self.cares_about_cost:                                                    
             
             self.cost_m_loss = 'MSE'
-            self.inc_var_c = self.cost_m_loss == 'NLL'
             
             self._cost_model = construct_model(in_dim=input_dim_c, 
                                         out_dim=1,
@@ -161,11 +159,7 @@ class FakeEnv:
         if obs_depth==3:
             inputs, shuffle_indxs = self.forward_shuffle(inputs)
 
-        if self.inc_var_dyn:
-            ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True)       #### self.model outputs whole ensembles outputs
-        else:
-            ensemble_dyn_means = self._model.predict(inputs, factored=True)
-            ensemble_dyn_vars = np.tile(np.var(ensemble_dyn_means, axis=0)[None], reps=(self.num_networks, 1,1))
+        ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True, inc_var=True)       #### outputs whole ensembles outputs
 
         if obs_depth==3:
             ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
@@ -229,17 +223,20 @@ class FakeEnv:
             else:
                 inputs_cost = next_obs
 
-            if self.inc_var_c:
-                costs, cost_var = self._cost_model.predict(inputs_cost, factored=True)
-                costs, cost_var = np.squeeze(costs), np.squeeze(cost_var)
-                # cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
-                cost_var = np.var(costs, axis=0)
+            costs, cost_var = self._cost_model.predict(inputs_cost, factored=False, inc_var=True)
+            cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
 
-            else:
-                costs = self._cost_model.predict(inputs_cost, factored=True)
-                costs = np.squeeze(costs)
+            # if self.inc_var_c:
+            #     costs, cost_var = self._cost_model.predict(inputs_cost, factored=True, inc_var=True)
+            #     costs, cost_var = np.squeeze(costs), np.squeeze(cost_var)
+            #     # cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
+            #     # cost_var = np.var(costs, axis=0)
 
-                cost_var = np.var(costs, axis=0)
+            # else:
+            #     costs = self._cost_model.predict(inputs_cost, factored=True)
+            #     costs = np.squeeze(costs)
+
+            #     cost_var = np.var(costs, axis=0)
             
             # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
             costs = np.squeeze(np.clip(costs, 0, 1))
@@ -342,10 +339,7 @@ class FakeEnv:
                 inputs = np.concatenate((alive_obs, a), axis=-1)
 
             # ens_means, ens_vars = self._model.predict(inputs)
-            if self.inc_var_dyn:
-                ens_means, ens_vars = self._model.predict(inputs)
-            else:
-                ens_means = self._model.predict(inputs)
+            ens_means, ens_vars = self._model.predict(inputs)
             
             ens_means[...,:-self.rew_dim] += alive_obs         #### models output state change rather than state completely
 

@@ -35,7 +35,7 @@ CPO_POLICY_PARAMS_BASE = {
             )),
         'vf_lr':                8e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
-        'vf_epochs':            6,                 
+        'vf_epochs':            8,                 
         'vf_batch_size':        512,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
@@ -43,7 +43,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_loss':              'NLL',          # choose from #'NLL' (inc. var) ; 'MSE' ; 'Huber', 'ClippedMSE'
         'vf_cliprange':         0.1,
         'cvf_cliprange':        1,
-        'vc_prior':             10,
+        'v_logit_bias':         1,
+        'vc_logit_bias':        10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         500,
