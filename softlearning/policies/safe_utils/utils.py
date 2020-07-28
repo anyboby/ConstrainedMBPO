@@ -46,33 +46,6 @@ def discount_cumsum(x, discount, lam, weights=None, axis=0):
             disc_cumsum_flipped = scipy.signal.lfilter([1], [1, float(-discount*lam)], x_flipped, axis=axis)
             disc_cumsum = np.flip(disc_cumsum_flipped, axis=axis)
         else:
-            # tic = time.time()
-            # x_padded = np.concatenate((x, np.zeros_like(x)), axis=-1)             #### add zero padding to deltas to create matrix       
-            # x_inds = np.arange(x.shape[-1])+np.arange(x.shape[-1])[...,None]   #### creates an index matrix with [[0,1,2,...][1,2,3,...][2,3,4,...]...]
-            # x_mat = x_padded[...,x_inds]
-
-            # seed = np.zeros(shape=x.shape[-1])
-            # seed[0] = 1
-            # discount_vec = scipy.signal.lfilter([1], [1, float(-discount)], seed)
-            # discount_mat = np.repeat(discount_vec[None], repeats=x.shape[-1], axis=0)
-
-            # weights_without_last = np.array(weights)
-            # weights_without_last[...,-1] = 0
-            # weights_padded = np.concatenate((weights_without_last, np.zeros_like(weights), np.zeros_like(weights)), axis=-1)  ### double padding, since l and t are indexed
-            # w_inds = np.arange(weights.shape[-1]-1)+np.arange(weights.shape[-1])[...,None] + np.arange(weights.shape[-1])[...,None,None] ### indices, for choosing appropriate weights
-            # lams = lam**np.repeat(w_inds[0][None], repeats=weights.shape[-1], axis=0)  #### lambdas don't increase with x-dim
-            # final_lams = np.repeat(lam**(np.ones(shape=x.shape[-1])*x.shape[-1]-np.arange(1, x.shape[-1]+1))[...,None], repeats=x.shape[-1], axis=-1)
-            # final_weights = np.ones(shape=x_mat.shape) * weights[...,-1][...,None,None] * final_lams
-            # weights_lam = weights_padded[...,w_inds] * lams
-            # weights_disc = discount_mat * ((1-lam) * np.sum(weights_lam, axis=-1) + final_weights) 
-            # weights_disc_norm = weights_disc / weights_disc[...,0][...,None]
-            
-            # disc_cumsum = np.einsum('...ij, ...ji->...j', x_mat, weights_disc_norm)
-
-            # toc = time.time()
-            # print('old T:', toc-tic)
-            # toc = time.time()
-
             w = np.array(weights)               ### copy weights
             lw = w[...,-1]                      ### last weight is handled seperately 
             lw = lw*(lam**w.shape[-1])              ## (accounts for whole projected weight after T)
@@ -95,3 +68,33 @@ def discount_cumsum(x, discount, lam, weights=None, axis=0):
     else: 
         disc_cumsum = np.array(x)
     return disc_cumsum
+
+def discount_cumsum_weighted(x, lam, weights, axis=0):
+    w = np.array(weights)               ### copy weights
+    # lw = (w[...,-1] * lam**w.shape[-1] / (1-lam))[...,None]                      ### last weight is handled seperately 
+    # w[...,-1] = 0              ## (accounts for whole projected weight after T)
+    w[...,-1] = w[...,-1]/(1-lam)
+    xw = x*w
+    xw_fl = np.flip(xw, axis=-1)
+    xw_fl = scipy.signal.lfilter([1], [1, float(-lam)], xw_fl, axis=axis)
+    xw_lam = np.flip(xw_fl, axis=-1)
+    norm_fl = scipy.signal.lfilter([1], [1, float(-lam)], np.flip(w, axis=-1), axis=axis)
+    norm = np.flip(norm_fl, axis=-1)
+    
+    xw_norm = xw_lam/norm
+
+    # seed = np.zeros(shape=w.shape[-1])
+    # seed[0] = 1
+    # lam_vec = scipy.signal.lfilter([1], [1, float(-lam)], seed)     ### create vector of lambda-discounts
+
+    # w_lam = w*lam_vec
+    # w_norm = scipy.signal.lfilter([1], [1, float(-1)], np.flip(w_lam, axis=-1), axis=axis)
+    # w_norm = np.flip(w_norm, axis=-1)
+    # w_norm = 1/(w_lam+lw)
+    # w_lam_norm = w_lam*w_norm
+    # xw = scipy.signal.lfilter([1], [1, -1.0], np.flip(x*w_lam, axis=-1), axis=axis)
+    # xw = np.flip(xw,axis=-1)
+    # xw_norm = (xw+lw*x[...,-1][...,None])*w_norm
+
+    return xw_norm
+

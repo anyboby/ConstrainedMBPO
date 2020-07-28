@@ -4,6 +4,7 @@ from softlearning.policies.safe_utils.utils import combined_shape, \
                              keys_as_sorted_list, \
                              values_as_sorted_list, \
                              discount_cumsum, \
+                             discount_cumsum_weighted, \
                              EPS
 from softlearning.replay_pools.cpobuffer import CPOBuffer
 
@@ -48,6 +49,7 @@ class ModelBuffer(CPOBuffer):
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.adv_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.adv_var_buf = np.zeros(scalar_shape, dtype=np.float32)
+        self.roll_lengths_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.rew_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.rew_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.ret_buf = np.zeros(scalar_shape, dtype=np.float32)
@@ -55,6 +57,7 @@ class ModelBuffer(CPOBuffer):
         self.val_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.cadv_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost advantage
         self.cadv_var_buf = np.zeros(scalar_shape, dtype=np.float32)   
+        self.croll_lengths_buf = np.zeros(scalar_shape, dtype=np.float32)   
         self.cost_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
         self.cost_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
         self.cret_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost return
@@ -157,14 +160,17 @@ class ModelBuffer(CPOBuffer):
             
             #### inv var:
             deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
-            delta_vars = rew_vars[:,:-1] + self.gamma * val_vars[:, 1:] - val_vars[:, :-1]
+            delta_vars = rew_vars[:,:-1] + val_vars[:, 1:] - val_vars[:, :-1]
 
             r_ret_vars = (self.rew_path_var_buf[finish_mask, path_slice] + self.val_var_buf[finish_mask, path_slice])
             r_vars_inv = 1/(r_ret_vars+EPS)
             
-            # self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=1)
-            self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=r_vars_inv, axis=1)
-            adv_vars = discount_cumsum(delta_vars, self.gamma, self.lam, weights=r_vars_inv, axis=1) + self.val_var_buf[finish_mask, path_slice]
+            self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=1)
+            # self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=r_vars_inv, axis=1)
+            # adv_vars = discount_cumsum(delta_vars, 1.0, self.lam, weights=r_vars_inv, axis=1) + self.val_var_buf[finish_mask, path_slice]
+            adv_vars = discount_cumsum_weighted(r_ret_vars, self.lam, weights=r_vars_inv, axis=1)
+            self.roll_lengths_buf[finish_mask, path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=r_vars_inv, axis=1)\
+                                                                - np.arange(self.ptr)
             self.adv_var_buf[finish_mask, path_slice] = adv_vars
 
             # deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
@@ -183,14 +189,17 @@ class ModelBuffer(CPOBuffer):
 
             # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
             cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
-            cdelta_vars = cost_vars[:, :-1] + self.gamma * cval_vars[:, 1:] - cval_vars[:, :-1]
+            cdelta_vars = cost_vars[:, :-1] + 1.0 * cval_vars[:, 1:] - cval_vars[:, :-1]
             
             cret_vars = (self.cost_path_var_buf[finish_mask, path_slice] + self.cval_var_buf[finish_mask, path_slice])
             c_vars_inv = 1/(cret_vars+EPS)
 
-            # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
-            self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1)
-            cadv_vars = discount_cumsum(cdelta_vars, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1) + self.cval_var_buf[finish_mask, path_slice]
+            self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
+            # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=c_vars_inv, axis=1)
+            # cadv_vars = discount_cumsum(cdelta_vars, 1.0, self.cost_lam, weights=c_vars_inv, axis=1) + self.cval_var_buf[finish_mask, path_slice]
+            cadv_vars = discount_cumsum_weighted(cret_vars, self.cost_lam, weights=c_vars_inv, axis=1)
+            self.croll_lengths_buf[finish_mask, path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=c_vars_inv, axis=1) \
+                                             - np.arange(self.ptr)
             self.cadv_var_buf[finish_mask, path_slice] = cadv_vars
             # self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
             self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
@@ -247,9 +256,19 @@ class ModelBuffer(CPOBuffer):
                 cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
                 self.cadv_buf[self.populated_mask] -= cadv_mean
                 
-                diagnostics = dict(returns_mean=self.ret_buf[self.populated_mask].mean(), creturns_mean = self.cret_buf[self.populated_mask].mean())
+                ret_mean = self.ret_buf[self.populated_mask].mean()
+                cret_mean = self.cret_buf[self.populated_mask].mean()
+                norm_adv_var_mean = np.mean(self.adv_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
+                norm_cadv_var_mean = np.mean(self.cadv_var_buf[self.populated_mask])/np.var(self.cadv_buf[self.populated_mask])
+                avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
+                avg_horizon_c = np.mean(self.croll_lengths_buf[self.populated_mask])
             else:
-                diagnostics = dict(returns_mean=0, creturns_mean = 0)
+                ret_mean = 0
+                cret_mean = 0
+                norm_adv_var_mean = 0
+                norm_cadv_var_mean = 0
+                avg_horizon_r = 0
+                avg_horizon_c = 0
 
             res = [self.obs_buf, self.act_buf, self.adv_buf,
                     self.cadv_buf, self.ret_buf, self.cret_buf, 
@@ -259,7 +278,13 @@ class ModelBuffer(CPOBuffer):
 
             # filter out unpopulated entries / finished paths
             res = [buf[self.populated_mask] for buf in res]
-            
+            diagnostics = dict(poolm_ret_mean=ret_mean, \
+                                poolm_cret_mean=cret_mean, 
+                                poolm_norm_adv_var = norm_adv_var_mean, 
+                                poolm_norm_cadv_var = norm_cadv_var_mean,
+                                poolm_avg_Horizon_rew = avg_horizon_r,
+                                poolm_avg_Horizon_c = avg_horizon_c,
+                                )
         # reset
         self.reset()
         # self.ptr, self.path_start_idx = 0, 0

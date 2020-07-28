@@ -410,10 +410,12 @@ class CMBPO(RLAlgorithm):
                             'pi_infos',
                         ])
                     real_samples = list(real_samples.values())
-                    self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
+                    _, diag_real = self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
                 else:
-                    real_samples= self._pool.get()
-                
+                    real_samples, diag_real= self._pool.get()
+
+                model_metrics.update(diag_real)
+
                 #=====================================================================#
                 #                           update critic                             #
                 #=====================================================================#

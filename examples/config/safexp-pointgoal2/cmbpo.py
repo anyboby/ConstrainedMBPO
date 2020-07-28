@@ -49,6 +49,6 @@ params = {
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
         'max_uncertainty_c' : 150,
-        'max_uncertainty_rew' : 3,
+        'max_uncertainty_rew' : 5,
     }
 }
