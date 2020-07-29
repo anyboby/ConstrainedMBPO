@@ -41,12 +41,12 @@ class CPOBuffer:
             'actions':      self.act_buf,
             'next_observations': self.nextobs_buf,
             'advantages':   self.adv_buf,
-            'advantage_vars': self.adv_var_buf,
+            'return_vars': self.ret_var_buf,
             'rewards':      self.rew_buf,
             'returns':      self.ret_buf,
             'values':       self.val_buf,
             'cadvantages':  self.cadv_buf,
-            'cadvantage_vars':  self.cadv_var_buf,
+            'creturn_vars':  self.cret_var_buf,
             'costs':        self.cost_buf,
             'creturns':     self.cret_buf,
             'cvalues':      self.cval_buf,
@@ -60,12 +60,12 @@ class CPOBuffer:
             'actions':      self.act_archive,
             'next_observations': self.nextobs_archive,
             'advantages':   self.adv_archive,
-            'advantage_vars': self.adv_var_archive,
+            'return_vars': self.ret_var_archive,
             'rewards':      self.rew_archive,
             'returns':      self.ret_archive,
             'values':       self.val_archive,
             'cadvantages':  self.cadv_archive,
-            'cadvantage_vars':  self.cadv_var_archive,
+            'creturn_vars':  self.cret_var_archive,
             'costs':        self.cost_archive,
             'creturns':     self.cret_archive,
             'cvalues':      self.cval_archive,
@@ -94,14 +94,14 @@ class CPOBuffer:
         self.act_buf = np.zeros(combined_shape(size, self.act_shape), dtype=np.float32)
         self.nextobs_buf = np.zeros(combined_shape(size, self.obs_shape), dtype=np.float32)          
         self.adv_buf = np.zeros(size, dtype=np.float32)
-        self.adv_var_buf = np.zeros(size, dtype=np.float32)
+        self.ret_var_buf = np.zeros(size, dtype=np.float32)
         self.roll_lengths_buf = np.zeros(size, dtype=np.float32)
         self.rew_buf = np.zeros(size, dtype=np.float32)
         self.val_buf = np.zeros(size, dtype=np.float32)
         self.ret_buf = np.zeros(size, dtype=np.float32)
         self.val_var_buf = np.zeros(size, dtype=np.float32)
         self.cadv_buf = np.zeros(size, dtype=np.float32)    # cost advantage
-        self.cadv_var_buf = np.zeros(size, dtype=np.float32)    # cost advantage
+        self.cret_var_buf = np.zeros(size, dtype=np.float32)    # cost advantage
         self.croll_lengths_buf = np.zeros(size, dtype=np.float32)  
         self.cost_buf = np.zeros(size, dtype=np.float32)    # costs
         self.cret_buf = np.zeros(size, dtype=np.float32)    # cost return
@@ -120,13 +120,13 @@ class CPOBuffer:
         # bit memory inefficient, but more convenient, to store next_obs
         self.nextobs_archive = np.zeros(combined_shape(archive_size, self.obs_shape), dtype=np.float32)
         self.adv_archive = np.zeros(archive_size, dtype=np.float32)
-        self.adv_var_archive = np.zeros(archive_size, dtype=np.float32)
+        self.ret_var_archive = np.zeros(archive_size, dtype=np.float32)
         self.rew_archive = np.zeros(archive_size, dtype=np.float32)
         self.ret_archive = np.zeros(archive_size, dtype=np.float32)
         self.val_archive = np.zeros(archive_size, dtype=np.float32)
         self.val_var_archive = np.zeros(archive_size, dtype=np.float32)
         self.cadv_archive = np.zeros(archive_size, dtype=np.float32)    # cost advantage
-        self.cadv_var_archive = np.zeros(archive_size, dtype=np.float32)    # cost advantage
+        self.cret_var_archive = np.zeros(archive_size, dtype=np.float32)    # cost advantage
         self.cost_archive = np.zeros(archive_size, dtype=np.float32)    # costs
         self.cret_archive = np.zeros(archive_size, dtype=np.float32)    # cost return
         self.cval_archive = np.zeros(archive_size, dtype=np.float32)    # cost value
@@ -180,7 +180,7 @@ class CPOBuffer:
 
         # self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam)
         self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=inv_vars)
-        self.adv_var_buf[path_slice] = discount_cumsum_weighted(self.val_var_buf[path_slice], self.lam, weights=inv_vars)
+        self.ret_var_buf[path_slice] = discount_cumsum_weighted(self.val_var_buf[path_slice], self.lam, weights=inv_vars)
         self.roll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=inv_vars) - np.arange(self.ptr)
 
         # self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
@@ -195,7 +195,7 @@ class CPOBuffer:
         inv_cvars = 1/self.cval_var_buf[path_slice]
 
         self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=inv_cvars)
-        self.cadv_var_buf[path_slice] = discount_cumsum_weighted(self.cval_var_buf[path_slice], self.lam, weights=inv_cvars)
+        self.cret_var_buf[path_slice] = discount_cumsum_weighted(self.cval_var_buf[path_slice], self.lam, weights=inv_cvars)
         self.croll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=inv_cvars) - np.arange(self.ptr)
 
         # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
@@ -235,10 +235,10 @@ class CPOBuffer:
         self.logp_archive[arch_slice] = self.logp_buf[buf_slice]
         self.term_archive[arch_slice] = self.term_buf[buf_slice]
         self.adv_archive[arch_slice] = self.adv_buf[buf_slice]
-        self.adv_var_archive[arch_slice] = self.adv_var_buf[buf_slice]
+        self.ret_var_archive[arch_slice] = self.ret_var_buf[buf_slice]
         self.ret_archive[arch_slice] = self.ret_buf[buf_slice]
         self.cadv_archive[arch_slice] = self.cadv_buf[buf_slice]
-        self.cadv_var_archive[arch_slice] = self.cadv_var_buf[buf_slice]
+        self.cret_var_archive[arch_slice] = self.cret_var_buf[buf_slice]
         self.cret_archive[arch_slice] = self.cret_buf[buf_slice]
         self.epoch_archive[arch_slice] = self.epoch_buf[buf_slice]
 
@@ -266,8 +266,8 @@ class CPOBuffer:
         # Center, but do NOT rescale advantages for cost gradient
         cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
         self.cadv_buf -= cadv_mean
-        res = [self.obs_buf, self.act_buf, self.adv_buf,
-                self.cadv_buf, self.ret_buf, self.cret_buf, 
+        res = [self.obs_buf, self.act_buf, self.adv_buf, self.ret_var_buf,
+                self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
                 self.logp_buf, self.val_buf, self.cval_buf,
                 self.cost_buf] \
                 + values_as_sorted_list(self.pi_info_bufs)
@@ -275,13 +275,17 @@ class CPOBuffer:
         ##### diagnostics        
         ret_mean = self.ret_buf.mean()
         cret_mean = self.cret_buf.mean()
-        norm_adv_var_mean = np.mean(self.adv_var_buf)/np.var(self.adv_buf)
-        norm_cadv_var_mean = np.mean(self.cadv_var_buf)/np.var(self.cadv_buf)
+        val_var_mean = self.val_var_buf.mean()
+        cval_var_mean = self.cval_var_buf.mean()
+        norm_adv_var_mean = np.mean(self.ret_var_buf)/np.var(self.adv_buf)
+        norm_cadv_var_mean = np.mean(self.cret_var_buf)/np.var(self.cadv_buf)
         avg_horizon_r = np.mean(self.roll_lengths_buf)
         avg_horizon_c = np.mean(self.croll_lengths_buf)
 
         diagnostics = dict(poolr_ret_mean=ret_mean, \
                             poolr_cret_mean=cret_mean, 
+                            poolr_val_var_mean = val_var_mean,
+                            poolr_cval_var_mean = cval_var_mean,
                             poolr_norm_adv_var = norm_adv_var_mean, 
                             poolr_norm_cadv_var = norm_cadv_var_mean,
                             poolr_avg_Horizon_rew = avg_horizon_r,

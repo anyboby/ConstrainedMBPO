@@ -48,7 +48,7 @@ class ModelBuffer(CPOBuffer):
         self.act_buf = np.zeros(act_buf_shape, dtype=np.float32)
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.adv_buf = np.zeros(scalar_shape, dtype=np.float32)
-        self.adv_var_buf = np.zeros(scalar_shape, dtype=np.float32)
+        self.ret_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.roll_lengths_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.rew_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.rew_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)
@@ -56,7 +56,7 @@ class ModelBuffer(CPOBuffer):
         self.val_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.val_var_buf = np.zeros(scalar_shape, dtype=np.float32)
         self.cadv_buf = np.zeros(scalar_shape, dtype=np.float32)    # cost advantage
-        self.cadv_var_buf = np.zeros(scalar_shape, dtype=np.float32)   
+        self.cret_var_buf = np.zeros(scalar_shape, dtype=np.float32)   
         self.croll_lengths_buf = np.zeros(scalar_shape, dtype=np.float32)   
         self.cost_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
         self.cost_path_var_buf = np.zeros(scalar_shape, dtype=np.float32)    # costs
@@ -152,15 +152,9 @@ class ModelBuffer(CPOBuffer):
             
             rews = np.append(self.rew_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
             vals = np.append(self.val_buf[finish_mask, path_slice], last_val[..., np.newaxis], axis=1)
-
-            rew_vars = self.rew_path_var_buf[finish_mask, path_slice]-\
-                        np.append(np.zeros(shape=(len(rews),1)), self.rew_path_var_buf[finish_mask, path_slice], axis=-1)[...,:-1]
-            rew_vars = np.append(rew_vars, last_val_var[..., np.newaxis], axis=1)
-            val_vars = np.append(self.val_var_buf[finish_mask, path_slice], last_val_var[..., np.newaxis], axis=1)
             
             #### inv var:
             deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
-            delta_vars = rew_vars[:,:-1] + val_vars[:, 1:] - val_vars[:, :-1]
 
             r_ret_vars = (self.rew_path_var_buf[finish_mask, path_slice] + self.val_var_buf[finish_mask, path_slice])
             r_vars_inv = 1/(r_ret_vars+EPS)
@@ -171,7 +165,7 @@ class ModelBuffer(CPOBuffer):
             adv_vars = discount_cumsum_weighted(r_ret_vars, self.lam, weights=r_vars_inv, axis=1)
             self.roll_lengths_buf[finish_mask, path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=r_vars_inv, axis=1)\
                                                                 - np.arange(self.ptr)
-            self.adv_var_buf[finish_mask, path_slice] = adv_vars
+            self.ret_var_buf[finish_mask, path_slice] = adv_vars
 
             # deltas = rews[:,:-1] + self.gamma * vals[:, 1:] - vals[:, :-1]
             # self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=1)
@@ -182,14 +176,8 @@ class ModelBuffer(CPOBuffer):
             costs = np.append(self.cost_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
             cvals = np.append(self.cval_buf[finish_mask, path_slice], last_cval[..., np.newaxis], axis=1)
 
-            cost_vars = self.cost_path_var_buf[finish_mask, path_slice]-\
-                            np.append(np.zeros(shape=(len(costs), 1)),self.cost_path_var_buf[finish_mask, path_slice], axis=-1)[...,:-1]
-            cost_vars = np.append(cost_vars, last_cval_var[..., np.newaxis], axis=1)
-            cval_vars = np.append(self.cval_var_buf[finish_mask, path_slice], last_cval_var[..., np.newaxis], axis=1)
-
             # self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=1)
             cdeltas = costs[:, :-1] + self.gamma * cvals[:, 1:] - cvals[:, :-1]
-            cdelta_vars = cost_vars[:, :-1] + 1.0 * cval_vars[:, 1:] - cval_vars[:, :-1]
             
             cret_vars = (self.cost_path_var_buf[finish_mask, path_slice] + self.cval_var_buf[finish_mask, path_slice])
             c_vars_inv = 1/(cret_vars+EPS)
@@ -200,7 +188,7 @@ class ModelBuffer(CPOBuffer):
             cadv_vars = discount_cumsum_weighted(cret_vars, self.cost_lam, weights=c_vars_inv, axis=1)
             self.croll_lengths_buf[finish_mask, path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=c_vars_inv, axis=1) \
                                              - np.arange(self.ptr)
-            self.cadv_var_buf[finish_mask, path_slice] = cadv_vars
+            self.cret_var_buf[finish_mask, path_slice] = cadv_vars
             # self.cret_buf[finish_mask, path_slice] = discount_cumsum(costs, self.cost_gamma, axis=1)[:,:-1]
             self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
 
@@ -258,20 +246,25 @@ class ModelBuffer(CPOBuffer):
                 
                 ret_mean = self.ret_buf[self.populated_mask].mean()
                 cret_mean = self.cret_buf[self.populated_mask].mean()
-                norm_adv_var_mean = np.mean(self.adv_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
-                norm_cadv_var_mean = np.mean(self.cadv_var_buf[self.populated_mask])/np.var(self.cadv_buf[self.populated_mask])
+                val_var_mean = self.val_var_buf[self.populated_mask].mean()
+                cval_var_mean = self.cval_var_buf[self.populated_mask].mean()
+                norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
+                norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/np.var(self.cadv_buf[self.populated_mask])
                 avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
                 avg_horizon_c = np.mean(self.croll_lengths_buf[self.populated_mask])
             else:
                 ret_mean = 0
                 cret_mean = 0
-                norm_adv_var_mean = 0
-                norm_cadv_var_mean = 0
+                val_var_mean = 0
+                cval_var_mean = 0
+                norm_ret_var_mean = 0
+                norm_cret_var_mean = 0
                 avg_horizon_r = 0
                 avg_horizon_c = 0
 
-            res = [self.obs_buf, self.act_buf, self.adv_buf,
-                    self.cadv_buf, self.ret_buf, self.cret_buf, 
+
+            res = [self.obs_buf, self.act_buf, self.adv_buf, self.ret_var_buf,
+                    self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
                     self.logp_buf, self.val_buf, self.cval_buf,
                     self.cost_buf] \
                     + values_as_sorted_list(self.pi_info_bufs)
@@ -280,6 +273,8 @@ class ModelBuffer(CPOBuffer):
             res = [buf[self.populated_mask] for buf in res]
             diagnostics = dict(poolm_ret_mean=ret_mean, \
                                 poolm_cret_mean=cret_mean, 
+                                poolm_val_var_mean = val_var_mean,
+                                poolm_cval_var_mean = cval_var_mean,
                                 poolm_norm_adv_var = norm_adv_var_mean, 
                                 poolm_norm_cadv_var = norm_cadv_var_mean,
                                 poolm_avg_Horizon_rew = avg_horizon_r,

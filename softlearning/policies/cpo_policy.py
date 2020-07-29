@@ -509,8 +509,8 @@ class CPOPolicy(BasePolicy):
             # Organize placeholders for zipping with data from buffer on updates
             # careful ! this has to be in sync with the output of our buffer !
             self.buf_fields = [
-                self.obs_ph, self.a_ph, self.adv_ph,
-                self.cadv_ph, self.ret_ph, self.cret_ph,
+                self.obs_ph, self.a_ph, self.adv_ph, 'ret_var',
+                self.cadv_ph, 'cret_var', self.ret_ph, self.cret_ph,
                 self.logp_old_ph, self.old_v_ph, self.old_vc_ph,
                 self.cur_cost_ph
                 ] + values_as_sorted_list(self.pi_info_phs)
@@ -527,7 +527,9 @@ class CPOPolicy(BasePolicy):
             self.critic_phs = [
                 self.obs_ph, 
                 self.ret_ph, 
+                'ret_var',
                 self.cret_ph, 
+                'cret_var',
                 self.old_v_ph, 
                 self.old_vc_ph,
                 ]
@@ -757,7 +759,26 @@ class CPOPolicy(BasePolicy):
                 vc_targets,
                 old_pred = old_vc,
                 **kwargs,
-                )                                            
+                )                        
+        elif self.vf_loss == 'NLL_varcorr':
+            ret_var = inputs['ret_var'][..., None]
+            cret_var = inputs['cret_var'][..., None]
+            v_kwargs = kwargs.copy()
+            v_kwargs['var_corr'] = ret_var
+            vc_kwargs = kwargs.copy()
+            vc_kwargs['var_corr'] = cret_var
+
+            v_metrics = self.v.train(
+                obs_in,
+                v_targets,
+                **v_kwargs,
+                )                                      
+
+            vc_metrics = self.vc.train(
+                obs_in,
+                vc_targets,
+                **vc_kwargs,
+                )                        
         else:
             v_metrics = self.v.train(
                 obs_in,
@@ -801,7 +822,7 @@ class CPOPolicy(BasePolicy):
                                             inputs[self.cret_ph][:, np.newaxis]
 
         v_loss = self.v.validate(v_ins, v_tars)
-        vc_loss = self.vc.validate(vc_ins, vc_tars)        
+        vc_loss = self.vc.validate(vc_ins, vc_tars)
         
         critic_metric = dict()
         critic_metric['Loss' + self.v.name] = v_loss
