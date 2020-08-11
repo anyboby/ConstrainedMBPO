@@ -180,8 +180,8 @@ class CPOBuffer:
 
         # self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam)
         self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=inv_vars)
-        self.ret_var_buf[path_slice] = discount_cumsum_weighted(self.val_var_buf[path_slice], self.lam, weights=inv_vars)
-        self.roll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=inv_vars) - np.arange(self.ptr)
+        # self.ret_var_buf[path_slice] = discount_cumsum_weighted(self.val_var_buf[path_slice], self.lam, weights=inv_vars)
+        # self.roll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=inv_vars) - np.arange(self.ptr)
 
         # self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
         self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
@@ -195,8 +195,8 @@ class CPOBuffer:
         inv_cvars = 1/self.cval_var_buf[path_slice]
 
         self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=inv_cvars)
-        self.cret_var_buf[path_slice] = discount_cumsum_weighted(self.cval_var_buf[path_slice], self.lam, weights=inv_cvars)
-        self.croll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=inv_cvars) - np.arange(self.ptr)
+        # self.cret_var_buf[path_slice] = discount_cumsum_weighted(self.cval_var_buf[path_slice], self.lam, weights=inv_cvars)
+        # self.croll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=inv_cvars) - np.arange(self.ptr)
 
         # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
         self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
