@@ -70,6 +70,26 @@ def discount_cumsum(x, discount, lam, weights=None, axis=0):
     return disc_cumsum
 
 def discount_cumsum_weighted(x, lam, weights, axis=0):
+    '''
+    Calculates a discounted cumulated sum with weights. weights should be a matrix, i.e.
+    have one more dimension than x, s.t.:
+    dcw_t = \sum_l^{T-t}(  {lam^l * x_{t+l} * w_{t,l}  )
+    Args: 
+        x: the ndarray
+        lam: scalar for discounting
+        weights: weight matrix with dim = dim(x)+1 and same lengths as x along all dims
+    '''
+
+    #### expand x
+    #### essentially repeats the array along given axis and appends after the given axis
+    # x = np.repeat(np.swapaxes(x[None], axis1=0, axis2=axis+1), repeats=x.shape[axis], axis=axis+1)      
+    # xw = np.matmul
+
+    # #### create discount vector
+    # seed = np.zeros(shape=val_vars.shape[-1])
+    # seed[0] = 1 sss
+    # disc_vec = scipy.signal.lfilter([1], [1, float(-self.gamma)], seed)     ### create vector of discounts
+
     w = np.array(weights)               ### copy weights
     # lw = (w[...,-1] * lam**w.shape[-1] / (1-lam))[...,None]                      ### last weight is handled seperately 
     # w[...,-1] = 0              ## (accounts for whole projected weight after T)

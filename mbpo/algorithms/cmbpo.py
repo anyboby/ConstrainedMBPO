@@ -215,6 +215,7 @@ class CMBPO(RLAlgorithm):
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
                                         max_path_length=80, 
                                         env = self.fake_env,
+                                        ensemble_size=num_networks,
                                         use_inv_var = self.use_inv_var,
                                         )
         self.model_pool.initialize(pi_info_shapes,
@@ -446,7 +447,7 @@ class CMBPO(RLAlgorithm):
                 ### diagnostics for rollout ###
                 gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
-                                
+                                    
                 
                 model_metrics.update(rollout_diagnostics)
                 samples_added += self.model_sampler._total_samples

@@ -195,7 +195,7 @@ class ModelSampler(CpoSampler):
         self._path_cost_var = np.zeros(self.batch_size)
         self._path_dyn_var = np.zeros(self.batch_size)
         
-        self.model_inds = self.env.random_inds(size=1)[0]
+        self.model_inds = 0 # self.env.random_inds(size=1)[0]
 
         self._total_samples = 0
         self._n_episodes = 0
@@ -278,18 +278,16 @@ class ModelSampler(CpoSampler):
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         # too_uncertain_mask = path_uncertainty > self._max_uncertainty
-        too_uncertain_mask_max = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
+        too_uncertain_paths = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
                                             rew_uncertainty + next_val_var > self._max_uncertainty_rew) 
         # too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \
         #                                     rew_uncertainty > next_val_var) 
-
-        too_uncertain_mask = too_uncertain_mask_max #np.logical_or(too_uncertain_mask_max), too_uncertain_mask_path)
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 
         # as our terminal mask (too_uncertain_mask)
         # alive_paths refers to all original paths and therefore has shape batch_size
-        remaining_paths = self._finish_paths(too_uncertain_mask, append_vals=True)
+        remaining_paths = self._finish_paths(too_uncertain_paths, append_vals=True)
         alive_paths = self.pool.alive_paths
         if not alive_paths.any():
             info['alive_ratio'] = 0
@@ -319,7 +317,7 @@ class ModelSampler(CpoSampler):
 
         logp_t          = logp_t[:,remaining_paths]
         pi_info_t       = {k:v[:,remaining_paths] for k,v in pi_info_t.items()}
-        pi_info_t       = {k:v[self.model_inds] for k,v in pi_info_t.items()}
+        # pi_info_t       = {k:v[self.model_inds] for k,v in pi_info_t.items()}
 
 
         #### update some sampler infos
@@ -351,20 +349,18 @@ class ModelSampler(CpoSampler):
                             np.max(self._path_return))
 
         #### only store one trajectory in buffer 
-        self.pool.store_multiple(current_obs[self.model_inds],
-                                        a[self.model_inds],
-                                        next_obs[self.model_inds],
-                                        reward[self.model_inds],
-                                        self._path_return_var[alive_paths],
-                                        v_t[self.model_inds],
-                                        v_var[self.model_inds],
-                                        c[self.model_inds],
-                                        self._path_cost_var[alive_paths],
-                                        vc_t[self.model_inds],
-                                        vc_var[self.model_inds],
-                                        logp_t[self.model_inds],
+        self.pool.store_multiple(current_obs,
+                                        a,
+                                        next_obs,
+                                        reward,
+                                        v_t,
+                                        v_var,
+                                        c,
+                                        vc_t,
+                                        vc_var,
+                                        logp_t,
                                         pi_info_t,
-                                        terminal[self.model_inds])
+                                        terminal)
 
         #### terminate mature termination due to path length
         ## update obs before finishing paths (_finish_paths() uses current obs)
@@ -412,23 +408,23 @@ class ModelSampler(CpoSampler):
         if not term_mask.any():
             return np.logical_not(term_mask)
 
-        # init final values
-        last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-        last_val_var, last_cval_var = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-
-        ## rebase last_val and last_cval to terminating paths
-        last_val, last_cval = last_val[term_mask], last_cval[term_mask]
-        last_val_var, last_cval_var = last_val_var[term_mask], last_cval_var[term_mask]
-
-        cur_obs = self._current_observation[self.model_inds]
+        # cur_obs = self._current_observation[self.model_inds]
 
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.policy.agent.reward_penalized:
-                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
             else:
-                last_val, last_val_var = self.policy.get_v(cur_obs[term_mask], factored=False, inc_var=True)
-                last_cval, last_cval_var = self.policy.get_vc(cur_obs[term_mask], factored=False, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
+                last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
+        else:
+            # init final values
+            last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
+            last_val_var, last_cval_var = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
+
+            ## rebase last_val and last_cval to terminating paths
+            last_val, last_cval = last_val[term_mask], last_cval[term_mask]
+            last_val_var, last_cval_var = last_val_var[term_mask], last_cval_var[term_mask]
 
         # last_val_var = np.mean(last_val_var, axis=0) + np.mean(last_val**2, axis=0) - (np.mean(last_val, axis=0))**2
         # last_cval_var = np.mean(last_cval_var, axis=0) + np.mean(last_cval**2, axis=0) - (np.mean(last_cval, axis=0))**2
@@ -450,13 +446,13 @@ class ModelSampler(CpoSampler):
 
         if alive_paths.any():
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
-            cur_obs = self._current_observation[self.model_inds]
+            # cur_obs = self._current_observation[self.model_inds]
 
             if self.policy.agent.reward_penalized:
-                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
             else:
-                last_val, last_val_var = self.policy.get_v(cur_obs, factored=False, inc_var=True)
-                last_cval, last_cval_var = self.policy.get_vc(cur_obs, factored=False, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
+                last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
 
             # last_val_var = np.mean(last_val_var, axis=0) + np.mean(last_val**2, axis=0) - (np.mean(last_val, axis=0))**2
             # last_cval_var = np.mean(last_cval_var, axis=0) + np.mean(last_cval**2, axis=0) - (np.mean(last_cval, axis=0))**2
