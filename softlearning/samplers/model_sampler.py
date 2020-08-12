@@ -413,21 +413,14 @@ class ModelSampler(CpoSampler):
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.policy.agent.reward_penalized:
-                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation[:,term_mask], factored=True, inc_var=True)
             else:
-                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
-                last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation[:,term_mask], factored=True, inc_var=True)
+                last_cval, last_cval_var = self.policy.get_vc(self._current_observation[:,term_mask], factored=True, inc_var=True)
         else:
             # init final values
-            last_val, last_cval = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-            last_val_var, last_cval_var = np.zeros(shape=term_mask.shape), np.zeros(shape=term_mask.shape)
-
-            ## rebase last_val and last_cval to terminating paths
-            last_val, last_cval = last_val[term_mask], last_cval[term_mask]
-            last_val_var, last_cval_var = last_val_var[term_mask], last_cval_var[term_mask]
-
-        # last_val_var = np.mean(last_val_var, axis=0) + np.mean(last_val**2, axis=0) - (np.mean(last_val, axis=0))**2
-        # last_cval_var = np.mean(last_cval_var, axis=0) + np.mean(last_cval**2, axis=0) - (np.mean(last_cval, axis=0))**2
+            last_val, last_cval = np.zeros(shape=(self.ensemble_size, term_mask.sum())), np.zeros(shape=(self.ensemble_size, term_mask.sum()))
+            last_val_var, last_cval_var = np.zeros(shape=(self.ensemble_size, term_mask.sum())), np.zeros(shape=(self.ensemble_size, term_mask.sum()))
 
         self.pool.finish_path_multiple(term_mask, last_val, last_val_var, last_cval, last_cval_var)
 

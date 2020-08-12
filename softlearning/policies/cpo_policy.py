@@ -831,14 +831,14 @@ class CPOPolicy(BasePolicy):
         return critic_metric
 
     def format_obs_for_tf(self, obs):
-        sq_obs = np.squeeze(obs)
-        if len(sq_obs.shape) == len(self.obs_space.shape):
-            sq_obs = sq_obs[np.newaxis]
-        elif len(sq_obs.shape) > len(self.obs_space.shape):
-            sq_obs = sq_obs
-        else: 
-            raise Exception('faulty obs')
-        return sq_obs
+        obs = np.array(obs)
+        if len(obs.shape) == len(self.obs_space.shape):
+            obs = obs[None]
+        # elif len(sq_obs.shape) > len(self.obs_space.shape):
+        #     sq_obs = sq_obs
+        # else: 
+        #     raise Exception('faulty obs')
+        return obs
 
     def reset(self):
         pass

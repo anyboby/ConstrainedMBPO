@@ -1,11 +1,6 @@
 import numpy as np
 from softlearning.policies.safe_utils.mpi_tools import mpi_statistics_scalar
-from softlearning.policies.safe_utils.utils import combined_shape, \
-                             keys_as_sorted_list, \
-                             values_as_sorted_list, \
-                             discount_cumsum, \
-                             discount_cumsum_weighted, \
-                             EPS
+from softlearning.policies.safe_utils.utils import *
 
 import warnings
 import random
@@ -174,35 +169,88 @@ class CPOBuffer:
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
 
         val_vars = np.append(self.val_var_buf[path_slice], last_val_var)
-        delta_vars = self.gamma * val_vars[1:] - val_vars[:-1]
+
+        #=====================================================================#
+        #  Inverse Variance Weighted Advantages                               #
+        #=====================================================================#
+        ### utility indices
+        t, t_p_h, h = triu_indices_t_h(size=deltas.shape[-1])
+        Ht, HH = np.diag_indices(deltas.shape[-1])
+        HH = np.flip(HH)    ### H is last value in each t-row
         
-        inv_vars = 1/self.val_var_buf[path_slice]
+        ### @anyboby: handle the lambda vector, for any T>1000 or lambda<<1 they go to 0 
+        ### define some utility vectors for lambda and gamma
+        seed = np.zeros(shape=deltas.shape[-1]+1)
+        seed[0] = 1
+        disc_vec = scipy.signal.lfilter([1], [1, float(-self.gamma)], seed)     ### create vector of discounts
+        lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam)], seed)     ### create vector of discounts
+        
+        ### define inverse variance matrix in t and rollout length h, rewards have 0 variance in real samples
+        iv_mat = np.zeros(shape=(deltas.shape[-1], deltas.shape[-1]))
+        iv_mat[...,t,h] = 1/(val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
 
-        # self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam)
-        self.adv_buf[path_slice] = discount_cumsum(deltas, self.gamma, self.lam, weights=inv_vars)
-        # self.ret_var_buf[path_slice] = discount_cumsum_weighted(self.val_var_buf[path_slice], self.lam, weights=inv_vars)
-        # self.roll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.lam, weights=inv_vars) - np.arange(self.ptr)
+        ### add lambda weighting
+        iv_mat[...,t, h] *= lam_vec[..., h]
+        iv_mat[...,Ht, HH] *= 1/(1-self.lam)
+    
+        ### create weight matrix for deltas 
+        d_weight_mat = discount_cumsum(iv_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
+        d_weight_norm = 1/d_weight_mat[..., 0]                                  #### normalize:
+        d_weight_mat[...,t,h] = d_weight_mat[...,t,h]*d_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
 
-        # self.ret_buf[path_slice] = discount_cumsum(rews, self.gamma)[:-1]
+        ### calculate iv-weighted advantages
+        self.adv_buf[path_slice] = discount_cumsum_weighted(deltas, self.gamma, d_weight_mat)
+
+        #### calc return variances and rollout lengths for each Adv_t
+        self.ret_var_buf[path_slice] = d_weight_norm*1/(1-self.lam)
+        self.roll_lengths_buf[path_slice] = \
+            discount_cumsum_weighted(np.arange(self.ptr), 1.0, iv_mat)*d_weight_norm - np.arange(self.ptr)
+        #### R_t = A_GAE,t^iv + V_t
         self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
+
+        #=====================================================================#
+        #  Inverse Variance Weighted Cost Advantages                          #
+        #=====================================================================#
+
+        ### define some utility vectors for lambda and gamma
+        c_disc_vec = scipy.signal.lfilter([1], [1, float(-self.cost_gamma)], seed)     ### create vector of discounts
+        c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam)], seed)     ### create vector of discounts
 
         costs = np.append(self.cost_buf[path_slice], last_cval)
         cvals = np.append(self.cval_buf[path_slice], last_cval)
-        cdeltas = costs[:-1] + self.gamma * cvals[1:] - cvals[:-1]
-
         cval_vars = np.append(self.cval_var_buf[path_slice], last_cval_var)
-        cdelta_vars = self.gamma * cval_vars[1:] - cval_vars[:-1]
-        inv_cvars = 1/self.cval_var_buf[path_slice]
 
-        self.cadv_buf[path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, weights=inv_cvars)
-        # self.cret_var_buf[path_slice] = discount_cumsum_weighted(self.cval_var_buf[path_slice], self.lam, weights=inv_cvars)
-        # self.croll_lengths_buf[path_slice] = discount_cumsum_weighted(np.arange(self.ptr), self.cost_lam, weights=inv_cvars) - np.arange(self.ptr)
+        cdeltas = costs[:-1] + self.cost_gamma * cvals[1:] - cvals[:-1]
 
-        # self.cret_buf[path_slice] = discount_cumsum(costs, self.cost_gamma)[:-1]
+        ### define inverse variance matrix in t and rollout length h, rewards have 0 variance in real samples
+        c_iv_mat = np.zeros(shape=(cdeltas.shape[-1], cdeltas.shape[-1]))
+        c_iv_mat[...,t,h] = 1/(cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
+
+        ### add lambda weighting
+        c_iv_mat[...,t, h] *= c_lam_vec[..., h]
+        c_iv_mat[...,Ht, HH] *= 1/(1-self.cost_lam)
+    
+        ### create weight matrix for deltas 
+        cd_weight_mat = discount_cumsum(c_iv_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
+        cd_weight_norm = 1/cd_weight_mat[..., 0]                                  #### normalize:
+        cd_weight_mat[...,t,h] = cd_weight_mat[...,t,h]*cd_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
+
+        ### calculate iv-weighted advantages
+        self.cadv_buf[path_slice] = discount_cumsum_weighted(cdeltas, self.cost_gamma, cd_weight_mat)
+
+        #### calc return variances and rollout lengths for each Adv_t
+        self.cret_var_buf[path_slice] = cd_weight_norm*1/(1-self.cost_lam)
+        self.croll_lengths_buf[path_slice] = \
+            discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_iv_mat)*cd_weight_norm - np.arange(self.ptr)
+        #### R_t = A_GAE,t^iv + V_t
         self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
         
+        #### useful line for debugging (A should be the same for roughly equal weights):
+        #######     np.max((discount_cumsum(cdeltas, self.gamma, self.lam)-self.cadv_buf[path_slice])**2)
+
         self.path_start_idx = self.ptr
         self.path_finished = True
+
 
     def dump_to_archive(self):
         """

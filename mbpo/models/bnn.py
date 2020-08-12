@@ -869,26 +869,40 @@ class BNN:
             mean, log_var = self._compile_outputs(inputs, ret_log_var=True)            
             inv_var = tf.exp(-log_var)
 
-            if weights is not None:
-                if var_correction is not None:
-                    var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
-                    inv_var_corr = 1/var_corr
-                    log_var_corr = tf.log(var_corr)
-                    mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
-                    var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
-                else:
-                    mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-                    var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
-            else:
-                if var_correction is not None:
-                    var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
-                    inv_var_corr = 1/var_corr
-                    log_var_corr = tf.log(var_corr)
-                    mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
-                    var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
-                else:
-                    mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-                    var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+
+            #=====================================================================#
+            #  Variance Correction if Provided                                    #
+            #=====================================================================#
+
+            #### NLL with var correction: NLL = .5*ln(var) + (mean - tar)**2/var + var_corr/var (s. paper for more details)
+            if weights is None:
+                weights = 1
+            if var_correction is None:
+                var_correction = 0
+                
+            mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * inv_var *  (tf.square(mean - targets) + var_correction), axis=-1), axis=-1)
+            var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+
+            # if weights is not None:
+            #     if var_correction is not None:
+            #         var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
+            #         inv_var_corr = 1/var_corr
+            #         log_var_corr = tf.log(var_corr)
+            #         mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
+            #         var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
+            #     else:
+            #         mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+            #         var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
+            # else:
+            #     if var_correction is not None:
+            #         var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
+            #         inv_var_corr = 1/var_corr
+            #         log_var_corr = tf.log(var_corr)
+            #         mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
+            #         var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
+            #     else:
+            #         mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
+            #         var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
 
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses

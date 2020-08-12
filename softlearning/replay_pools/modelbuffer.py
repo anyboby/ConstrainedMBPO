@@ -149,8 +149,9 @@ class ModelBuffer(CPOBuffer):
             
             rews = np.append(self.rew_buf[:, finish_mask, path_slice], last_val[..., None], axis=-1)
             vals = np.append(self.val_buf[:, finish_mask, path_slice], last_val[..., None], axis=-1)
-            val_vars = np.append(self.val_var_buf[:, finish_mask, path_slice], last_val_var[..., None], axis=-1)
+            
             # @anyboby maybe remove GMM variance
+            val_vars = np.append(self.val_var_buf[:, finish_mask, path_slice], last_val_var[..., None], axis=-1)
             val_vars = np.mean(val_vars, axis=0) + np.mean(val_vars**2, axis=0) - (np.mean(val_vars, axis=0))**2 
 
             #### only choose single trajectory for deltas
@@ -166,7 +167,7 @@ class ModelBuffer(CPOBuffer):
             HH = np.flip(HH)    ### H is last value in each t-row
 
             ### define some utility vectors for lambda and gamma
-            seed = np.zeros(shape=deltas.shape[-1])
+            seed = np.zeros(shape=deltas.shape[-1]+1)
             seed[0] = 1
             disc_vec = scipy.signal.lfilter([1], [1, float(-self.gamma)], seed)     ### create vector of discounts
             lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam)], seed)     ### create vector of discounts
@@ -177,7 +178,7 @@ class ModelBuffer(CPOBuffer):
 
             ### create inverse variance matrix in t and rollout length h
             iv_mat = np.zeros_like(rew_var_t_h)
-            iv_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1]*disc_vec[..., h]+EPS)
+            iv_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
             
             ### add lambda weighting
             iv_mat[...,t, h] *= lam_vec[..., h]
@@ -204,6 +205,10 @@ class ModelBuffer(CPOBuffer):
             #=====================================================================#
             #  Inverse Variance Weighted Cost Advantages                          #
             #=====================================================================#
+            
+            ### define some utility vectors for lambda and gamma
+            c_disc_vec = scipy.signal.lfilter([1], [1, float(-self.cost_gamma)], seed)     ### create vector of discounts
+            c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam)], seed)     ### create vector of discounts
 
             costs = np.append(self.cost_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
             cvals = np.append(self.cval_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
@@ -221,10 +226,10 @@ class ModelBuffer(CPOBuffer):
 
             ### create inverse variance matrix in t and rollout length h
             c_iv_mat = np.zeros_like(c_var_t_h)
-            c_iv_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]*disc_vec[..., h]+EPS)
+            c_iv_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
             
             ### add lambda weighting
-            c_iv_mat[...,t, h] *= lam_vec[..., h]
+            c_iv_mat[...,t, h] *= c_lam_vec[..., h]
             c_iv_mat[...,Ht, HH] *= 1/(1-self.cost_lam)
             
             ### create weight matrix for deltas 
@@ -244,7 +249,7 @@ class ModelBuffer(CPOBuffer):
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
-        
+         
     def get(self):
         """
         Returns a list of predetermined values in the buffer.

@@ -50,10 +50,10 @@ class SimpleSampler(BaseSampler):
             self._current_observation = np.squeeze(self.env.reset())
             self._last_action = np.zeros(shape=self.env.action_space.shape)
 
-        action = self.policy.actions_np([
+        action = self.policy.actions_np(
             self.env.convert_to_active_observation(
                 self._current_observation)[None]
-        ])[0]
+        )[0]
 
         next_observation, reward, terminal, info = self.env.step(action)
         next_observation = np.squeeze(next_observation)
