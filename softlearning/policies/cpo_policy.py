@@ -820,6 +820,10 @@ class CPOPolicy(BasePolicy):
                                             inputs[self.ret_ph][:, np.newaxis], \
                                             inputs[self.obs_ph], \
                                             inputs[self.cret_ph][:, np.newaxis]
+        #### limit size, save unnecessary memory
+        n_samples = v_ins.shape[1] if len(v_ins.shape)==3 else v_ins.shape[0]
+        rand_inds = np.random.randint(0, n_samples, 5000)
+        v_ins, v_tars, vc_ins, vc_tars = v_ins[...,rand_inds,:], v_tars[...,rand_inds,:], vc_ins[...,rand_inds,:], vc_tars[...,rand_inds,:]
 
         v_loss = self.v.validate(v_ins, v_tars)
         vc_loss = self.vc.validate(vc_ins, vc_tars)

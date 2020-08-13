@@ -204,7 +204,8 @@ class CPOBuffer:
         #### calc return variances and rollout lengths for each Adv_t
         self.ret_var_buf[path_slice] = d_weight_norm*1/(1-self.lam)
         self.roll_lengths_buf[path_slice] = \
-            discount_cumsum_weighted(np.arange(self.ptr), 1.0, iv_mat)*d_weight_norm - np.arange(self.ptr)
+            discount_cumsum_weighted(np.arange(self.ptr - self.path_start_idx), 1.0, iv_mat)*d_weight_norm - np.arange(self.ptr - self.path_start_idx)
+
         #### R_t = A_GAE,t^iv + V_t
         self.ret_buf[path_slice] = self.adv_buf[path_slice] + self.val_buf[path_slice]
 
@@ -241,7 +242,7 @@ class CPOBuffer:
         #### calc return variances and rollout lengths for each Adv_t
         self.cret_var_buf[path_slice] = cd_weight_norm*1/(1-self.cost_lam)
         self.croll_lengths_buf[path_slice] = \
-            discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_iv_mat)*cd_weight_norm - np.arange(self.ptr)
+            discount_cumsum_weighted(np.arange(self.ptr - self.path_start_idx), 1.0, c_iv_mat)*cd_weight_norm - np.arange(self.ptr - self.path_start_idx)
         #### R_t = A_GAE,t^iv + V_t
         self.cret_buf[path_slice] = self.cadv_buf[path_slice] + self.cval_buf[path_slice]
         

@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
                                     hidden_dims=hidden_dims, 
                                     dyn_discount = self._dyn_m_discount,
                                     cost_m_discount = self._cost_m_discount,
-                                    cares_about_cost=True,
+                                    cares_about_cost=False,
                                     safe_config=self.safe_config,
                                     session = self._session)
 
@@ -293,7 +293,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 40e3
+            min_samples = 10e3
             max_samples = 100e3
             samples_added = 0
 

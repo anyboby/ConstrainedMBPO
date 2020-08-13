@@ -245,7 +245,7 @@ class ModelSampler(CpoSampler):
         
         rew_var = info.get('rew_ensemble_var', np.zeros(reward.shape))
 
-        c = info.get('cost', np.zeros(reward.shape))
+        c = np.squeeze(info.get('cost', np.zeros(reward.shape)))
         c_var = info.get('cost_ensemble_var', np.zeros(reward.shape))
 
         terminal = np.squeeze(terminal, axis=-1)

@@ -313,8 +313,8 @@ class ModelBuffer(CPOBuffer):
                 cret_mean = 0
                 val_var_mean = 0
                 cval_var_mean = 0
-                norm_ret_var_mean = 0
-                norm_cret_var_mean = 0
+                norm_adv_var_mean = 0
+                norm_cadv_var_mean = 0
                 avg_horizon_r = 0
                 avg_horizon_c = 0
 

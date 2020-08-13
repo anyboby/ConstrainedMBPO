@@ -55,8 +55,8 @@ class FakeEnv:
         # self.prior_f = PRIORS_BY_DOMAIN.get(self.domain, None)
         # self.post_f = POSTS_BY_DOMAIN.get(self.domain, None)
         
-        self.prior_f = True
-        self.post_f = True
+        self.prior_f = False #True
+        self.post_f =  False #True
         self.prior_dim = PRIOR_DIMS.get(self.domain, 0)
         #### create fake env from model 
 
@@ -215,6 +215,7 @@ class FakeEnv:
 
         else:
             terminals = self.static_fns.termination_fn(obs, act, next_obs)
+            rewards = samples[...,-self.rew_dim:]
         rew_var = np.squeeze(np.var(rewards, axis=0))
 
         if self.cares_about_cost:
@@ -239,11 +240,11 @@ class FakeEnv:
             #     cost_var = np.var(costs, axis=0)
             
             # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
-            costs = np.squeeze(np.clip(costs, 0, 1))
+            # costs = np.squeeze(np.clip(costs, 0, 1))
 
         else:
             costs = np.zeros_like(rewards)
-            cost_var = 0
+            cost_var = np.zeros(shape=rewards.shape[1:])
 
         # batch_size = model_means.shape[0]
         ###@anyboby TODO this calculation seems a bit suspicious to me
