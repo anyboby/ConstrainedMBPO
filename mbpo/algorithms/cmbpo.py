@@ -135,7 +135,7 @@ class CMBPO(RLAlgorithm):
         self._cost_m_discount = cost_m_discount
         
         ## create fake environment for model
-        self.fake_env = FakeEnv(training_environment, policy,
+        self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
                                     num_elites=5, 
                                     hidden_dims=hidden_dims, 
@@ -294,7 +294,7 @@ class CMBPO(RLAlgorithm):
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
             min_samples = 10e3
-            max_samples = 100e3
+            max_samples = 50e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     

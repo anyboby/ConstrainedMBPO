@@ -169,7 +169,7 @@ class ModelBuffer(CPOBuffer):
             ### define some utility vectors for lambda and gamma
             seed = np.zeros(shape=deltas.shape[-1]+1)
             seed[0] = 1
-            disc_vec = scipy.signal.lfilter([1], [1, float(-self.gamma)], seed)     ### create vector of discounts
+            disc_vec = scipy.signal.lfilter([1], [1, float(-(self.gamma)**2)], seed)     ### create vector of discounts
             lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam)], seed)     ### create vector of discounts
             
             ### determine variances for various t and n-step horizons
@@ -177,25 +177,32 @@ class ModelBuffer(CPOBuffer):
             rew_var_t_h = np.var(rew_t_h, axis=0)
 
             ### create inverse variance matrix in t and rollout length h
-            iv_mat = np.zeros_like(rew_var_t_h)
-            iv_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1])#*disc_vec[..., h+1]+EPS)
-            
+            weight_mat = np.zeros_like(rew_var_t_h)
+            weight_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
+            iv_mat = weight_mat.copy()      ### needed later
+
             ### add lambda weighting
-            iv_mat[...,t, h] *= lam_vec[..., h]
-            iv_mat[...,Ht, HH] *= 1/(1-self.lam)
+            weight_mat[...,t, h] *= lam_vec[..., h]
+            weight_mat[...,Ht, HH] *= 1/(1-self.lam)
             
             ### create weight matrix for deltas 
-            d_weight_mat = discount_cumsum(iv_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
-            d_weight_norm = 1/d_weight_mat[..., 0]                                  #### normalize:
-            d_weight_mat[...,t,h] = d_weight_mat[...,t,h]*d_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
+            d_weight_mat = discount_cumsum(weight_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
+            weight_norm = 1/d_weight_mat[..., 0]                                  #### normalize:
+            d_weight_mat[...,t,h] = d_weight_mat[...,t,h]*weight_norm[..., t]     ####    first entry for every t containts sum of all weights
             
             ### calculate iv-weighted advantages
             self.adv_buf[finish_mask, path_slice] = discount_cumsum_weighted(deltas, self.gamma, d_weight_mat)
             
             #### calc return variances and rollout lengths for each Adv_t
-            self.ret_var_buf[finish_mask, path_slice] = d_weight_norm*1/(1-self.lam)
+            # self.ret_var_buf[finish_mask, path_slice] = d_weight_norm*1/(1-self.lam)
+            var_weight_mat = weight_mat.copy()
+            var_weight_mat[...,t,h] = (var_weight_mat[...,t,h]*weight_norm[..., t])**2 * 1/iv_mat[...,t,h]
+
+            self.cret_var_buf[finish_mask, path_slice] = \
+                discount_cumsum_weighted(np.ones_like(deltas), 1.0, var_weight_mat)
+
             self.roll_lengths_buf[finish_mask, path_slice] = \
-                discount_cumsum_weighted(np.arange(self.ptr), 1.0, iv_mat)*d_weight_norm - np.arange(self.ptr)
+                discount_cumsum_weighted(np.arange(self.ptr), 1.0, weight_mat)*weight_norm - np.arange(self.ptr)
             #### R_t = A_GAE,t^iv + V_t
             self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[self.model_ind, finish_mask, path_slice]
 
@@ -207,7 +214,7 @@ class ModelBuffer(CPOBuffer):
             #=====================================================================#
             
             ### define some utility vectors for lambda and gamma
-            c_disc_vec = scipy.signal.lfilter([1], [1, float(-self.cost_gamma)], seed)     ### create vector of discounts
+            c_disc_vec = scipy.signal.lfilter([1], [1, float(-(self.cost_gamma)**2)], seed)     ### create vector of discounts
             c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam)], seed)     ### create vector of discounts
 
             costs = np.append(self.cost_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
@@ -225,25 +232,32 @@ class ModelBuffer(CPOBuffer):
             c_var_t_h = np.var(c_t_h, axis=0)
 
             ### create inverse variance matrix in t and rollout length h
-            c_iv_mat = np.zeros_like(c_var_t_h)
-            c_iv_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]) #*c_disc_vec[..., h+1]+EPS)
-            
+            c_weight_mat = np.zeros_like(c_var_t_h)
+            c_weight_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
+            c_iv_mat = c_weight_mat.copy()      ### needed later
+
             ### add lambda weighting
-            c_iv_mat[...,t, h] *= c_lam_vec[..., h]
-            c_iv_mat[...,Ht, HH] *= 1/(1-self.cost_lam)
+            c_weight_mat[...,t, h] *= c_lam_vec[..., h]
+            c_weight_mat[...,Ht, HH] *= 1/(1-self.cost_lam)         ###last entry accounts for remaining (imagined) lambda weights
             
             ### create weight matrix for deltas 
-            cd_weight_mat = discount_cumsum(c_iv_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
-            cd_weight_norm = 1/cd_weight_mat[..., 0]                                  #### normalize:
-            cd_weight_mat[...,t,h] = cd_weight_mat[...,t,h]*cd_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
+            cd_weight_mat = discount_cumsum(c_weight_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
+            c_weight_norm = 1/cd_weight_mat[..., 0]                                  #### normalize:
+            cd_weight_mat[...,t,h] = cd_weight_mat[...,t,h]*c_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
             
             ### calculate iv-weighted advantages
             self.cadv_buf[finish_mask, path_slice] = discount_cumsum_weighted(cdeltas, self.cost_gamma, cd_weight_mat)
             
             #### calc return variances and rollout lengths for each Adv_t
-            self.cret_var_buf[finish_mask, path_slice] = cd_weight_norm*1/(1-self.cost_lam)
+            #self.cret_var_buf[finish_mask, path_slice] = weight_norm*1/(1-self.cost_lam)
+            c_var_weight_mat = c_weight_mat.copy()
+            c_var_weight_mat[...,t,h] = (c_var_weight_mat[...,t,h]*weight_norm[..., t])**2 * 1/c_iv_mat[...,t,h]
+
+            self.cret_var_buf[finish_mask, path_slice] = \
+                discount_cumsum_weighted(np.ones_like(cdeltas), 1.0, c_var_weight_mat)
+
             self.croll_lengths_buf[finish_mask, path_slice] = \
-                discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_iv_mat)*cd_weight_norm - np.arange(self.ptr)
+                discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_weight_mat)*c_weight_norm - np.arange(self.ptr)
             #### R_t = A_GAE,t^iv + V_t
             self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[self.model_ind, finish_mask, path_slice]
 

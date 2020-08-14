@@ -105,7 +105,7 @@ class ExperimentRunner(tune.Trainable):
         graph_writer.close()
         
         #### finalize graph
-        tf.get_default_graph().finalize()
+        # tf.get_default_graph().finalize() ### good for debugging, but interferes with Qs on SAC
         self._built = True
 
 
