@@ -124,7 +124,7 @@ class MBPO(RLAlgorithm):
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
-                                    num_elites=5, hidden_dim=hidden_dim, 
+                                    num_elites=5, hidden_dims=(hidden_dim,hidden_dim,hidden_dim), 
                                     safe_config=self.safe_config,
                                     session = self._session)
 

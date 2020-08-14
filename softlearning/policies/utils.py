@@ -3,7 +3,7 @@ from copy import deepcopy
 from softlearning.preprocessors.utils import get_preprocessor_from_params
 
 
-def get_gaussian_policy(env, Q, **kwargs):
+def get_gaussian_policy(env, Q, session, *args, **kwargs):
     from .gaussian_policy import FeedforwardGaussianPolicy
     policy = FeedforwardGaussianPolicy(
         input_shapes=(env.active_observation_shape, ),
@@ -12,7 +12,7 @@ def get_gaussian_policy(env, Q, **kwargs):
 
     return policy
 
-def get_cpo_policy(env, session, *args, **kwargs):
+def get_cpo_policy(env, Q, session, *args, **kwargs):
     from .cpo_policy import CPOPolicy
     policy = CPOPolicy(
         obs_space=env.observation_space,
@@ -55,8 +55,8 @@ def get_policy_from_variant(variant, env, Qs, *args, **kwargs):
 
     policy = POLICY_FUNCTIONS[policy_type](
         env,
+        Qs[0],
         *args,
-        Q=Qs[0],
         preprocessor=preprocessor,
         **policy_kwargs,
         **kwargs)
