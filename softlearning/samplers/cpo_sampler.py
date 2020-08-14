@@ -185,7 +185,7 @@ class CpoSampler():
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)
-        #info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
+        # info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
         
         c = info.get('cost', 0)
         self.cum_cost += c

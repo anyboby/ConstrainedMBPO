@@ -52,11 +52,9 @@ class FakeEnv:
 
         target_weight_f = WEIGHTS_PER_DOMAIN.get(self.domain, None)
         self.target_weights = target_weight_f(self.obs_dim) if target_weight_f else None
-        # self.prior_f = PRIORS_BY_DOMAIN.get(self.domain, None)
-        # self.post_f = POSTS_BY_DOMAIN.get(self.domain, None)
         
-        self.prior_f = False #True
-        self.post_f =  False #True
+        self.prior_f = PRIORS_BY_DOMAIN.get(self.domain, False)
+        self.post_f =  POSTS_BY_DOMAIN.get(self.domain, False)
         self.prior_dim = PRIOR_DIMS.get(self.domain, 0)
         #### create fake env from model 
 

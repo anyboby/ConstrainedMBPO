@@ -133,9 +133,10 @@ class GymAdapter(SoftlearningEnv):
             ### stack env
             self.stacks = self.safeconfig['stacks'] ### for convenience
             self.stacking_axis = self.safeconfig['stacking_axis']
-            env = DummyVecEnv([lambda:env])
-            #env = VecNormalize(env)        doesn't work at all for some reason
-            env = VecFrameStack(env, self.safeconfig['stacks'])
+            if self.stacks>1:
+                env = DummyVecEnv([lambda:env])
+                #env = VecNormalize(env)        doesn't work at all for some reason
+                env = VecFrameStack(env, self.safeconfig['stacks'])
 
         #### --- end specifically for safety_gym  --- ###
 

@@ -178,7 +178,7 @@ class ModelBuffer(CPOBuffer):
 
             ### create inverse variance matrix in t and rollout length h
             iv_mat = np.zeros_like(rew_var_t_h)
-            iv_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
+            iv_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1])#*disc_vec[..., h+1]+EPS)
             
             ### add lambda weighting
             iv_mat[...,t, h] *= lam_vec[..., h]
@@ -226,7 +226,7 @@ class ModelBuffer(CPOBuffer):
 
             ### create inverse variance matrix in t and rollout length h
             c_iv_mat = np.zeros_like(c_var_t_h)
-            c_iv_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
+            c_iv_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]) #*c_disc_vec[..., h+1]+EPS)
             
             ### add lambda weighting
             c_iv_mat[...,t, h] *= c_lam_vec[..., h]
