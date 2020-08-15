@@ -1039,7 +1039,7 @@ class CPOPolicy(BasePolicy):
             'cpo/vc-std'      : np.std(vc),
             'cpo/logp-mean'   : np.mean(logp),
             'cpo/logp-std'    : np.std(logp),
-            'cpo/pi_info'     : pi_info,
+            #'cpo/pi_info'     : pi_info,
             # 'd_kl-mean-std' : np.mean(d_kl),
             # 'd_kl-std'      : np.std(d_kl),
             # 'ent-mean'      : np.mean(ent),

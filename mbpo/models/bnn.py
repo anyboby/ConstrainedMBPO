@@ -883,27 +883,6 @@ class BNN:
             mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * inv_var *  (tf.square(mean - targets) + var_correction), axis=-1), axis=-1)
             var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
 
-            # if weights is not None:
-            #     if var_correction is not None:
-            #         var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
-            #         inv_var_corr = 1/var_corr
-            #         log_var_corr = tf.log(var_corr)
-            #         mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
-            #         var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
-            #     else:
-            #         mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-            #         var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
-            # else:
-            #     if var_correction is not None:
-            #         var_corr = tf.clip_by_value(tf.exp(log_var)-var_correction, 1e-10, 1e6) 
-            #         inv_var_corr = 1/var_corr
-            #         log_var_corr = tf.log(var_corr)
-            #         mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var_corr, axis=-1), axis=-1)
-            #         var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var_corr, axis=-1), axis=-1) 
-            #     else:
-            #         mse_losses = tf.reduce_mean(tf.reduce_mean(0.5 * tf.square(mean - targets) * inv_var, axis=-1), axis=-1)
-            #         var_losses = tf.reduce_mean(tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
-
             self.var_loss_deb = var_losses
             total_losses = mse_losses + var_losses
         else:
@@ -937,9 +916,18 @@ class BNN:
         pred_cl = old_pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
 
         loss = tf.square(pred-targets)      ## unclipped loss
-        loss_cl = tf.square(pred_cl-targets)    ##loss of the clipped prediction
+        loss_cl = tf.square(pred_cl-targets)    ## loss of the clipped prediction 
 
         total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
+
+        total_predclloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(pred-targets) , axis=-1), axis=-1)
+        total_oldpredloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(old_pred-targets) , axis=-1), axis=-1)
+
+        # kl = tf.log(tf.sqrt(total_oldpredloss_deb)/tf.sqrt(total_predclloss_deb)) + \
+        #     (total_oldpredloss_deb + tf.square(old_pred)
+
+        self.cl_loss_deb1 = .5 * tf.reduce_mean(tf.reduce_mean(loss, axis=-1), axis=-1)
+        self.cl_loss_deb2 = .5 * tf.reduce_mean(tf.reduce_mean(loss_cl, axis=-1), axis=-1)
 
         return total_losses
 

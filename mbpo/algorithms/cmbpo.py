@@ -293,7 +293,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 10e3
+            min_samples = 1e3
             max_samples = 50e3
             samples_added = 0
 
@@ -323,9 +323,42 @@ class CMBPO(RLAlgorithm):
                     break
 
             #=====================================================================#
+            #  Get Buffer Data                                                    #
+            #=====================================================================#
+            #### get samples from buffer
+            if self._epoch==0:
+                arch_samples = self._pool.get_archive([     #### include initial expl. hook samples
+                        'observations',
+                        'actions',
+                        'advantages',
+                        'return_vars',
+                        'cadvantages',
+                        'creturn_vars',
+                        'returns',
+                        'creturns',
+                        'log_policies',
+                        'values',
+                        'cvalues',
+                        'costs',
+                        'pi_infos',
+                    ])
+                arch_samples = list(arch_samples.values())       ### samples from initial exploration hook
+                real_samples, buf_diag = self._pool.get()        ### samples from first epoch
+                real_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, arch_samples)]       ### merge
+            else:
+                real_samples, buf_diag= self._pool.get()
+
+            ### run diagnostics on real data
+            policy_diag = self._policy.run_diagnostics(real_samples)
+            policy_diag = {k+'_r':v for k,v in policy_diag.items()}
+            model_metrics.update(policy_diag)
+            model_metrics.update(buf_diag)
+
+            #=====================================================================#
             #  Train and Rollout model                                            #
             #=====================================================================#
             model_samples = None
+            
             #### start model rollout
             if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 self._training_progress.pause()
@@ -395,30 +428,6 @@ class CMBPO(RLAlgorithm):
                     self._epoch, self._rollout_batch_size 
                 ))                
                 
-                ### set initial states
-                if self._epoch==0:
-                    real_samples = self._pool.get_archive([     #### include initial expl. hook samples
-                            'observations',
-                            'actions',
-                            'advantages',
-                            'return_vars',
-                            'cadvantages',
-                            'creturn_vars',
-                            'returns',
-                            'creturns',
-                            'log_policies',
-                            'values',
-                            'cvalues',
-                            'costs',
-                            'pi_infos',
-                        ])
-                    real_samples = list(real_samples.values())
-                    _, diag_real = self._pool.get()        ### empty buffers in pool, get_archive doesn't do that
-                else:
-                    real_samples, diag_real= self._pool.get()
-
-                model_metrics.update(diag_real)
-
                 #=====================================================================#
                 #                           update critic                             #
                 #=====================================================================#
@@ -462,17 +471,12 @@ class CMBPO(RLAlgorithm):
                 model_data_diag = self._policy.run_diagnostics(model_samples)
                 model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
                 model_metrics.update(model_data_diag)
-                
-                ### run diagnostics on real data
-                real_data_diag = self._policy.run_diagnostics(real_samples)
-                real_data_diag = {k+'_r':v for k,v in real_data_diag.items()}
-                model_metrics.update(real_data_diag)
-                
-                if train_samples is None:
-                    train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                else: 
-                    new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                    train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
+                                
+            if train_samples is None:
+                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+            else: 
+                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+                train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
 
             self._training_progress.resume()
 
@@ -600,9 +604,8 @@ class CMBPO(RLAlgorithm):
             self.sampler.sample(timestep=0)
             if self.ready_to_train:
                 self.sampler.finish_all_paths(append_val=True)
-                pool.dump_to_archive() # move old policy samples to archive
-                pool.reset_buffers()
-
+                pool.get()  # moves policy samples to archive
+                
     def _do_sampling(self, timestep):
         return self.sampler.sample(timestep = timestep)
 

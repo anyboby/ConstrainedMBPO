@@ -36,11 +36,11 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_lr':                8e-5,
         'vf_hidden_layer_sizes':(128, 128, 128, 128),
         'vf_epochs':            8,                 
-        'vf_batch_size':        512,
+        'vf_batch_size':        128,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'NLL_varcorr',          # choose from #'NLL' (inc. var); 'NLL_varcorr' (acc. to paper) ; 'MSE' ; 'Huber', 'ClippedMSE'
+        'vf_loss':              'ClippedMSE',          # choose from #'NLL' (inc. var); 'NLL_varcorr' (acc. to paper) ; 'MSE' ; 'Huber', 'ClippedMSE'
         'vf_cliprange':         0.1,
         'cvf_cliprange':        1,
         'v_logit_bias':         0.0,#1,
@@ -110,7 +110,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(3000), #5000
+            'n_initial_exploration_steps': int(2000), #5000
         }
     },
     'SQL': {

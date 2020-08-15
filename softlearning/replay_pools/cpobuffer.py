@@ -318,8 +318,6 @@ class CPOBuffer:
                 self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
         """
         assert self.ptr == self.max_size    # uffer has to be full before you can get
-        self.dump_to_archive() 
-
         # Advantage normalizing trick for policy gradient
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
@@ -327,11 +325,15 @@ class CPOBuffer:
         # Center, but do NOT rescale advantages for cost gradient
         cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
         self.cadv_buf -= cadv_mean
+        self.dump_to_archive() 
+
+
         res = [self.obs_buf, self.act_buf, self.adv_buf, self.ret_var_buf,
                 self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
                 self.logp_buf, self.val_buf, self.cval_buf,
                 self.cost_buf] \
                 + values_as_sorted_list(self.pi_info_bufs)
+        
 
         ##### diagnostics        
         ret_mean = self.ret_buf.mean()
@@ -407,13 +409,11 @@ class CPOBuffer:
         else:
             pi_info_requested = False
 
-        samples = {archive: \
-                        np.concatenate((self.arch_dict[archive][:arch_ptr], self.buf_dict[archive][:buf_ptr]), axis=0) \
-                        for archive in archives}
+        samples = {archive:self.arch_dict[archive][:arch_ptr] for archive in archives}
         
         if pi_info_requested:
             pi_infos = {
-                k:np.concatenate((self.pi_info_archive[k][:arch_ptr], self.pi_info_bufs[k][:buf_ptr]), axis=0) for k in keys_as_sorted_list(self.pi_info_archive)
+                k:self.pi_info_archive[k][:arch_ptr] for k in keys_as_sorted_list(self.pi_info_archive)
                 }
             samples.update(pi_infos)
         # add current buffers
