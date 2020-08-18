@@ -86,7 +86,7 @@ class FakeEnv:
                                         out_dim=1,
                                         loss=self.cost_m_loss,
                                         name='CostNN',
-                                        hidden_dims=(128,128,128),
+                                        hidden_dims=(128,128),
                                         lr=8e-5,
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
@@ -222,7 +222,7 @@ class FakeEnv:
                 inputs_cost = next_obs
 
             costs, cost_var = self._cost_model.predict(inputs_cost, factored=False, inc_var=True)
-            cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
+            cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
 
             # if self.inc_var_c:
             #     costs, cost_var = self._cost_model.predict(inputs_cost, factored=True, inc_var=True)

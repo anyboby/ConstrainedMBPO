@@ -109,8 +109,8 @@ class ModelSampler(CpoSampler):
         ensemble_cost_var_perstep = self._total_cost_var/(self._total_samples+EPS)
         ensemble_dyn_var_perstep = self._total_dyn_var/(self._total_samples+EPS)
 
-        ensemble_cost_rate = np.sum(np.mean(self._path_cost, axis=0))(self._total_samples+EPS)
-        ensemble_rew_rate = np.sum(np.mean(self._path_return, axis=0))(self._total_samples+EPS)
+        ensemble_cost_rate = np.sum(np.mean(self._path_cost, axis=0))/(self._total_samples+EPS)
+        ensemble_rew_rate = np.sum(np.mean(self._path_return, axis=0))/(self._total_samples+EPS)
 
         vals_mean = self._total_Vs / (self._total_samples+EPS)
         vals_var = self._total_V_var / (self._total_samples+EPS)
@@ -249,7 +249,6 @@ class ModelSampler(CpoSampler):
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
 
         reward = np.squeeze(reward, axis=-1)
-        
         rew_var = info.get('rew_ensemble_var', np.zeros(reward.shape))
 
         c = np.squeeze(info.get('cost', np.zeros(reward.shape)))
@@ -262,7 +261,6 @@ class ModelSampler(CpoSampler):
         dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
 
         next_val, next_val_var = self.policy.get_v(next_obs, factored=True, inc_var=True)
-
         next_cval, next_cval_var = self.policy.get_vc(next_obs, factored=True, inc_var=True)
 
         #### variance for gaussian mixture, add dispersion of means to variance
@@ -276,6 +274,9 @@ class ModelSampler(CpoSampler):
 
         ### check if too uncertain before storing info of the taken step 
         ### (so we don't take a "bad step" by appending values of next state)
+        ep_cval_var = np.var(next_cval, axis=0)
+        ep_val_var = np.var(next_val, axis=0)
+
         cost_uncertainty = self._path_cost_var[alive_paths] + c_var
         rew_uncertainty = self._path_return_var[alive_paths] + rew_var 
 
@@ -283,7 +284,7 @@ class ModelSampler(CpoSampler):
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
-        # too_uncertain_mask = path_uncertainty > self._max_uncertainty
+        ## epistemic trajectory-return variance vs epistemic value variance as termination
         too_uncertain_paths = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
                                             rew_uncertainty + next_val_var > self._max_uncertainty_rew) 
         # too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \

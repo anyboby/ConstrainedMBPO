@@ -36,7 +36,7 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_lr':                3e-4,
         'vf_hidden_layer_sizes':(256,256), #(128, 128, 128, 128),
         'vf_epochs':            10,                 
-        'vf_batch_size':        1024,
+        'vf_batch_size':        2048,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(1e4),
+                    'CPOBuffer':int(25e3),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

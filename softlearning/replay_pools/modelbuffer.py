@@ -75,12 +75,13 @@ class ModelBuffer(CPOBuffer):
         # terminated_paths_mask essentially notes the same thing as populated_mask but is one_dimensional for 
         #   convenience
 
-        self.ptr, self.path_start_idx, self.max_size, self.populated_mask, self.terminated_paths_mask = \
-                                                                                0, \
-                                                                                0, \
-                                                                                np.ones(self.batch_size)*self.max_path_length, \
-                                                                                np.zeros((self.batch_size, self.max_path_length), dtype=np.bool), \
-                                                                                np.zeros(self.batch_size, dtype=np.bool)
+        self.ptr, self.path_start_idx, self.max_size, self.populated_mask, self.populated_indices, self.terminated_paths_mask = \
+                                                            0, \
+                                                            0, \
+                                                            np.ones(self.batch_size)*self.max_path_length, \
+                                                            np.zeros((self.batch_size, self.max_path_length), dtype=np.bool), \
+                                                            np.repeat(np.arange(self.max_path_length)[None], axis=0, repeats=self.batch_size), \
+                                                            np.zeros(self.batch_size, dtype=np.bool)
 
 
     @property
@@ -262,6 +263,21 @@ class ModelBuffer(CPOBuffer):
                 discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_weight_mat)*c_weight_norm - np.arange(self.ptr)
             #### R_t = A_GAE,t^iv + V_t
             self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[self.model_ind, finish_mask, path_slice]
+            
+            #=====================================================================#
+            #  Determine Rollout Lengths                                          #
+            #=====================================================================#
+            
+            ### calc variance acceleration and normalize
+            c_var_acc = np.diff(np.diff(self.cret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
+            c_var_acc = (c_var_acc-np.mean(c_var_acc, axis=-1)[...,None])/(np.std(c_var_acc, axis=-1)[...,None]+EPS)
+            v_var_acc = np.diff(np.diff(self.ret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
+            v_var_acc = (v_var_acc-np.mean(v_var_acc, axis=-1)[...,None])/(np.std(v_var_acc, axis=-1)[...,None]+EPS)
+
+            var_acc_threshold = 1 ### all variance accelerations above 1 std are filtered out
+            var_acc_mask = np.logical_or(c_var_acc>var_acc_threshold, v_var_acc>var_acc_threshold)
+            horizons = np.argmax(var_acc_mask, axis=-1)[...,None]
+            self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask

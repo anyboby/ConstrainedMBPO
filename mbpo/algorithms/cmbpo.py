@@ -293,8 +293,8 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 1e3
-            max_samples = 100e3
+            min_samples = 10e3
+            max_samples = 120e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -391,19 +391,19 @@ class CMBPO(RLAlgorithm):
                 #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 150 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                max_epochs = 500 if self._epoch<10 else 10
-                # if len(samples['observations'])>30000:
-                #     samples = {k:v[-30000:] for k,v in samples.items()} 
-                batch_size = 512 + min(self._epoch//50*512, 7*512)
+                # min_epochs = 150 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                # max_epochs = 500 if self._epoch<10 else 10
+                # # if len(samples['observations'])>30000:
+                # #     samples = {k:v[-30000:] for k,v in samples.items()} 
+                # batch_size = 512 + min(self._epoch//50*512, 7*512)
 
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
                         discount = self._dyn_m_discount,
-                        batch_size=batch_size, #512
-                        max_epochs=max_epochs, 
-                        min_epoch_before_break=min_epochs, 
+                        batch_size=1024, #batch_size, #512
+                        max_epochs=25, # max_epochs 
+                        min_epoch_before_break=5, # min_epochs, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
                         )
@@ -413,9 +413,9 @@ class CMBPO(RLAlgorithm):
                     model_train_metrics_cost = self.fake_env.train_cost_model(
                         samples, 
                         discount = self._cost_m_discount,
-                        batch_size=batch_size, #512, 
-                        min_epoch_before_break=min_epochs,
-                        max_epochs=max_epochs, 
+                        batch_size= 1024, #batch_size, #512, 
+                        min_epoch_before_break= 5,#min_epochs,
+                        max_epochs=25, # max_epochs, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
                         )
