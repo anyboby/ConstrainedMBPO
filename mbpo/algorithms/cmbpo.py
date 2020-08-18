@@ -294,7 +294,7 @@ class CMBPO(RLAlgorithm):
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
             min_samples = 1e3
-            max_samples = 50e3
+            max_samples = 5e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -338,7 +338,9 @@ class CMBPO(RLAlgorithm):
                         'creturns',
                         'log_policies',
                         'values',
+                        'value_vars',
                         'cvalues',
+                        'cvalue_vars',
                         'costs',
                         'pi_infos',
                     ])

@@ -4,7 +4,7 @@ import pdb
 
 from softlearning.misc.utils import get_git_rev, deep_update
 
-M = 256 #256
+M = 64 #256
 REPARAMETERIZE = True
 
 NUM_COUPLING_LAYERS = 2
@@ -34,24 +34,26 @@ CPO_POLICY_PARAMS_BASE = {
                ['algorithm_params']['kwargs']['num_networks'] 
             )),
         'vf_lr':                8e-5,
-        'vf_hidden_layer_sizes':(128, 128, 128, 128),
-        'vf_epochs':            8,                 
+        'vf_hidden_layer_sizes':(64,64), #(128, 128, 128, 128),
+        'vf_epochs':            10,                 
         'vf_batch_size':        128,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'ClippedMSE',          # choose from #'NLL' (inc. var); 'NLL_varcorr' (acc. to paper) ; 'MSE' ; 'Huber', 'ClippedMSE'
-        'vf_cliprange':         0.1,
-        'cvf_cliprange':        1,
-        'v_logit_bias':         0.0,#1,
+        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
+        'vf_decay':              1e-6,
+        'vf_clipping':          True,           # clip losses for a trust-region like update
+        'vf_kl_cliprange':      0.1,
+        'vf_var_corr':          True,           # include variance correction terms acc. to paper, only use with NLL
+        'v_logit_bias':         0.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        0.0,# 10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         5000,
         'cost_lim':             5000,
-        'cost_lam':             .97,
+        'cost_lam':             .95,
         'cost_gamma':           0.99,
-        'lam':                  .97,
+        'lam':                  .95,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)

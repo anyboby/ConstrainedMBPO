@@ -22,7 +22,9 @@ def construct_model(in_dim,
 					weighted=False, 
 					use_scaler = False,
 					sc_factor = 1,
-					cliprange = 0.1,
+					clip_loss = False,
+					kl_cliprange = 0.1,
+					var_corr = False,
 					max_logvar = .5,
 					min_logvar = -6,
 					logit_bias_std=0,
@@ -30,7 +32,7 @@ def construct_model(in_dim,
 	"""
 	Constructs a tf model.
 	Args:
-		loss: Choose from 'NLL', 'MSE', 'Huber', 'ClippedMSE',  or 'CE'. 
+		loss: Choose from 'NLL', 'MSE', 'Huber', or 'CE'. 
 				choosing NLL will construct a model with variance output
 	"""
 	print('[ BNN ] dim in / out: {} / {} | Hidden dim: {}'.format(in_dim, out_dim, hidden_dims))
@@ -42,7 +44,9 @@ def construct_model(in_dim,
 				'sess': session,
 				'use_scaler': use_scaler,
 				'sc_factor': sc_factor,
-				'cliprange':cliprange,
+				'clip_loss': clip_loss,
+				'kl_cliprange':kl_cliprange,
+				'var_corr': var_corr,
 				'max_logvar':max_logvar,
 				'min_logvar':min_logvar,
 				'logit_bias_std':logit_bias_std,

@@ -40,11 +40,13 @@ class CPOBuffer:
             'rewards':      self.rew_buf,
             'returns':      self.ret_buf,
             'values':       self.val_buf,
+            'value_vars':   self.val_var_buf,
             'cadvantages':  self.cadv_buf,
             'creturn_vars':  self.cret_var_buf,
             'costs':        self.cost_buf,
             'creturns':     self.cret_buf,
             'cvalues':      self.cval_buf,
+            'cvalue_vars':  self.cval_var_buf,
             'log_policies': self.logp_buf,
             'terminals':    self.term_buf,
             'epochs':        self.epoch_buf,
@@ -59,11 +61,13 @@ class CPOBuffer:
             'rewards':      self.rew_archive,
             'returns':      self.ret_archive,
             'values':       self.val_archive,
+            'value_vars':   self.val_var_archive,
             'cadvantages':  self.cadv_archive,
             'creturn_vars':  self.cret_var_archive,
             'costs':        self.cost_archive,
             'creturns':     self.cret_archive,
             'cvalues':      self.cval_archive,
+            'cvalue_vars':  self.cval_var_archive,
             'log_policies': self.logp_archive,
             'terminals':    self.term_archive,
             'epochs':        self.epoch_archive,
@@ -187,7 +191,7 @@ class CPOBuffer:
         
         ### define inverse variance matrix in t and rollout length h, rewards have 0 variance in real samples
         weight_mat = np.zeros(shape=(deltas.shape[-1], deltas.shape[-1]))
-        weight_mat[...,t,h] = 1/(val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
+        weight_mat[...,t,h] = 1/(val_vars[..., t_p_h+1]+EPS) #*disc_vec[..., h+1]+EPS)
         iv_mat = weight_mat.copy()
 
         ### add lambda weighting
@@ -231,7 +235,7 @@ class CPOBuffer:
 
         ### define inverse variance matrix in t and rollout length h, rewards have 0 variance in real samples
         c_weight_mat = np.zeros(shape=(cdeltas.shape[-1], cdeltas.shape[-1]))
-        c_weight_mat[...,t,h] = 1/(cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
+        c_weight_mat[...,t,h] = 1/(cval_vars[..., t_p_h+1]+EPS) # * c_disc_vec[..., h+1]+EPS)
         c_iv_mat = c_weight_mat.copy()
 
         ### add lambda weighting
@@ -330,10 +334,10 @@ class CPOBuffer:
 
         res = [self.obs_buf, self.act_buf, self.adv_buf, self.ret_var_buf,
                 self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
-                self.logp_buf, self.val_buf, self.cval_buf,
+                self.logp_buf, self.val_buf, self.val_var_buf, self.cval_buf, self.cval_var_buf,
                 self.cost_buf] \
                 + values_as_sorted_list(self.pi_info_bufs)
-        
+        res = [v.copy() for v in res]
 
         ##### diagnostics        
         ret_mean = self.ret_buf.mean()

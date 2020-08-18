@@ -58,8 +58,12 @@ class BNN:
             self._sess = params.get('sess')
         
         self.loss_type = params.get('loss', 'NLL')
-        self.cliprange = params.get('cliprange', 0.2)   #### Only relevant if losstype is ClippedMSE
+
+        self.clip_loss = params.get('clip_loss', False)
+        self.kl_cliprange = params.get('kl_cliprange', 0.1)   #### Only relevant if clip_loss is True
+
         self.logit_bias_std = params.get('logit_bias_std', 0)
+        self.var_corr = params.get('var_corr', False) and self.loss_type=='NLL'
 
         # Instance variables
         self.finalized = False
@@ -222,10 +226,6 @@ class BNN:
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                                 name="training_targets")
                 
-                if self.loss_type == 'NLL_varcorr':
-                    self.var_corr_targ = tf.placeholder(dtype=tf.float32,
-                                                shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
-                                                name="training_targets")
             else:
                 self.sy_train_targ = tf.placeholder(dtype=tf.float32,
                                                 shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
@@ -240,21 +240,57 @@ class BNN:
             
             #### set up losses
             if self.loss_type == 'NLL':
-                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=self.weights))
+                if self.clip_loss:
+                    self.old_pred_ph = tf.placeholder(dtype=tf.float32,
+                                    shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
+                                    name="old_predictions_v")
+                    self.old_pred_var_ph = tf.placeholder(dtype=tf.float32,
+                                    shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
+                                    name="old_predictions_var")
+                else:
+                    self.old_pred_ph = None
+                    self.old_pred_var_ph = None
+
+                if self.var_corr:
+                    self.var_corr_targ = tf.placeholder(dtype=tf.float32,
+                                    shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
+                                    name="var_corr_targets")
+                else:
+                    self.var_corr_targ = None
+
+                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, 
+                                                            self.sy_train_targ, 
+                                                            inc_var_loss=True, 
+                                                            weights=self.weights, 
+                                                            var_correction=self.var_corr_targ,
+                                                            oldpred_v=self.old_pred_ph, 
+                                                            oldpred_var = self.old_pred_var_ph)
+                                                            )
                 train_loss += tf.add_n(self.decays)
                 train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
             
-            if self.loss_type == 'NLL_varcorr':
-                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=self.weights, var_correction=self.var_corr_targ))
-                train_loss += tf.add_n(self.decays)
-                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
-                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
+            # if self.loss_type == 'NLL_varcorr':
+            #     train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=self.weights, var_correction=self.var_corr_targ))
+            #     train_loss += tf.add_n(self.decays)
+            #     train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+            #     self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
+            #     self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
             elif self.loss_type == 'MSE':
-                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights))
+                if self.clip_loss:
+                    self.old_pred_ph = tf.placeholder(dtype=tf.float32,
+                                    shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
+                                    name="old_predictions")
+                else:
+                    self.old_pred_ph = None
+                train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, 
+                                                            self.sy_train_targ, 
+                                                            inc_var_loss=False, 
+                                                            weights=self.weights, 
+                                                            oldpred_v=self.old_pred_ph)
+                                                            )
                 train_loss += tf.add_n(self.decays)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
@@ -272,15 +308,15 @@ class BNN:
                 self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=self.weights)
 
-            elif self.loss_type == 'ClippedMSE':
-                self.old_pred_ph = tf.placeholder(dtype=tf.float32,
-                                                shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
-                                                name="old_predictions")
-                self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)                                       
-                train_loss = tf.reduce_sum(self._clippedMSE_loss(self.sy_train_in, self.sy_train_targ, self.old_pred_ph))
-                train_loss += tf.add_n(self.decays)
-                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights) ### use normal loss for displaying
-                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
+            # elif self.loss_type == 'ClippedMSE':
+            #     self.old_pred_ph = tf.placeholder(dtype=tf.float32,
+            #                                     shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
+            #                                     name="old_predictions")
+            #     self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)                                       
+            #     train_loss = tf.reduce_sum(self._clippedMSE_loss(self.sy_train_in, self.sy_train_targ, self.old_pred_ph))
+            #     train_loss += tf.add_n(self.decays)
+            #     self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights) ### use normal loss for displaying
+            #     self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
             #### _________________________ ####  
             ####      Optimization Ops     ####
@@ -451,15 +487,23 @@ class BNN:
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
-        if self.loss_type=='ClippedMSE':
-            old_pred = kwargs.get('old_pred', targets)
+        if self.loss_type=='MSE' and self.clip_loss:
+            old_pred = kwargs['old_pred']
             old_pred = old_pred[permutation[num_holdout:]]
-
+        
+        if self.loss_type=='NLL' and self.clip_loss:
+            old_pred = kwargs['old_pred']
+            old_pred = old_pred[permutation[num_holdout:]]
+            
+            old_pred_var = kwargs['old_pred_var']
+            old_pred_var = old_pred_var[permutation[num_holdout:]]
+        
         if self.weights is not None:
             weights = kwargs['weights']
             weights, holdout_weights = weights[permutation[num_holdout:]], weights[permutation[:num_holdout]]
             holdout_weights = np.tile(holdout_weights[None], [self.num_nets, 1])
-        if self.loss_type == 'NLL_varcorr':
+
+        if self.var_corr:
             var_corr_tar = kwargs['var_corr']
             var_corr_tar, holdout_var_corr_tar = var_corr_tar[permutation[num_holdout:]], var_corr_tar[permutation[:num_holdout]]
             holdout_var_corr_tar = np.tile(holdout_var_corr_tar[None], [self.num_nets, 1])
@@ -495,12 +539,18 @@ class BNN:
                     self.sy_train_targ: targets[batch_idxs]
                     }
                 
-                if self.loss_type == 'ClippedMSE':
+                if self.loss_type=='MSE' and self.clip_loss:
                     feed_dict.update({self.old_pred_ph:old_pred[batch_idxs]})
+                elif self.loss_type=='NLL' and self.clip_loss:
+                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs]})
+                    feed_dict.update({self.old_pred_var_ph:old_pred_var[batch_idxs]})
+
                 if self.weights is not None:
                     feed_dict.update({self.weights:weights[batch_idxs]})
-                if self.loss_type == 'NLL_varcorr':
+
+                if self.var_corr:
                     feed_dict.update({self.var_corr_targ:var_corr_tar[batch_idxs]})
+
                 self.sess.run(
                     self.train_op,
                     feed_dict=feed_dict
@@ -837,7 +887,7 @@ class BNN:
         else:
             return mean
 
-    def _nll_loss(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weights=None, var_correction=None):
+    def _nll_loss(self, inputs, targets, inc_var_loss=True, tensor_loss=False, weights=None, var_correction=None, oldpred_v=None, oldpred_var=None):
         """Helper method for compiling the NLL loss function.
 
         The loss function is obtained from the log likelihood, assuming that the output
@@ -863,73 +913,95 @@ class BNN:
                 mean = self._compile_outputs(inputs)
             return 0.5 * tf.square(mean - targets), mean
 
+        #### weighting if provided
+        if weights is None:
+            weights = 1
+
+        #### NLL with var correction: NLL = .5*ln(var) + (mean - tar)**2/var + var_corr/var (s. paper for more details)
+        if var_correction is None:
+            var_correction = 0
+
+        if self.is_probabilistic:
+            mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
+            inv_var = tf.exp(-log_var)
+        else: 
+            mean, log_var = self._compile_outputs(inputs), 0.0
+            inv_var = 1.0
+
+        #=====================================================================#
+        #  Loss Clipping if provided                                          #
+        #=====================================================================#
+
+        ### clipped loss as Kullback leibler divergence constraint approximation
+        if oldpred_v is not None:
+            if oldpred_var is not None:
+                old_var = oldpred_var
+            else: 
+                old_var = tf.reduce_mean(tf.reduce_mean(0.5 * (tf.square(oldpred_v - targets)), axis=-1), axis=-1)
+
+            kl_cliprange = tf.sqrt(self.kl_cliprange*old_var)
+            mean = oldpred_v + tf.clip_by_value(mean-oldpred_v, -tf.sqrt(2.0)*kl_cliprange, -tf.sqrt(2.0)*kl_cliprange)
+            varpred_cl = oldpred_var + tf.clip_by_value(tf.exp(log_var)-oldpred_var, -kl_cliprange, kl_cliprange)
+            
+            inv_var = 1/varpred_cl
+            log_var = tf.log(varpred_cl)
+
+            self.deb_cliprange = kl_cliprange
+
         if inc_var_loss:
             assert self.is_probabilistic
-
-            mean, log_var = self._compile_outputs(inputs, ret_log_var=True)            
-            inv_var = tf.exp(-log_var)
-
-
-            #=====================================================================#
-            #  Variance Correction if Provided                                    #
-            #=====================================================================#
-
-            #### NLL with var correction: NLL = .5*ln(var) + (mean - tar)**2/var + var_corr/var (s. paper for more details)
-            if weights is None:
-                weights = 1
-            if var_correction is None:
-                var_correction = 0
-                
-            mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * inv_var *  (tf.square(mean - targets) + var_correction), axis=-1), axis=-1)
             var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
 
-            self.var_loss_deb = var_losses
-            total_losses = mse_losses + var_losses
-        else:
-            if self.is_probabilistic:
-                mean, _ = self._compile_outputs(inputs)
-            else:
-                mean = self._compile_outputs(inputs)
-            total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean( tf.square(mean - targets), axis=-1), axis=-1)
+            #### debug
+            self.deb_var_loss = var_losses
+        else:            
+            var_losses = 0
+            inv_var = 1.0
+            
+            #total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean( tf.square(mean - targets), axis=-1), axis=-1)
+
+        mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * inv_var *  (tf.square(mean - targets) + var_correction), axis=-1), axis=-1)
+        total_losses = mse_losses + var_losses
 
         return total_losses
 
-    def _clippedMSE_loss(self, inputs, targets, old_pred):
-        """Helper method for compiling the NLL loss function.
+    # def _clippedMSE_loss(self, inputs, targets, old_pred):
+    #     """Helper method for compiling the NLL loss function.
 
-        The loss function is obtained from the log likelihood, assuming that the output
-        distribution is Gaussian, with both mean and (diagonal) covariance matrix being determined
-        by network outputs.
+    #     The loss function is obtained from the log likelihood, assuming that the output
+    #     distribution is Gaussian, with both mean and (diagonal) covariance matrix being determined
+    #     by network outputs.
 
-        if inc_var_loss is False, becomes standard MSE
+    #     if inc_var_loss is False, becomes standard MSE
 
-        Arguments:
-            inputs: (tf.Tensor) A tensor representing the input batch
-            targets: (tf.Tensor) The desired targets for each input vector in inputs.
-            inc_var_loss: (bool) If True, includes log variance loss.
-                            will throw an error if set to True in a model without variances included
+    #     Arguments:
+    #         inputs: (tf.Tensor) A tensor representing the input batch
+    #         targets: (tf.Tensor) The desired targets for each input vector in inputs.
+    #         inc_var_loss: (bool) If True, includes log variance loss.
+    #                         will throw an error if set to True in a model without variances included
 
-        Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
-        """
+    #     Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
+    #     """
 
-        pred = self._compile_outputs(inputs)
-        pred_cl = old_pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
+    #     pred = self._compile_outputs(inputs)
+    #     pred_cl = old_pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
 
-        loss = tf.square(pred-targets)      ## unclipped loss
-        loss_cl = tf.square(pred_cl-targets)    ## loss of the clipped prediction 
+    #     loss = tf.square(pred-targets)      ## unclipped loss
+    #     loss_cl = tf.square(pred_cl-targets)    ## loss of the clipped prediction 
 
-        total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
+    #     total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
+        
+    #     if self.name == 'VCEnsemble':
+    #         total_predclloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(pred-targets) , axis=-1), axis=-1)
+    #         total_oldpredloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(old_pred-targets) , axis=-1), axis=-1)
 
-        total_predclloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(pred-targets) , axis=-1), axis=-1)
-        total_oldpredloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(old_pred-targets) , axis=-1), axis=-1)
+    #         # kl = tf.log(tf.sqrt(total_oldpredloss_deb)/tf.sqrt(total_predclloss_deb)) + \
+    #         #     (total_oldpredloss_deb + tf.square(old_pred)
 
-        # kl = tf.log(tf.sqrt(total_oldpredloss_deb)/tf.sqrt(total_predclloss_deb)) + \
-        #     (total_oldpredloss_deb + tf.square(old_pred)
+    #         self.cl_loss_deb1 = .5 * tf.reduce_mean(tf.reduce_mean(loss, axis=-1), axis=-1)
+    #         self.cl_loss_deb2 = .5 * tf.reduce_mean(tf.reduce_mean(loss_cl, axis=-1), axis=-1)
 
-        self.cl_loss_deb1 = .5 * tf.reduce_mean(tf.reduce_mean(loss, axis=-1), axis=-1)
-        self.cl_loss_deb2 = .5 * tf.reduce_mean(tf.reduce_mean(loss_cl, axis=-1), axis=-1)
-
-        return total_losses
+    #     return total_losses
 
 
     def _ce_loss(self, inputs, targets, tensor_loss=False, weights=None):

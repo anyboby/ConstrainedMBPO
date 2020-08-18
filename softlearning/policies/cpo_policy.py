@@ -369,10 +369,13 @@ class CPOPolicy(BasePolicy):
         self.vc_logit_bias = kwargs.get('vc_logit_bias', 0)
         self.vf_activation = kwargs.get('vf_activation', 'ReLU')
         self.vf_loss = kwargs.get('vf_loss', 'MSE')
+        self.vf_decay = kwargs.get('vf_decay', 1e-6)
         self.gaussian_vf = self.vf_loss=='NLL'
 
+        self.vf_cliploss = kwargs.get('vf_clipping', False)
         self.vf_cliprange = kwargs.get('vf_cliprange', 0.1)
-        self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.3)
+        self.cvf_cliprange = kwargs.get('cvf_cliprange', 0.1)
+        self.vf_var_corr = kwargs.get('vf_var_corr', False)
 
         self.ent_reg = kwargs.get('ent_reg', 0.0)
         self.cost_lim_end = kwargs.get('cost_lim_end', 25)
@@ -459,6 +462,10 @@ class CPOPolicy(BasePolicy):
                 self.old_v_ph = placeholder(None)
             with tf.variable_scope('old_vc_ph'):
                 self.old_vc_ph = placeholder(None)
+            with tf.variable_scope('old_v_var_ph'):
+                self.old_v_var_ph = placeholder(None)
+            with tf.variable_scope('old_vc_var_ph'):
+                self.old_vc_var_ph = placeholder(None)
 
             #### _________________________________ ####
             ####            Create Actor           ####
@@ -491,6 +498,9 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['num_networks']   = self.vf_ensemble_size
             vf_kwargs['activation']     = self.vf_activation
             vf_kwargs['loss']           = self.vf_loss
+            vf_kwargs['decay']          = self.vf_decay
+            vf_kwargs['clip_loss']      = self.vf_cliploss
+            vf_kwargs['var_corr']      = self.vf_var_corr
             vf_kwargs['num_elites']     = self.vf_elites
             # vf_kwargs['use_scaler']     = False
             # vf_kwargs['sc_factor']      = .999
@@ -511,8 +521,8 @@ class CPOPolicy(BasePolicy):
             self.buf_fields = [
                 self.obs_ph, self.a_ph, self.adv_ph, 'ret_var',
                 self.cadv_ph, 'cret_var', self.ret_ph, self.cret_ph,
-                self.logp_old_ph, self.old_v_ph, self.old_vc_ph,
-                self.cur_cost_ph
+                self.logp_old_ph, self.old_v_ph, self.old_v_var_ph, self.old_vc_ph,
+                self.old_vc_var_ph, self.cur_cost_ph
                 ] + values_as_sorted_list(self.pi_info_phs)
 
             self.actor_phs = [
@@ -531,7 +541,9 @@ class CPOPolicy(BasePolicy):
                 self.cret_ph, 
                 'cret_var',
                 self.old_v_ph, 
+                self.old_v_var_ph, 
                 self.old_vc_ph,
+                self.old_vc_var_ph,
                 ]
 
             self.actor_fd = lambda x: {k:x[k] for k in self.actor_phs}
@@ -739,58 +751,75 @@ class CPOPolicy(BasePolicy):
         obs_in = inputs[self.obs_ph]
         vc_targets = inputs[self.cret_ph][:, np.newaxis]
         v_targets = inputs[self.ret_ph][:, np.newaxis]
-        
-        if self.vf_loss == 'ClippedMSE':    
-            old_v = inputs[self.old_v_ph][..., None]
-            # old_v = np.repeat(old_v, axis=0, repeats = self.vf_ensemble_size)
-            
+        v_kwargs = kwargs.copy()
+        vc_kwargs = kwargs.copy()
+
+        if self.vf_loss=='MSE' and self.vf_cliploss:    
+            old_v = inputs[self.old_v_ph][..., None]            
             old_vc = inputs[self.old_vc_ph][..., None]
-            # old_vc = np.repeat(old_vc, axis=0, repeats = self.vf_ensemble_size)
 
-            v_metrics = self.v.train(
-                obs_in,
-                v_targets,
-                old_pred = old_v,
-                **kwargs,
-                )                                      
+            v_kwargs.update({'old_pred':old_v})
+            vc_kwargs.update({'old_pred':old_vc})
 
-            vc_metrics = self.vc.train(
-                obs_in,
-                vc_targets,
-                old_pred = old_vc,
-                **kwargs,
-                )                        
-        elif self.vf_loss == 'NLL_varcorr':
+        elif self.vf_loss =='NLL' and self.vf_cliploss:    
+            old_v = inputs[self.old_v_ph][..., None]            
+            old_vc = inputs[self.old_vc_ph][..., None]
+            old_v_var = inputs[self.old_v_var_ph][..., None]            
+            old_vc_var = inputs[self.old_vc_var_ph][..., None]
+            
+            v_kwargs.update({'old_pred':old_v, 'old_pred_var':old_v_var})
+            vc_kwargs.update({'old_pred':old_vc, 'old_pred_var':old_vc_var})
+
+        if self.vf_var_corr:
             ret_var = inputs['ret_var'][..., None]
             cret_var = inputs['cret_var'][..., None]
-            v_kwargs = kwargs.copy()
-            v_kwargs['var_corr'] = ret_var
-            vc_kwargs = kwargs.copy()
-            vc_kwargs['var_corr'] = cret_var
 
-            v_metrics = self.v.train(
-                obs_in,
-                v_targets,
-                **v_kwargs,
-                )                                      
+            v_kwargs.update({'var_corr':ret_var})
+            vc_kwargs.update({'var_corr':cret_var})
+            
+        v_metrics = self.v.train(
+            obs_in,
+            v_targets,
+            **v_kwargs,
+            )                                      
 
-            vc_metrics = self.vc.train(
-                obs_in,
-                vc_targets,
-                **vc_kwargs,
-                )                        
-        else:
-            v_metrics = self.v.train(
-                obs_in,
-                v_targets,
-                **kwargs,
-                )                                      
+        vc_metrics = self.vc.train(
+            obs_in,
+            vc_targets,
+            **vc_kwargs,
+            )                        
 
-            vc_metrics = self.vc.train(
-                obs_in,
-                vc_targets,
-                **kwargs,
-                )                       
+        # elif self.vf_loss == 'NLL_varcorr':
+        #     ret_var = inputs['ret_var'][..., None]
+        #     cret_var = inputs['cret_var'][..., None]
+        #     v_kwargs = kwargs.copy()
+        #     v_kwargs['var_corr'] = ret_var
+        #     vc_kwargs = kwargs.copy()
+        #     vc_kwargs['var_corr'] = cret_var
+
+        #     v_metrics = self.v.train(
+        #         obs_in,
+        #         v_targets,
+        #         **v_kwargs,
+        #         )                                      
+
+        #     vc_metrics = self.vc.train(
+        #         obs_in,
+        #         vc_targets,
+        #         **vc_kwargs,
+        #         )                        
+        # else:
+        #     v_metrics = self.v.train(
+        #         obs_in,
+        #         v_targets,
+        #         **kwargs,
+        #         )                                      
+
+        #     vc_metrics = self.vc.train(
+        #         obs_in,
+        #         vc_targets,
+        #         **kwargs,
+        #         )                       
 
         v_metrics.update(vc_metrics)
         return v_metrics
@@ -811,7 +840,6 @@ class CPOPolicy(BasePolicy):
         diagnostics.update(self.compute_v_losses(buf_inputs))
 
         return diagnostics
-
 
 
     def compute_v_losses(self, inputs):

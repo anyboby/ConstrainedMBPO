@@ -173,12 +173,13 @@ class ModelBuffer(CPOBuffer):
             lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam)], seed)     ### create vector of discounts
             
             ### determine variances for various t and n-step horizons
-            rew_t_h = disc_cumsum_matrix(self.rew_buf[:, finish_mask, path_slice], discount=self.gamma)
+            ### @anyboby using non-discounted variances to retrieve gae for constant variances
+            rew_t_h = disc_cumsum_matrix(self.rew_buf[:, finish_mask, path_slice], discount=1.0) #self.gamma)
             rew_var_t_h = np.var(rew_t_h, axis=0)
 
             ### create inverse variance matrix in t and rollout length h
             weight_mat = np.zeros_like(rew_var_t_h)
-            weight_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1]*disc_vec[..., h+1]+EPS)
+            weight_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1] + EPS)#* disc_vec[..., h+1]+EPS)
             iv_mat = weight_mat.copy()      ### needed later
 
             ### add lambda weighting
@@ -198,7 +199,7 @@ class ModelBuffer(CPOBuffer):
             var_weight_mat = weight_mat.copy()
             var_weight_mat[...,t,h] = (var_weight_mat[...,t,h]*weight_norm[..., t])**2 * 1/iv_mat[...,t,h]
 
-            self.cret_var_buf[finish_mask, path_slice] = \
+            self.ret_var_buf[finish_mask, path_slice] = \
                 discount_cumsum_weighted(np.ones_like(deltas), 1.0, var_weight_mat)
 
             self.roll_lengths_buf[finish_mask, path_slice] = \
@@ -228,12 +229,13 @@ class ModelBuffer(CPOBuffer):
             cdeltas = costs[self.model_ind][...,:-1] + self.cost_gamma * cvals[self.model_ind][..., 1:] - cvals[self.model_ind][..., :-1]
 
             ### determine variances for various t and n-step horizons
-            c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=self.cost_gamma)
+            ### @anyboby using non-discounted variances to retrieve gae for constant variances
+            c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=1.0) #self.cost_gamma)
             c_var_t_h = np.var(c_t_h, axis=0)
 
             ### create inverse variance matrix in t and rollout length h
             c_weight_mat = np.zeros_like(c_var_t_h)
-            c_weight_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]*c_disc_vec[..., h+1]+EPS)
+            c_weight_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]+EPS) #*c_disc_vec[..., h+1]+EPS)
             c_iv_mat = c_weight_mat.copy()      ### needed later
 
             ### add lambda weighting
@@ -299,7 +301,9 @@ class ModelBuffer(CPOBuffer):
                 creturns, 
                 self.logp_buf[self.populated_mask], 
                 self.val_buf[self.populated_mask], 
+                self.val_var_buf[self.model_ind, self.populated_mask], 
                 self.cval_buf[self.populated_mask],
+                self.cval_var_buf[self.model_ind, self.populated_mask],
                 self.cost_buf[self.populated_mask]] \
                 + [v[self.populated_mask] for v in values_as_sorted_list(self.pi_info_bufs)]
         else:
@@ -335,8 +339,8 @@ class ModelBuffer(CPOBuffer):
 
             res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,
                     self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
-                    self.logp_buf[self.model_ind], self.val_buf[self.model_ind], self.cval_buf[self.model_ind],
-                    self.cost_buf[self.model_ind]] \
+                    self.logp_buf[self.model_ind], self.val_buf[self.model_ind], self.val_var_buf[self.model_ind], 
+                    self.cval_buf[self.model_ind], self.cval_var_buf[self.model_ind], self.cost_buf[self.model_ind]] \
                     + [v[self.model_ind] for v in values_as_sorted_list(self.pi_info_bufs)]
 
             # filter out unpopulated entries / finished paths
