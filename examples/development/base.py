@@ -4,7 +4,7 @@ import pdb
 
 from softlearning.misc.utils import get_git_rev, deep_update
 
-M = 64 #256
+M = 256 #256
 REPARAMETERIZE = True
 
 NUM_COUPLING_LAYERS = 2
@@ -33,10 +33,10 @@ CPO_POLICY_PARAMS_BASE = {
                spec.get('config', spec)
                ['algorithm_params']['kwargs']['num_networks'] 
             )),
-        'vf_lr':                8e-5,
-        'vf_hidden_layer_sizes':(64,64), #(128, 128, 128, 128),
+        'vf_lr':                3e-4,
+        'vf_hidden_layer_sizes':(256,256), #(128, 128, 128, 128),
         'vf_epochs':            10,                 
-        'vf_batch_size':        128,
+        'vf_batch_size':        1024,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(2000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'SQL': {
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(1e5),
+                    'CPOBuffer':int(1e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

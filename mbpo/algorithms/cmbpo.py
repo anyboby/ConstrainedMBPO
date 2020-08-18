@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
                                     hidden_dims=hidden_dims, 
                                     dyn_discount = self._dyn_m_discount,
                                     cost_m_discount = self._cost_m_discount,
-                                    cares_about_cost=False,
+                                    cares_about_cost=True,
                                     safe_config=self.safe_config,
                                     session = self._session)
 
@@ -294,7 +294,7 @@ class CMBPO(RLAlgorithm):
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
             min_samples = 1e3
-            max_samples = 5e3
+            max_samples = 100e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     

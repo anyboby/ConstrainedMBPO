@@ -253,7 +253,7 @@ class ModelBuffer(CPOBuffer):
             #### calc return variances and rollout lengths for each Adv_t
             #self.cret_var_buf[finish_mask, path_slice] = weight_norm*1/(1-self.cost_lam)
             c_var_weight_mat = c_weight_mat.copy()
-            c_var_weight_mat[...,t,h] = (c_var_weight_mat[...,t,h]*weight_norm[..., t])**2 * 1/c_iv_mat[...,t,h]
+            c_var_weight_mat[...,t,h] = (c_var_weight_mat[...,t,h]*c_weight_norm[..., t])**2 * 1/c_iv_mat[...,t,h]
 
             self.cret_var_buf[finish_mask, path_slice] = \
                 discount_cumsum_weighted(np.ones_like(cdeltas), 1.0, c_var_weight_mat)

@@ -103,18 +103,23 @@ class ModelSampler(CpoSampler):
         diagnostics = OrderedDict({'pool-size': self.pool.size})
         mean_rollout_length = self._total_samples / (self.batch_size+EPS)
 
+
+
         ensemble_rew_var_perstep = self._total_rew_var/(self._total_samples+EPS)
         ensemble_cost_var_perstep = self._total_cost_var/(self._total_samples+EPS)
         ensemble_dyn_var_perstep = self._total_dyn_var/(self._total_samples+EPS)
-        
-        VVals_mean = self._total_Vs / (self._total_samples+EPS)
-        VVals_var = self._total_V_var / (self._total_samples+EPS)
 
-        CostV_mean = self._total_CVs / (self._total_samples+EPS)
-        CostV_var = self._total_CV_var / (self._total_samples+EPS)
+        ensemble_cost_rate = np.sum(np.mean(self._path_cost, axis=0))(self._total_samples+EPS)
+        ensemble_rew_rate = np.sum(np.mean(self._path_return, axis=0))(self._total_samples+EPS)
 
-        Dyn_Dkl_mean = self._total_dkl_mean_dyn / (self._total_samples+EPS)
-        Dyn_Dkl_med = self._total_dkl_med_dyn / (self._total_samples+EPS)
+        vals_mean = self._total_Vs / (self._total_samples+EPS)
+        vals_var = self._total_V_var / (self._total_samples+EPS)
+
+        cval_mean = self._total_CVs / (self._total_samples+EPS)
+        cval_var = self._total_CV_var / (self._total_samples+EPS)
+
+        dyn_Dkl_mean = self._total_dkl_mean_dyn / (self._total_samples+EPS)
+        dyn_Dkl_med = self._total_dkl_med_dyn / (self._total_samples+EPS)
 
         diagnostics.update({
             'samples_added': self._total_samples,
@@ -123,12 +128,14 @@ class ModelSampler(CpoSampler):
             'ensemble_rew_var_perstep': ensemble_rew_var_perstep,
             'ensemble_cost_var_perstep' : ensemble_cost_var_perstep,
             'ensemble_dyn_var_perstep' : ensemble_dyn_var_perstep,
-            'ensemble_VVals':VVals_mean,
-            'ensemble_VVals_var':VVals_var,
-            'ensemble_CostVVals':CostV_mean,
-            'ensemble_CostV_var':CostV_var,
-            'ensemble_dyn_DKL_mean': Dyn_Dkl_mean,
-            'ensemble_dyn_DKL_med': Dyn_Dkl_med,
+            'ensemble_cost_rate' : ensemble_cost_rate,
+            'ensemble_rew_rate' : ensemble_rew_rate,
+            'ensemble_vals_mean':vals_mean,
+            'ensemble_vals_var':vals_var,
+            'ensemble_cval_mean':cval_mean,
+            'ensemble_cval_var':cval_var,
+            'ensemble_dyn_DKL_mean': dyn_Dkl_mean,
+            'ensemble_dyn_DKL_med': dyn_Dkl_med,
         })
 
         return diagnostics
@@ -261,7 +268,6 @@ class ModelSampler(CpoSampler):
         #### variance for gaussian mixture, add dispersion of means to variance
         next_val_var = np.mean(next_val_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
         next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
-        c_var = np.mean(c, axis=0) + np.mean(c**2, axis=0) - (np.mean(c_var, axis=0))**2
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -331,11 +337,11 @@ class ModelSampler(CpoSampler):
         self._path_cost[:, alive_paths] += c
         self._path_return_var[alive_paths] = np.var(self._path_return[:, alive_paths], axis=0)
         self._path_cost_var[alive_paths] = np.var(self._path_cost[:, alive_paths], axis=0)
+        self._path_dyn_var[alive_paths] = np.mean(np.var(current_obs, axis=0), axis=-1)
 
-        self._path_dyn_var[alive_paths] += dyn_var
-        self._total_cost_var += cost_uncertainty.sum()
+        self._total_cost_var += c_var.sum()
         self._total_dyn_var += dyn_var.sum()
-        self._total_rew_var += rew_uncertainty.sum()
+        self._total_rew_var += rew_var.sum()
 
         self._total_Vs += v_t[self.model_inds].sum()
         self._total_CVs += vc_t[self.model_inds].sum()

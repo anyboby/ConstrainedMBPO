@@ -840,7 +840,7 @@ class BNN:
         cur_out = inputs
         if self.use_scaler:
             cur_out = self.scaler.transform(cur_out)
-
+            self.deb_scaler_out = self.scaler.transform(cur_out)
         if debug:
             self.layers_deb = []
         for layer in self.layers:
@@ -940,7 +940,7 @@ class BNN:
                 old_var = tf.reduce_mean(tf.reduce_mean(0.5 * (tf.square(oldpred_v - targets)), axis=-1), axis=-1)
 
             kl_cliprange = tf.sqrt(self.kl_cliprange*old_var)
-            mean = oldpred_v + tf.clip_by_value(mean-oldpred_v, -tf.sqrt(2.0)*kl_cliprange, -tf.sqrt(2.0)*kl_cliprange)
+            mean = oldpred_v + tf.clip_by_value(mean-oldpred_v, -tf.sqrt(2.0)*kl_cliprange, tf.sqrt(2.0)*kl_cliprange)
             varpred_cl = oldpred_var + tf.clip_by_value(tf.exp(log_var)-oldpred_var, -kl_cliprange, kl_cliprange)
             
             inv_var = 1/varpred_cl

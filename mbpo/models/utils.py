@@ -23,8 +23,10 @@ def gaussian_kl_np(mu0, log_std0, mu1, log_std1):
     #all_kls = np.mean(all_kls)
     all_kls = np.clip(all_kls, 0, 1/EPS)        ### for stability
     return all_kls
+
 def gaussian_jsd_np(mu0, log_std0, mu1, log_std1):
     pass
+
 def average_dkl(mu, std):
     """
     Calculates the average kullback leiber divergences of multiple  univariate gaussian distributions.
@@ -53,6 +55,7 @@ def average_dkl(mu, std):
             else: d_kl+= gaussian_kl_np(mu[i], log_std[i], mu[j], log_std[j])
     d_kl = d_kl/(num_models*(num_models-1)+EPS)
     return d_kl
+
 def median_dkl(mu, std):
     """
     Calculates the median kullback leiber divergences of multiple  univariate gaussian distributions.
@@ -97,16 +100,21 @@ class TensorStandardScaler:
         """
         self.fitted = False
         with tf.variable_scope("Scaler"):
+            self.count = tf.get_variable(
+                name="scaler_count", shape=(), initializer=tf.constant_initializer(0),
+                trainable=False
+            )
+
             self.mu = tf.get_variable(
                 name="scaler_mu", shape=[1, x_dim], initializer=tf.constant_initializer(0.0),
                 trainable=False
             )
-            self.sigma = tf.get_variable(
+            self.var = tf.get_variable(
                 name="scaler_std", shape=[1, x_dim], initializer=tf.constant_initializer(1.0),
                 trainable=False
             )
 
-        self.cached_mu, self.cached_sigma = np.zeros([0, x_dim]), np.ones([1, x_dim])
+        self.cached_count, self.cached_mu, self.cached_var = 0, np.zeros([1, x_dim]), np.ones([1, x_dim])
         self.sc_factor = sc_factor
 
     def fit(self, data):
@@ -119,11 +127,14 @@ class TensorStandardScaler:
 
         Returns: None.
         """
-        mu = np.mean(data, axis=0, keepdims=True)
-        sigma = np.std(data, axis=0, keepdims=True)
-        sigma[sigma < 1e-12] = 1.0
-        self.mu.load(mu)
-        self.sigma.load(sigma)
+        batch_count = data.shape[0]
+        batch_mu = np.mean(data, axis=0, keepdims=True)
+        batch_var = np.var(data, axis=0, keepdims=True)
+        new_mean, new_var, new_count = self.running_mean_var_from_batch(batch_mu, batch_var, batch_count)
+        #sigma[sigma < 1e-8] = 1.0
+        self.mu.load(new_mean)
+        self.var.load(new_var)
+        self.count.load(new_count)
         self.fitted = True
         self.cache()
 
@@ -144,9 +155,10 @@ class TensorStandardScaler:
 
         """
         #scaled_transform = data + self.sc_factor * (data* (1-self.sigma) - self.mu) / self.sigma
-        scaling = 1+self.sc_factor*(self.sigma-1)
-        scaling = tf.clip_by_value(scaling, 1.0e-8, 1.0e8)
-        scaled_transform = (data-self.mu)/scaling
+        # scaling = 1+self.sc_factor*(self.sigma-1)
+        # scaling = tf.clip_by_value(scaling, 1.0e-8, 1.0e8)
+
+        scaled_transform = (data-self.mu)/(tf.maximum(tf.sqrt(self.var), 1e-2))
         return scaled_transform
 
     def inverse_transform(self, data):
@@ -157,14 +169,14 @@ class TensorStandardScaler:
 
         Returns: (np.array) The transformed dataset.
         """
-        return self.sigma * data + self.mu
+        return (tf.maximum(tf.sqrt(self.var), 1e-2)) * data + self.mu
 
     def get_vars(self):
         """Returns a list of variables managed by this object.
 
         Returns: (list<tf.Variable>) The list of variables.
         """
-        return [self.mu, self.sigma]
+        return [self.mu, self.var]
 
     def cache(self):
         """Caches current values of this scaler.
@@ -172,7 +184,8 @@ class TensorStandardScaler:
         Returns: None.
         """
         self.cached_mu = self.mu.eval()
-        self.cached_sigma = self.sigma.eval()
+        self.cached_var = self.var.eval()
+        self.cached_count = self.count.eval()
 
     def load_cache(self):
         """Loads values from the cache
@@ -180,5 +193,18 @@ class TensorStandardScaler:
         Returns: None.
         """
         self.mu.load(self.cached_mu)
-        self.sigma.load(self.cached_sigma)
+        self.var.load(self.cached_var)
+        self.count.load(self.cached_count)
 
+    def running_mean_var_from_batch(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.cached_mu
+        tot_count = self.cached_count + batch_count
+
+        new_mean = self.cached_mu + delta * batch_count / tot_count
+        m_a = self.cached_var * self.cached_count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + np.square(delta) * self.cached_count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        return new_mean, new_var, new_count

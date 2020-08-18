@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 from gym.spaces import Box, Discrete
 from softlearning.policies.safe_utils.utils import combined_shape, EPS
-
+from mbpo.models.utils import TensorStandardScaler
 
 """
 Network utils
@@ -102,8 +102,10 @@ def mlp_categorical_policy(x, a, hidden_sizes, activation, output_activation, ac
     return pi, logp, logp_pi, pi_info, pi_info_phs, d_kl, ent
 
 
-def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, action_space, ensemble_size_3d=1):
+def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, action_space, ensemble_size_3d=1, use_scaler=True):
     act_dim = a.shape.as_list()[-1]
+
+    
     mu = mlp(x, list(hidden_sizes)+[act_dim], activation, output_activation)
     log_std = tf.get_variable(name='log_std', initializer=-0.0*np.ones(act_dim, dtype=np.float32))
     ### @anyboby testing: higher starting std, ppo1 uses log_std=0 at the beginning
