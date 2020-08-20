@@ -222,8 +222,7 @@ class CMBPO(RLAlgorithm):
                                     gamma = self._policy.gamma,
                                     lam = self._policy.lam,
                                     cost_gamma = self._policy.cost_gamma,
-                                    cost_lam = .99,
-                                    #cost_lam = self._policy.cost_lam
+                                    cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
         self.model_sampler = ModelSampler(max_path_length=80,
@@ -347,6 +346,13 @@ class CMBPO(RLAlgorithm):
                 arch_samples = list(arch_samples.values())       ### samples from initial exploration hook
                 real_samples, buf_diag = self._pool.get()        ### samples from first epoch
                 real_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, arch_samples)]       ### merge
+                
+                #### little trick: circumvent Trust Region critic update in first run to introduce some starting uncertainty
+                self._policy.update_critic(real_samples, 
+                                            kl_cliprange=1e5, 
+                                            min_epoch_before_break = 10, 
+                                            max_epochs=100)
+
             else:
                 real_samples, buf_diag= self._pool.get()
 
@@ -391,19 +397,19 @@ class CMBPO(RLAlgorithm):
                 #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                # min_epochs = 150 if self._epoch==0 else 0        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                # max_epochs = 500 if self._epoch<10 else 10
+                min_epochs = 25 if self._epoch==0 else 5        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                max_epochs = 500 if self._epoch<10 else 50
                 # # if len(samples['observations'])>30000:
                 # #     samples = {k:v[-30000:] for k,v in samples.items()} 
-                # batch_size = 512 + min(self._epoch//50*512, 7*512)
+                batch_size = 512 + min(self._epoch//50*512, 7*512)
 
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
                         samples, 
                         discount = self._dyn_m_discount,
-                        batch_size=1024, #batch_size, #512
-                        max_epochs=25, # max_epochs 
-                        min_epoch_before_break=5, # min_epochs, 
+                        batch_size=batch_size, #512
+                        max_epochs=max_epochs, # max_epochs 
+                        min_epoch_before_break=min_epochs, # min_epochs, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
                         )
@@ -414,8 +420,8 @@ class CMBPO(RLAlgorithm):
                         samples, 
                         discount = self._cost_m_discount,
                         batch_size= 1024, #batch_size, #512, 
-                        min_epoch_before_break= 5,#min_epochs,
-                        max_epochs=25, # max_epochs, 
+                        min_epoch_before_break= min_epochs,#min_epochs,
+                        max_epochs=max_epochs, # max_epochs, 
                         holdout_ratio=0.2, 
                         max_t=self._max_model_t
                         )
@@ -430,10 +436,6 @@ class CMBPO(RLAlgorithm):
                     self._epoch, self._rollout_batch_size 
                 ))                
                 
-                #=====================================================================#
-                #                           update critic                             #
-                #=====================================================================#
-                # self._policy.update_critic(real_samples)
 
                 #=====================================================================#
                 #                           Model Rollouts                            #
@@ -461,18 +463,19 @@ class CMBPO(RLAlgorithm):
                                     
                 
                 model_metrics.update(rollout_diagnostics)
-                samples_added += self.model_sampler._total_samples
 
                 ######################################################################
                 ### get model_samples, get() invokes the inverse variance rollouts ###
                 model_samples, buffer_diagnostics = self.model_pool.get()
                 model_metrics.update(buffer_diagnostics)
+                samples_added += buffer_diagnostics['poolm_batch_size']
                 ######################################################################
 
                 ### run diagnostics on model data
-                model_data_diag = self._policy.run_diagnostics(model_samples)
-                model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
-                model_metrics.update(model_data_diag)
+                if buffer_diagnostics['poolm_batch_size']>0:
+                    model_data_diag = self._policy.run_diagnostics(model_samples)
+                    model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
+                    model_metrics.update(model_data_diag)
                                 
             if train_samples is None:
                 train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples

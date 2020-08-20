@@ -192,6 +192,9 @@ class ModelSampler(CpoSampler):
         return processed_observation
 
     def reset(self, observations):
+        self._starting_uncertainty = np.var(self.policy.get_v(observations, factored=True, inc_var=False), axis=0)
+        self._starting_uncertainty_c = np.var(self.policy.get_vc(observations, factored=True, inc_var=False), axis=0)
+
         self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
 
         self.policy.reset() #does nohing for cpo policy atm
@@ -202,7 +205,7 @@ class ModelSampler(CpoSampler):
         self._path_cost_var = np.zeros(self.batch_size)
         self._path_dyn_var = np.zeros(self.batch_size)
         
-        self.model_inds = 0 # self.env.random_inds(size=1)[0]
+        self.model_inds = np.random.randint(self.ensemble_size)
 
         self._total_samples = 0
         self._n_episodes = 0
@@ -260,13 +263,6 @@ class ModelSampler(CpoSampler):
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
 
-        next_val, next_val_var = self.policy.get_v(next_obs, factored=True, inc_var=True)
-        next_cval, next_cval_var = self.policy.get_vc(next_obs, factored=True, inc_var=True)
-
-        #### variance for gaussian mixture, add dispersion of means to variance
-        next_val_var = np.mean(next_val_var, axis=0) + np.mean(next_val**2, axis=0) - (np.mean(next_val, axis=0))**2
-        next_cval_var = np.mean(next_cval_var, axis=0) + np.mean(next_cval**2, axis=0) - (np.mean(next_cval, axis=0))**2
-
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
@@ -274,21 +270,25 @@ class ModelSampler(CpoSampler):
 
         ### check if too uncertain before storing info of the taken step 
         ### (so we don't take a "bad step" by appending values of next state)
-        ep_cval_var = np.var(next_cval, axis=0)
-        ep_val_var = np.var(next_val, axis=0)
+        next_val = self.policy.get_v(next_obs, factored=True, inc_var=False)
+        next_cval = self.policy.get_vc(next_obs, factored=True, inc_var=False)
 
-        cost_uncertainty = self._path_cost_var[alive_paths] + c_var
-        rew_uncertainty = self._path_return_var[alive_paths] + rew_var 
+        ep_cval_var = np.var(vc_t, axis=0)
+        ep_val_var = np.var(v_t, axis=0)
+        ep_cval_var_n = np.var(next_cval, axis=0)
+        ep_val_var_n = np.var(next_val, axis=0)
+
+        cost_uncertainty = self._path_cost_var[alive_paths] + ep_cval_var_n
+        rew_uncertainty = self._path_return_var[alive_paths] + ep_val_var_n 
 
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
-        too_uncertain_paths = np.logical_or(cost_uncertainty + next_cval_var > self._max_uncertainty_c, \
-                                            rew_uncertainty + next_val_var > self._max_uncertainty_rew) 
-        # too_uncertain_mask_path = np.logical_or(cost_uncertainty > next_cval_var, \
-        #                                     rew_uncertainty > next_val_var) 
+        threshold_var_ratio = 2.5      ### the real rollout horizon is determined in the buffer
+        too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
+                                            rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 

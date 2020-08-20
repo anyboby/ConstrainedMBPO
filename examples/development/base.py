@@ -34,26 +34,26 @@ CPO_POLICY_PARAMS_BASE = {
                ['algorithm_params']['kwargs']['num_networks'] 
             )),
         'vf_lr':                3e-4,
-        'vf_hidden_layer_sizes':(256,256), #(128, 128, 128, 128),
+        'vf_hidden_layer_sizes':(64,64), #(128, 128, 128, 128),
         'vf_epochs':            10,                 
-        'vf_batch_size':        2048,
+        'vf_batch_size':        4096,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
         'vf_loss':              'NLL',          # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
-        'vf_decay':              1e-6,
+        #'vf_decay':              1e-5,
         'vf_clipping':          True,           # clip losses for a trust-region like update
         'vf_kl_cliprange':      0.1,
         'vf_var_corr':          True,           # include variance correction terms acc. to paper, only use with NLL
-        'v_logit_bias':         0.0,#1,         # logit bias to control initial values
-        'vc_logit_bias':        0.0,# 10,
+        'v_logit_bias':         1.0,#1,         # logit bias to control initial values
+        'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         5000,
         'cost_lim':             5000,
-        'cost_lam':             .95,
+        'cost_lam':             .97,
         'cost_gamma':           0.99,
-        'lam':                  .95,
+        'lam':                  .97,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
@@ -279,12 +279,17 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(25e3),
+                    'CPOBuffer':int(15e3),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
                     int(1e6))
             )),
+            'value_ensemble_size': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['policy_params']['kwargs'].get('vf_ensemble_size',1)
+            )),
+
         }
     },
 }

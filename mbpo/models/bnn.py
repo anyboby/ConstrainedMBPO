@@ -241,6 +241,9 @@ class BNN:
             #### set up losses
             if self.loss_type == 'NLL':
                 if self.clip_loss:
+                    self.kl_cliprange_ph = tf.placeholder(dtype=tf.float32,
+                                    shape=(),
+                                    name="kl_cliprange_ph")
                     self.old_pred_ph = tf.placeholder(dtype=tf.float32,
                                     shape=[self.num_nets, None, self.layers[-1].get_output_dim() // 2],
                                     name="old_predictions_v")
@@ -280,6 +283,9 @@ class BNN:
 
             elif self.loss_type == 'MSE':
                 if self.clip_loss:
+                    self.kl_cliprange_ph = tf.placeholder(dtype=tf.float32,
+                                    shape=(),
+                                    name="kl_cliprange_ph")                    
                     self.old_pred_ph = tf.placeholder(dtype=tf.float32,
                                     shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
                                     name="old_predictions")
@@ -487,6 +493,9 @@ class BNN:
         holdout_inputs = np.tile(holdout_inputs[None], [self.num_nets, 1, 1])
         holdout_targets = np.tile(holdout_targets[None], [self.num_nets, 1, 1])
 
+        if self.clip_loss:
+            kl_cliprange = kwargs.get('kl_cliprange', self.kl_cliprange)
+
         if self.loss_type=='MSE' and self.clip_loss:
             old_pred = kwargs['old_pred']
             old_pred = old_pred[permutation[num_holdout:]]
@@ -540,9 +549,10 @@ class BNN:
                     }
                 
                 if self.loss_type=='MSE' and self.clip_loss:
-                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs]})
+                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs], self.kl_cliprange_ph:kl_cliprange})
+
                 elif self.loss_type=='NLL' and self.clip_loss:
-                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs]})
+                    feed_dict.update({self.old_pred_ph:old_pred[batch_idxs], self.kl_cliprange_ph:kl_cliprange})
                     feed_dict.update({self.old_pred_var_ph:old_pred_var[batch_idxs]})
 
                 if self.weights is not None:
@@ -939,7 +949,7 @@ class BNN:
             else: 
                 old_var = tf.reduce_mean(tf.reduce_mean(0.5 * (tf.square(oldpred_v - targets)), axis=-1), axis=-1)
 
-            kl_cliprange = tf.sqrt(self.kl_cliprange*old_var)
+            kl_cliprange = tf.sqrt(self.kl_cliprange_ph*old_var)
             mean = oldpred_v + tf.clip_by_value(mean-oldpred_v, -tf.sqrt(2.0)*kl_cliprange, tf.sqrt(2.0)*kl_cliprange)
             varpred_cl = oldpred_var + tf.clip_by_value(tf.exp(log_var)-oldpred_var, -kl_cliprange, kl_cliprange)
             

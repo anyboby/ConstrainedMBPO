@@ -21,7 +21,7 @@ class ModelBuffer(CPOBuffer):
 
         self.use_inv_var = use_inv_var
         self.ensemble_size = ensemble_size
-        self.model_ind = 0
+        self.model_ind = np.random.randint(ensemble_size)
         self.reset()
     
 
@@ -47,20 +47,24 @@ class ModelBuffer(CPOBuffer):
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.adv_buf = np.zeros(single_scalar_shape, dtype=np.float32)
         self.ret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)
+        self.ret_ep_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)    ## epistemic value variance
         self.roll_lengths_buf = np.zeros(single_scalar_shape, dtype=np.float32)
         self.rew_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.rew_path_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.ret_buf = np.zeros(single_scalar_shape, dtype=np.float32)
         self.val_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.val_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
-        self.cadv_buf = np.zeros(single_scalar_shape, dtype=np.float32)    # cost advantage
+        #self.val_ep_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)      ## epistemic value variance
+        self.cadv_buf = np.zeros(single_scalar_shape, dtype=np.float32)    
         self.cret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)   
+        self.cret_ep_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)   ## epistemic cost return variance
         self.croll_lengths_buf = np.zeros(single_scalar_shape, dtype=np.float32)   
-        self.cost_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # costs
-        self.cost_path_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # costs
-        self.cret_buf = np.zeros(single_scalar_shape, dtype=np.float32)    # cost return
-        self.cval_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # cost value
+        self.cost_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    
+        self.cost_path_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    
+        self.cret_buf = np.zeros(single_scalar_shape, dtype=np.float32)    
+        self.cval_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    
         self.cval_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # cost value
+        #self.cval_ep_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # epistemic cost value variance
         self.logp_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.term_buf = np.zeros(ens_scalar_shape, dtype=np.bool_)
 
@@ -153,7 +157,7 @@ class ModelBuffer(CPOBuffer):
             
             # @anyboby maybe remove GMM variance
             val_vars = np.append(self.val_var_buf[:, finish_mask, path_slice], last_val_var[..., None], axis=-1)
-            val_vars = np.mean(val_vars, axis=0) + np.mean(val_vars**2, axis=0) - (np.mean(val_vars, axis=0))**2 
+            val_vars = np.mean(val_vars, axis=0) + np.mean(vals**2, axis=0) - (np.mean(vals, axis=0))**2 
 
             #### only choose single trajectory for deltas
             deltas = rews[self.model_ind][...,:-1] + self.gamma * vals[self.model_ind][..., 1:] - vals[self.model_ind][..., :-1]
@@ -170,38 +174,49 @@ class ModelBuffer(CPOBuffer):
             ### define some utility vectors for lambda and gamma
             seed = np.zeros(shape=deltas.shape[-1]+1)
             seed[0] = 1
-            disc_vec = scipy.signal.lfilter([1], [1, float(-(self.gamma)**2)], seed)     ### create vector of discounts
-            lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam)], seed)     ### create vector of discounts
-            
-            ### determine variances for various t and n-step horizons
-            ### @anyboby using non-discounted variances to retrieve gae for constant variances
-            rew_t_h = disc_cumsum_matrix(self.rew_buf[:, finish_mask, path_slice], discount=1.0) #self.gamma)
-            rew_var_t_h = np.var(rew_t_h, axis=0)
+            disc_vec = scipy.signal.lfilter([1], [1, float(-self.gamma)], seed)     ### create vector of discounts
+            disc_vec_sq = scipy.signal.lfilter([1], [1, float(-(self.gamma**2))], seed)     ### create vector of squared discounts
+            lam_vec = scipy.signal.lfilter([1], [1, float(-self.lam*self.gamma**2)], seed)     ### create vector of lambdas 
+                                                                                                ### (divide by gamma to get GAE for equal variances)
 
-            ### create inverse variance matrix in t and rollout length h
+            ### calculate empirial epistemic variance per trajectory and rollout length
+            ## @anyboby: for now without discount since we want the weighting to equal GAE for equal variances
+            rew_t_h = disc_cumsum_matrix(self.rew_buf[:, finish_mask, path_slice], discount=self.gamma) #self.gamma)
+            rew_t_h[..., t, h] += vals[..., t_p_h+1]*disc_vec[..., h+1]
+            rew_var_t_h = np.var(rew_t_h, axis=0)       ### epistemic variances per timestep and rollout-length
+
+            ### create inverse (epsitemic) variance matrix in t and rollout length h
             weight_mat = np.zeros_like(rew_var_t_h)
-            weight_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + val_vars[..., t_p_h+1] + EPS)#* disc_vec[..., h+1]+EPS)
-            iv_mat = weight_mat.copy()      ### needed later
+            weight_mat[...,t, h] = 1/(rew_var_t_h[..., t, h] + EPS) #* disc_vec[..., h+1]+EPS)
 
             ### add lambda weighting
             weight_mat[...,t, h] *= lam_vec[..., h]
-            weight_mat[...,Ht, HH] *= 1/(1-self.lam)
-            
+            weight_mat[...,Ht, HH] *= 1/(1-self.lam*self.gamma**2+EPS)
+
             ### create weight matrix for deltas 
             d_weight_mat = discount_cumsum(weight_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
             weight_norm = 1/d_weight_mat[..., 0]                                  #### normalize:
             d_weight_mat[...,t,h] = d_weight_mat[...,t,h]*weight_norm[..., t]     ####    first entry for every t containts sum of all weights
             
-            ### calculate iv-weighted advantages
+            ### calculate (epistemic) iv-weighted advantages
             self.adv_buf[finish_mask, path_slice] = discount_cumsum_weighted(deltas, self.gamma, d_weight_mat)
+            ######################
+            #### calculate aleatoric and epistemic return variances (later as variance correction targets)
+            al_var_mat = rew_var_t_h.copy()
+            al_var_mat[...,t,h] = rew_var_t_h[...,t,h] + val_vars[..., t_p_h+1]*disc_vec_sq[..., h+1]
+
+            ### squared weights for variances
+            al_var_weight_mat = al_var_mat.copy()
+            al_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t])**2 * al_var_mat[...,t,h]
             
-            #### calc return variances and rollout lengths for each Adv_t
-            # self.ret_var_buf[finish_mask, path_slice] = d_weight_norm*1/(1-self.lam)
-            var_weight_mat = weight_mat.copy()
-            var_weight_mat[...,t,h] = (var_weight_mat[...,t,h]*weight_norm[..., t])**2 * 1/iv_mat[...,t,h]
+            ep_var_weight_mat = al_var_mat.copy()
+            ep_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t])**2 * rew_var_t_h[...,t,h]
 
             self.ret_var_buf[finish_mask, path_slice] = \
-                discount_cumsum_weighted(np.ones_like(deltas), 1.0, var_weight_mat)
+                discount_cumsum_weighted(np.ones_like(deltas), 1.0, al_var_weight_mat)
+
+            self.ret_ep_var_buf[finish_mask, path_slice] = \
+                discount_cumsum_weighted(np.ones_like(deltas), 1.0, ep_var_weight_mat)
 
             self.roll_lengths_buf[finish_mask, path_slice] = \
                 discount_cumsum_weighted(np.arange(self.ptr), 1.0, weight_mat)*weight_norm - np.arange(self.ptr)
@@ -216,8 +231,9 @@ class ModelBuffer(CPOBuffer):
             #=====================================================================#
             
             ### define some utility vectors for lambda and gamma
-            c_disc_vec = scipy.signal.lfilter([1], [1, float(-(self.cost_gamma)**2)], seed)     ### create vector of discounts
-            c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam)], seed)     ### create vector of discounts
+            c_disc_vec = scipy.signal.lfilter([1], [1, float(-self.cost_gamma)], seed)     ### create vector of discounts
+            c_disc_vec_sq = scipy.signal.lfilter([1], [1, float(-(self.cost_gamma**2))], seed)     ### create vector of squared discounts
+            c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam*self.cost_gamma**2)], seed)     ### create vector of lambdas 
 
             costs = np.append(self.cost_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
             cvals = np.append(self.cval_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
@@ -229,35 +245,44 @@ class ModelBuffer(CPOBuffer):
             #### only choose single trajectory for deltas
             cdeltas = costs[self.model_ind][...,:-1] + self.cost_gamma * cvals[self.model_ind][..., 1:] - cvals[self.model_ind][..., :-1]
 
-            ### determine variances for various t and n-step horizons
-            ### @anyboby using non-discounted variances to retrieve gae for constant variances
-            c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=1.0) #self.cost_gamma)
-            c_var_t_h = np.var(c_t_h, axis=0)
-
-            ### create inverse variance matrix in t and rollout length h
+            ### calculate empirial epistemic variance per trajectory and rollout length
+            ## @anyboby: for now without discount since we want the weighting to equal GAE for equal variances
+            c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=self.gamma) #self.gamma)
+            c_t_h[..., t, h] += cvals[..., t_p_h+1]*c_disc_vec[..., h+1]
+            c_var_t_h = np.var(c_t_h, axis=0)       ### epistemic variances per timestep and rollout-length
+            
+            ### create inverse (epsitemic) variance matrix in t and rollout length h
             c_weight_mat = np.zeros_like(c_var_t_h)
-            c_weight_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + cval_vars[..., t_p_h+1]+EPS) #*c_disc_vec[..., h+1]+EPS)
-            c_iv_mat = c_weight_mat.copy()      ### needed later
+            c_weight_mat[...,t, h] = 1/(c_var_t_h[..., t, h] + EPS) #* disc_vec[..., h+1]+EPS)
 
             ### add lambda weighting
             c_weight_mat[...,t, h] *= c_lam_vec[..., h]
-            c_weight_mat[...,Ht, HH] *= 1/(1-self.cost_lam)         ###last entry accounts for remaining (imagined) lambda weights
-            
+            c_weight_mat[...,Ht, HH] *= 1/(1-self.cost_lam*self.cost_gamma**2+EPS)
+
             ### create weight matrix for deltas 
             cd_weight_mat = discount_cumsum(c_weight_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
             c_weight_norm = 1/cd_weight_mat[..., 0]                                  #### normalize:
             cd_weight_mat[...,t,h] = cd_weight_mat[...,t,h]*c_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
-            
-            ### calculate iv-weighted advantages
+
+            ### calculate (epistemic) iv-weighted advantages
             self.cadv_buf[finish_mask, path_slice] = discount_cumsum_weighted(cdeltas, self.cost_gamma, cd_weight_mat)
-            
-            #### calc return variances and rollout lengths for each Adv_t
-            #self.cret_var_buf[finish_mask, path_slice] = weight_norm*1/(1-self.cost_lam)
-            c_var_weight_mat = c_weight_mat.copy()
-            c_var_weight_mat[...,t,h] = (c_var_weight_mat[...,t,h]*c_weight_norm[..., t])**2 * 1/c_iv_mat[...,t,h]
+            ######################
+            #### calculate aleatoric and epistemic return variances (later as variance correction targets)
+            c_al_var_mat = c_var_t_h.copy()
+            c_al_var_mat[...,t,h] = c_var_t_h[...,t,h] + cval_vars[..., t_p_h+1]*c_disc_vec_sq[..., h+1]
+
+            ### squared weights for variances
+            c_al_var_weight_mat = c_al_var_mat.copy()
+            c_al_var_weight_mat[...,t,h] = (c_weight_mat[...,t, h]*c_weight_norm[..., t])**2 * c_al_var_mat[...,t,h]
+
+            c_ep_var_weight_mat = c_al_var_mat.copy()
+            c_ep_var_weight_mat[...,t,h] = (c_weight_mat[...,t, h]*c_weight_norm[..., t])**2 * c_var_t_h[...,t,h]
 
             self.cret_var_buf[finish_mask, path_slice] = \
-                discount_cumsum_weighted(np.ones_like(cdeltas), 1.0, c_var_weight_mat)
+                discount_cumsum_weighted(np.ones_like(cdeltas), 1.0, c_al_var_weight_mat)
+
+            self.cret_ep_var_buf[finish_mask, path_slice] = \
+                discount_cumsum_weighted(np.ones_like(deltas), 1.0, c_ep_var_weight_mat)
 
             self.croll_lengths_buf[finish_mask, path_slice] = \
                 discount_cumsum_weighted(np.arange(self.ptr), 1.0, c_weight_mat)*c_weight_norm - np.arange(self.ptr)
@@ -269,15 +294,27 @@ class ModelBuffer(CPOBuffer):
             #=====================================================================#
             
             ### calc variance acceleration and normalize
-            c_var_acc = np.diff(np.diff(self.cret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
-            c_var_acc = (c_var_acc-np.mean(c_var_acc, axis=-1)[...,None])/(np.std(c_var_acc, axis=-1)[...,None]+EPS)
-            v_var_acc = np.diff(np.diff(self.ret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
-            v_var_acc = (v_var_acc-np.mean(v_var_acc, axis=-1)[...,None])/(np.std(v_var_acc, axis=-1)[...,None]+EPS)
+            # c_var_acc = np.diff(np.diff(self.cret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
+            # c_var_acc = (c_var_acc-np.mean(c_var_acc, axis=-1)[...,None])/(np.std(c_var_acc, axis=-1)[...,None]+EPS)
+            # v_var_acc = np.diff(np.diff(self.ret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
+            # v_var_acc = (v_var_acc-np.mean(v_var_acc, axis=-1)[...,None])/(np.std(v_var_acc, axis=-1)[...,None]+EPS)
 
-            var_acc_threshold = 1 ### all variance accelerations above 1 std are filtered out
-            var_acc_mask = np.logical_or(c_var_acc>var_acc_threshold, v_var_acc>var_acc_threshold)
-            horizons = np.argmax(var_acc_mask, axis=-1)[...,None]
-            self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
+            # var_acc_threshold = 1 ### all variance accelerations above 1 std are filtered out
+            # var_acc_mask = np.logical_or(c_var_acc>var_acc_threshold, v_var_acc>var_acc_threshold)
+            # horizons = np.argmax(var_acc_mask, axis=-1)[...,None] if var_acc_mask.size != 0 else np.zeros_like(finish_mask.sum())[...,None]
+            # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
+
+            ### alternative: trajectory variance larger than epistemic value variance
+            # val_var_threshold = 1.5
+            # ep_cval_vars = np.var(self.cval_buf[:, finish_mask, path_slice], axis=0)
+            # ep_val_vars = np.var(self.val_buf[:, finish_mask, path_slice], axis=0)
+
+            # var_mask = np.logical_or(
+            #     self.cret_var_buf[finish_mask, path_slice]>val_var_threshold * ep_cval_vars,
+            #     self.ret_var_buf[finish_mask, path_slice]>val_var_threshold * ep_val_vars,
+            #     )
+            # horizons = np.argmax(var_mask, axis=-1)[...,None]
+            # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
@@ -338,6 +375,8 @@ class ModelBuffer(CPOBuffer):
 
                 val_var_mean = self.val_var_buf[self.model_ind, self.populated_mask].mean()
                 cval_var_mean = self.cval_var_buf[self.model_ind, self.populated_mask].mean()
+                ep_ret_var_mean = np.mean(self.ret_ep_var_buf[self.populated_mask])
+                ep_cret_var_mean = np.mean(self.cret_ep_var_buf[self.populated_mask])
                 norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
                 norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/np.var(self.cadv_buf[self.populated_mask])
                 avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
@@ -347,6 +386,8 @@ class ModelBuffer(CPOBuffer):
                 cret_mean = 0
                 val_var_mean = 0
                 cval_var_mean = 0
+                ep_ret_var_mean = 0
+                ep_cret_var_mean = 0
                 norm_adv_var_mean = 0
                 norm_cadv_var_mean = 0
                 avg_horizon_r = 0
@@ -361,10 +402,13 @@ class ModelBuffer(CPOBuffer):
 
             # filter out unpopulated entries / finished paths
             res = [buf[self.populated_mask] for buf in res]
-            diagnostics = dict(poolm_ret_mean=ret_mean, \
+            diagnostics = dict( poolm_batch_size = self.populated_mask.sum(), 
+                                poolm_ret_mean=ret_mean, 
                                 poolm_cret_mean=cret_mean, 
                                 poolm_val_var_mean = val_var_mean,
                                 poolm_cval_var_mean = cval_var_mean,
+                                poolm_ep_ret_var_mean = ep_ret_var_mean,
+                                poolm_ep_cret_var_mean = ep_cret_var_mean,
                                 poolm_norm_adv_var = norm_adv_var_mean, 
                                 poolm_norm_cadv_var = norm_cadv_var_mean,
                                 poolm_avg_Horizon_rew = avg_horizon_r,

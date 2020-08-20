@@ -361,9 +361,16 @@ class CPOPolicy(BasePolicy):
 
         self.dyn_ensemble_size = kwargs.get('dyn_ensemble_size', 1)
         self.vf_lr = kwargs.get('vf_lr', 1e-4)
+
         self.vf_epochs = kwargs.get('vf_epochs', 10)
         self.vf_batch_size = kwargs.get('vf_batch_size', 64)
-        self.vf_ensemble_size = kwargs.get('vf_ensemble_size', 5)
+        self.vf_holdout = 0.1
+        self.vf_train_kwargs = dict(batch_size=self.vf_batch_size,
+                                    min_epoch_before_break = self.vf_epochs,
+                                    max_epochs=self.vf_epochs,
+                                    holdout_ratio=self.vf_holdout)
+
+        self.vf_ensemble = kwargs.get('vf_ensemble_size', 5)
         self.vf_elites = kwargs.get('vf_elites', 3)
         self.v_logit_bias = (kwargs.get('v_logit_bias', 0))
         self.vc_logit_bias = kwargs.get('vc_logit_bias', 0)
@@ -495,15 +502,15 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['out_dim']        = 1
             vf_kwargs['hidden_dims']    = self.hidden_sizes_c
             vf_kwargs['lr']             = self.vf_lr
-            vf_kwargs['num_networks']   = self.vf_ensemble_size
+            vf_kwargs['num_networks']   = self.vf_ensemble
             vf_kwargs['activation']     = self.vf_activation
             vf_kwargs['loss']           = self.vf_loss
             vf_kwargs['decay']          = self.vf_decay
             vf_kwargs['clip_loss']      = self.vf_cliploss
             vf_kwargs['var_corr']      = self.vf_var_corr
             vf_kwargs['num_elites']     = self.vf_elites
-            vf_kwargs['use_scaler']     = True
-            vf_kwargs['sc_factor']      = 1.0
+            vf_kwargs['use_scaler']     = False
+            # vf_kwargs['sc_factor']      = 1.0
             vf_kwargs['session']        = self.sess
 
 
@@ -709,7 +716,7 @@ class CPOPolicy(BasePolicy):
                 deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
         self.logger.store(KL=post_update_measures['KL'], **deltas)
 
-    def update_critic(self, buf_inputs):
+    def update_critic(self, buf_inputs, **kwargs):
         #=====================================================================#
         #  Prepare feed dict                                                  #
         #=====================================================================#
@@ -728,12 +735,11 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         #  Update value function                                              #
         #=====================================================================#
+        train_kwargs = self.vf_train_kwargs.copy()
+        train_kwargs.update(kwargs)
         self.train_critic(
             critic_inputs, 
-            batch_size=self.vf_batch_size, 
-            min_epoch_before_break=self.vf_epochs, 
-            max_epochs=self.vf_epochs, 
-            holdout_ratio=0.1
+            **train_kwargs
             )
 
         #=====================================================================#
@@ -976,6 +982,10 @@ class CPOPolicy(BasePolicy):
         raise NotImplementedError
         # return self.ac_network.set_weights(*args, **kwargs)
         
+    @property
+    def vf_ensemble_size(self):
+        return self.vf_ensemble
+
     @property
     def vf_is_gaussian(self):
         return self.gaussian_vf
