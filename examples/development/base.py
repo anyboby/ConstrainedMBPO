@@ -40,7 +40,7 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_ensemble_size':     7,
         'vf_elites':            5,
         'vf_activation':        'swish',
-        'vf_loss':              'NLL',          # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
+        'vf_loss':              'MSE',          # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
         #'vf_decay':              1e-5,
         'vf_clipping':          True,           # clip losses for a trust-region like update
         'vf_kl_cliprange':      0.1,
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(1000), #5000
         }
     },
     'SQL': {

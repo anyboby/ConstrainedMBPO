@@ -273,22 +273,26 @@ class ModelSampler(CpoSampler):
         next_val = self.policy.get_v(next_obs, factored=True, inc_var=False)
         next_cval = self.policy.get_vc(next_obs, factored=True, inc_var=False)
 
-        ep_cval_var = np.var(vc_t, axis=0)
-        ep_val_var = np.var(v_t, axis=0)
         ep_cval_var_n = np.var(next_cval, axis=0)
         ep_val_var_n = np.var(next_val, axis=0)
 
-        cost_uncertainty = self._path_cost_var[alive_paths] + ep_cval_var_n
-        rew_uncertainty = self._path_return_var[alive_paths] + ep_val_var_n 
+        cost_uncertainty = np.var(self._path_return+next_val, axis=0)
+        rew_uncertainty = np.var(self._path_cost+next_cval, axis=0) 
+        
+        cost_cov = np.std(self._path_return+next_val, axis=0) / np.mean(abs(self._path_return+next_val), axis=0)
+        ret_cov = np.std(self._path_cost+next_cval, axis=0) / np.mean(abs(self._path_cost+next_cval), axis=0)
 
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
-        threshold_var_ratio = 2.5      ### the real rollout horizon is determined in the buffer
+        threshold_var_ratio = 1e7      ### the real rollout horizon is determined in the buffer
         too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
                                             rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
+
+        # too_uncertain_paths = np.logical_or(cost_cov > self._max_uncertainty_c, \
+        #                                     ret_cov > self._max_uncertainty_rew) 
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 

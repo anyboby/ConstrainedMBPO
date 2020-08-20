@@ -34,7 +34,7 @@ params = {
         'hidden_dims':(512,512), #(512, 512, 512, 512),               # hidden layer size of model bnn
         'model_train_freq': 4000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 1.5e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 2.0e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
@@ -48,7 +48,7 @@ params = {
         'cost_model_train_schedule': [25, 80, 1, 1],
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' : 1000,
-        'max_uncertainty_rew' : 1000,
+        'max_uncertainty_c' : 2.0,
+        'max_uncertainty_rew' : 2.0,
     }
 }

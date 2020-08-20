@@ -213,7 +213,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=80, 
+                                        max_path_length=15, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         use_inv_var = self.use_inv_var,
@@ -225,7 +225,7 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=80,
+        self.model_sampler = ModelSampler(max_path_length=15,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',

@@ -383,6 +383,8 @@ class CPOBuffer:
         cret_mean = self.cret_buf.mean()
         val_var_mean = self.val_var_buf[self.model_ind,:].mean()
         cval_var_mean = self.cval_var_buf[self.model_ind,:].mean()
+        ep_cval_std_mean = np.std(self.val_buf, axis=0)
+        ep_val_std_mean = np.std(self.cval_buf, axis=0)
         ep_ret_var_mean = np.mean(self.ret_ep_var_buf)
         ep_cret_var_mean = np.mean(self.cret_ep_var_buf)
         norm_adv_var_mean = np.mean(self.ret_ep_var_buf)/np.var(self.adv_buf)
@@ -394,6 +396,8 @@ class CPOBuffer:
                             poolr_cret_mean=cret_mean, 
                             poolr_val_var_mean = val_var_mean,
                             poolr_cval_var_mean = cval_var_mean,
+                            poolm_ep_val_std_mean = ep_val_std_mean,
+                            poolm_ep_cval_std_mean = ep_cval_std_mean,
                             poolr_ret_ep_var_mean = ep_ret_var_mean,
                             poolr_cret_ep_var_mean = ep_cret_var_mean,
                             poolr_norm_adv_var = norm_adv_var_mean, 

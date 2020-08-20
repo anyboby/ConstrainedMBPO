@@ -947,14 +947,20 @@ class BNN:
             if oldpred_var is not None:
                 old_var = oldpred_var
             else: 
-                old_var = tf.reduce_mean(tf.reduce_mean(0.5 * (tf.square(oldpred_v - targets)), axis=-1), axis=-1)
+                old_var = tf.reduce_mean(0.5 * (tf.square(oldpred_v - targets)))        ### overall empirical var
 
             kl_cliprange = tf.sqrt(self.kl_cliprange_ph*old_var)
             mean = oldpred_v + tf.clip_by_value(mean-oldpred_v, -tf.sqrt(2.0)*kl_cliprange, tf.sqrt(2.0)*kl_cliprange)
-            varpred_cl = oldpred_var + tf.clip_by_value(tf.exp(log_var)-oldpred_var, -kl_cliprange, kl_cliprange)
             
-            inv_var = 1/varpred_cl
-            log_var = tf.log(varpred_cl)
+            if inc_var_loss:
+                assert self.is_probabilistic
+                varpred_cl = oldpred_var + tf.clip_by_value(tf.exp(log_var)-oldpred_var, -kl_cliprange, kl_cliprange)
+            
+                inv_var = 1/varpred_cl
+                log_var = tf.log(varpred_cl)
+            else:
+                var_losses = 0
+                inv_var = 1.0
 
             self.deb_cliprange = kl_cliprange
 
