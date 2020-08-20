@@ -375,8 +375,8 @@ class ModelBuffer(CPOBuffer):
 
                 val_var_mean = self.val_var_buf[self.model_ind, self.populated_mask].mean()
                 cval_var_mean = self.cval_var_buf[self.model_ind, self.populated_mask].mean()
-                ep_val_std_mean = np.std(self.val_buf[:, self.populated_mask], axis=0)
-                ep_cval_std_mean = np.std(self.cval_buf[:, self.populated_mask], axis=0)
+                ep_val_std_mean = np.mean(np.std(self.val_buf[:, self.populated_mask], axis=0))
+                ep_cval_std_mean = np.mean(np.std(self.cval_buf[:, self.populated_mask], axis=0))
                 ep_ret_var_mean = np.mean(self.ret_ep_var_buf[self.populated_mask])
                 ep_cret_var_mean = np.mean(self.cret_ep_var_buf[self.populated_mask])
                 norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])

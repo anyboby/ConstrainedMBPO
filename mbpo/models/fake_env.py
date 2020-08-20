@@ -73,7 +73,7 @@ class FakeEnv:
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
                                         #use_scaler=True,
-                                        decay=5e-4,
+                                        decay=1e-4,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
                                         min_logvar=-10,
