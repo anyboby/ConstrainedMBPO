@@ -261,7 +261,7 @@ class ModelSampler(CpoSampler):
 
         dkl_mean_dyn = info.get('dyn_ensemble_dkl_mean', 0)
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
-        dyn_var = info.get('dyn_ensemble_var', np.zeros(reward.shape))
+        dyn_var = info.get('dyn_ensemble_var_mean', np.zeros(shape=reward.shape[1:]))
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -276,11 +276,11 @@ class ModelSampler(CpoSampler):
         ep_cval_var_n = np.var(next_cval, axis=0)
         ep_val_var_n = np.var(next_val, axis=0)
 
-        cost_uncertainty = np.var(self._path_return+next_val, axis=0)
-        rew_uncertainty = np.var(self._path_cost+next_cval, axis=0) 
+        rew_uncertainty = np.var(self._path_return[:,alive_paths]+next_val, axis=0)
+        cost_uncertainty = np.var(self._path_cost[:,alive_paths]+next_cval, axis=0) 
         
-        cost_cov = np.std(self._path_return+next_val, axis=0) / np.mean(abs(self._path_return+next_val), axis=0)
-        ret_cov = np.std(self._path_cost+next_cval, axis=0) / np.mean(abs(self._path_cost+next_cval), axis=0)
+        # cost_cov = np.std(self._path_return+next_val, axis=0) / np.mean(abs(self._path_return+next_val), axis=0)
+        # ret_cov = np.std(self._path_cost+next_cval, axis=0) / np.mean(abs(self._path_cost+next_cval), axis=0)
 
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)

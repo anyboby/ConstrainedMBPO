@@ -99,31 +99,33 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None,
 
 
 	#### ---- preprocess samples for model training in safety gym -----####
-	if safe_config:
-		stacks = safe_config['stacks']
-		stacking_axis = safe_config['stacking_axis']
-		unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)	
-		delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
+	# if safe_config:
+	# 	stacks = safe_config['stacks']
+	# 	stacking_axis = safe_config['stacking_axis']
+	# 	unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)	
+	# 	delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
 		
-		## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
-		outlier_threshold = 0.2
-		mask = np.invert(terms)
-		mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,3:19]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
-		mask = mask*mask_outlier
+	# 	## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
+	# 	outlier_threshold = 0.2
+	# 	mask = np.invert(terms)
+	# 	mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,3:19]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
+	# 	mask = mask*mask_outlier
 
-		obs=obs[mask]
-		act=act[mask]
-		next_obs=next_obs[mask]
-		rew = rew[mask]
-		delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
-		delta_obs[:,:2] = 0 ### @anyboby TODO fix this its stupid
-		
+	# 	obs=obs[mask]
+	# 	act=act[mask]
+	# 	next_obs=next_obs[mask]
+	# 	rew = rew[mask]
+	# 	delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
+	# 	delta_obs[:,:2] = 0 ### @anyboby TODO fix this its stupid
+	#	priors = priors[mask]
 
-	else: 
-		delta_obs = next_obs - obs
+	# else: 
+	# 	delta_obs = next_obs - obs
+	delta_obs = next_obs - obs
+
 	#### ----END preprocess samples for model training in safety gym -----####
 	if priors is not None:
-		inputs = np.concatenate((obs, act, priors[mask]), axis=-1)
+		inputs = np.concatenate((obs, act, priors), axis=-1)
 	else:
 		inputs = np.concatenate((obs, act), axis=-1)
 

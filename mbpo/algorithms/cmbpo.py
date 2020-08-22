@@ -398,7 +398,7 @@ class CMBPO(RLAlgorithm):
     
                 #self.fake_env.reset_model()    # this behaves weirdly
                 min_epochs = 25 if self._epoch==0 else 5        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                max_epochs = 500 if self._epoch<10 else 50
+                max_epochs = 500 if self._epoch<10 else 10
                 # # if len(samples['observations'])>30000:
                 # #     samples = {k:v[-30000:] for k,v in samples.items()} 
                 batch_size = 512 + min(self._epoch//50*512, 7*512)
@@ -419,7 +419,7 @@ class CMBPO(RLAlgorithm):
                     model_train_metrics_cost = self.fake_env.train_cost_model(
                         samples, 
                         discount = self._cost_m_discount,
-                        batch_size= 1024, #batch_size, #512, 
+                        batch_size= batch_size, #batch_size, #512, 
                         min_epoch_before_break= min_epochs,#min_epochs,
                         max_epochs=max_epochs, # max_epochs, 
                         holdout_ratio=0.2, 

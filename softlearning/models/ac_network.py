@@ -107,10 +107,10 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, actio
 
     
     mu = mlp(x, list(hidden_sizes)+[act_dim], activation, output_activation)
-    log_std = tf.get_variable(name='log_std', initializer=-0.0*np.ones(act_dim, dtype=np.float32))
+    log_std = tf.get_variable(name='log_std', initializer=-0.5*np.ones(act_dim, dtype=np.float32))
     ### @anyboby testing: higher starting std, ppo1 uses log_std=0 at the beginning
     # log_std = tf.get_variable(name='log_std', shape=act_dim ,initializer=tf.zeros_initializer(), dtype=tf.float32)
-    std = tf.exp(log_std)    
+    std = tf.exp(log_std)
 
     pi = mu + tf.random_normal(tf.shape(mu)) * std
     logp = gaussian_likelihood(a, mu, log_std)

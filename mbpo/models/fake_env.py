@@ -160,19 +160,18 @@ class FakeEnv:
 
         if obs_depth==3:
             ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
-
+        
+        ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
+        ensemble_dyn_vars = ensemble_dyn_vars[0]
+        
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
         
-        # ensemble_dyn_var = np.mean(ensemble_dyn_vars, axis=0) + np.mean(ensemble_dyn_means**2, axis=0) - (np.mean(ensemble_dyn_means, axis=0))**2
-        # ensemble_dyn_var = np.mean(ensemble_dyn_var, axis=-1)
         ensemble_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
         ensemble_dyn_var = np.mean(ensemble_dyn_var, axis=-1)
 
         ### calc disagreement of elites
-        elite_means = ensemble_dyn_means[self._model.elite_inds]
-        elite_stds = ensemble_model_stds[self._model.elite_inds]
-        average_dkl_per_output = average_dkl(elite_means, elite_stds)#*self.target_weights
+        average_dkl_per_output = average_dkl(ensemble_dyn_means, ensemble_model_stds)
         ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
         ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
 
@@ -224,21 +223,6 @@ class FakeEnv:
             costs, cost_var = self._cost_model.predict(inputs_cost, factored=False, inc_var=True)
             cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
 
-            # if self.inc_var_c:
-            #     costs, cost_var = self._cost_model.predict(inputs_cost, factored=True, inc_var=True)
-            #     costs, cost_var = np.squeeze(costs), np.squeeze(cost_var)
-            #     # cost_var = np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2
-            #     # cost_var = np.var(costs, axis=0)
-
-            # else:
-            #     costs = self._cost_model.predict(inputs_cost, factored=True)
-            #     costs = np.squeeze(costs)
-
-            #     cost_var = np.var(costs, axis=0)
-            
-            # costs = np.random.normal(size=costs.shape) * np.sqrt(costs_var)
-            # costs = np.squeeze(np.clip(costs, 0, 1))
-
         else:
             costs = np.zeros_like(rewards)
             cost_var = np.zeros(shape=rewards.shape[1:])
@@ -262,7 +246,7 @@ class FakeEnv:
                 # 'dev': dev,
                 'dyn_ensemble_dkl_mean' : ensemble_dkl_mean,
                 'dyn_ensemble_dkl_med' : ensemble_dkl_med,
-                'dyn_ensemble_var' : ensemble_dyn_var,
+                'dyn_ensemble_var_mean' : ensemble_dyn_var,
                 'cost_ensemble_var' : cost_var,
                 'rew_ensemble_var' : rew_var,
                 'rew':rewards,
@@ -271,7 +255,6 @@ class FakeEnv:
                 'cost_mean': costs.mean(),
                 }
         return next_obs, rewards, terminals, info
-
 
     def train_dyn_model(self, samples, discount=1, **kwargs):
         # check priors
@@ -345,6 +328,29 @@ class FakeEnv:
         self._model.reset()
         self._cost_model.reset()
         
+    def filter_elite_inds(self, data, n_elites, apply_too = None):
+        '''
+        extracts the closest data to the median
+        data 0-axis is ensemble axis
+        data 1-axis is batch axis
+        apply_too: a list of arrays with same dims as data that the same filtration is applied to. 
+        '''
+        ### swap for convenience
+        data_sw = np.swapaxes(data, 0, 1)
+        mse_median = np.mean((data_sw-np.median(data_sw, axis=1)[:,None,...])**2, axis=-1)
+        sorted_inds = np.argsort(mse_median, axis=1)[:, :n_elites]
+        replace_inds = sorted_inds[:, 0:self.num_networks-n_elites]
+        batch_inds = np.arange(data_sw.shape[0])[...,None]
+
+        res = np.concatenate((data_sw[batch_inds, sorted_inds], data_sw[batch_inds, replace_inds]), axis=1)
+        res = np.swapaxes(res, 0,1)
+
+        if apply_too is not None:
+            sw_list = [np.swapaxes(arr, 0, 1) for arr in apply_too]
+            res_list_too = [np.concatenate((sw_too[batch_inds, sorted_inds], sw_too[batch_inds, replace_inds]), axis=1) for sw_too in sw_list]
+            res_list_too = [np.swapaxes(res_too, 0,1) for res_too in res_list_too]
+            return res, res_list_too
+        return res
 
     def forward_shuffle(self, ndarray):
         """
