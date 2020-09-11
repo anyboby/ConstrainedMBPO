@@ -216,7 +216,7 @@ class FakeEnv:
 
         if self.cares_about_cost:
             if self.prior_f:
-                inputs_cost = np.concatenate((next_obs, priors), axis=-1)
+                inputs_cost = np.concatenate((obs, act, next_obs, priors), axis=-1)
             else:
                 inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
 

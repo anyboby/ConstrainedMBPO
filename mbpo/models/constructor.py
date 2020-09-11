@@ -174,9 +174,9 @@ def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_cla
 		outputs = cost[:, None]
 
 	if priors is not None:
-		inputs = np.concatenate((obs, next_obs, act, priors), axis=-1)
+		inputs = np.concatenate((obs, act, next_obs, priors), axis=-1)
 	else:
-		inputs = np.concatenate((obs, next_obs, act), axis=-1)
+		inputs = np.concatenate((obs, act, next_obs), axis=-1)
 
 	
 	## ________________________________ ##
