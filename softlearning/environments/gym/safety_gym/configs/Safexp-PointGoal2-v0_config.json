@@ -6,7 +6,7 @@
     "observe_box_comp": false, "observe_box_lidar": true, "observe_circle": false, "observe_remaining": false, 
     "observe_walls": false, "observe_hazards": true, "observe_vases": true, "observe_pillars": false, 
     "observe_buttons": false, "observe_gremlins": false, "observe_vision": false, "observe_qpos": false, 
-    "observe_qvel": false, "observe_ctrl": true, "observe_freejoint": false, "observe_com": false, "render_labels": false, 
+    "observe_qvel": false, "observe_ctrl": false, "observe_freejoint": false, "observe_com": false, "render_labels": false, 
     "render_lidar_markers": true, "render_lidar_radius": 0.15, "render_lidar_size": 0.025, "render_lidar_offset_init": 0.5, 
     "render_lidar_offset_delta": 0.06, "vision_size": [60, 40], "vision_render": true, "vision_render_size": [300, 200], 
     "lidar_num_bins": 16, "lidar_max_dist": 3, "lidar_exp_gain": 1.0, "lidar_type": "pseudo", "lidar_alias": true, 

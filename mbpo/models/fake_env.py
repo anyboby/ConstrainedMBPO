@@ -57,7 +57,7 @@ class FakeEnv:
         #### create fake env from model 
 
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
-        input_dim_c = self.obs_dim + self.prior_dim
+        input_dim_c = 2 * self.obs_dim + self.act_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
         self.dyn_loss = 'NLL'
 
@@ -97,7 +97,7 @@ class FakeEnv:
                                         # sc_factor=1-1e-5,
                                         # max_logvar=.5,
                                         # min_logvar=-8,
-                                        # decay=1e-8,
+                                        decay=1e-4,
                                         session=self._session)
             
         else:
@@ -218,7 +218,7 @@ class FakeEnv:
             if self.prior_f:
                 inputs_cost = np.concatenate((next_obs, priors), axis=-1)
             else:
-                inputs_cost = next_obs
+                inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
 
             costs, cost_var = self._cost_model.predict(inputs_cost, factored=False, inc_var=True)
             cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]

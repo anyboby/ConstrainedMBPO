@@ -160,7 +160,10 @@ def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_cla
 					one_hot: False wil output targets with shape [batch_size,] and scalar targets
 	"""
 	next_obs = np.squeeze(samples['next_observations'])
+	obs = np.squeeze(samples['observations'])
 	cost = samples['costs']
+	act = np.squeeze(samples['actions'])
+
 	if one_hot:
 		cost_one_hot = np.zeros(shape=(len(cost), num_classes))
 		batch_indcs = np.arange(0, len(cost))
@@ -171,9 +174,9 @@ def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_cla
 		outputs = cost[:, None]
 
 	if priors is not None:
-		inputs = np.concatenate((next_obs, priors), axis=-1)
+		inputs = np.concatenate((obs, next_obs, act, priors), axis=-1)
 	else:
-		inputs = next_obs
+		inputs = np.concatenate((obs, next_obs, act), axis=-1)
 
 	
 	## ________________________________ ##

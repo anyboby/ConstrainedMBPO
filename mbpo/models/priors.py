@@ -64,25 +64,25 @@ def safety_gym_weights(obs_dim):
 
 
 PRIORS_BY_DOMAIN={
-    'Safexp-PointGoal2':prior_safety_gym,
+    # 'Safexp-PointGoal2':prior_safety_gym,
     'Safexp-PointGoal0':prior_safety_gym,
     'Safexp-PointGoal1':prior_safety_gym,
 }
 
 PRIOR_DIMS = {
-    'Safexp-PointGoal2':2,
+    # 'Safexp-PointGoal2':2,
     'Safexp-PointGoal0':2,
     'Safexp-PointGoal1':2,
 }
 
 POSTS_BY_DOMAIN={
-    'Safexp-PointGoal2':post_safety_gym,
+    # 'Safexp-PointGoal2':post_safety_gym,
     'Safexp-PointGoal0':post_safety_gym,
     'Safexp-PointGoal1':post_safety_gym,
 }
 
 WEIGHTS_PER_DOMAIN = {
-    'Safexp-PointGoal2':safety_gym_weights,
+    # 'Safexp-PointGoal2':safety_gym_weights,
     'Safexp-PointGoal1':safety_gym_weights,
     'Safexp-PointGoal0':safety_gym_weights,
 }

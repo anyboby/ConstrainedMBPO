@@ -401,7 +401,8 @@ class CMBPO(RLAlgorithm):
                 max_epochs = 500 if self._epoch<10 else 10
                 # # if len(samples['observations'])>30000:
                 # #     samples = {k:v[-30000:] for k,v in samples.items()} 
-                batch_size = 512 + min(self._epoch//50*512, 7*512)
+                # batch_size = 512 + min(self._epoch//50*512, 7*512)
+                batch_size = 1024
 
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(
@@ -488,7 +489,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if len(train_samples[0])>=min_samples or self._epoch==0:     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
+            if (len(train_samples[0])>=min_samples or self._epoch==0):     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
                 self._policy.update_policy(train_samples)
                 self._policy.update_critic(train_samples)
                 
