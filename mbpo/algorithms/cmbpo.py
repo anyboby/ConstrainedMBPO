@@ -213,7 +213,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=15, 
+                                        max_path_length=50, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         use_inv_var = self.use_inv_var,
@@ -225,7 +225,7 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=15,
+        self.model_sampler = ModelSampler(max_path_length=50,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -459,7 +459,6 @@ class CMBPO(RLAlgorithm):
                         break
                 
                 ### diagnostics for rollout ###
-                gt.stamp('epoch_rollout_model')
                 rollout_diagnostics = self.model_sampler.finish_all_paths()
                                     
                 
@@ -477,7 +476,9 @@ class CMBPO(RLAlgorithm):
                     model_data_diag = self._policy.run_diagnostics(model_samples)
                     model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
                     model_metrics.update(model_data_diag)
-                                
+
+                gt.stamp('epoch_rollout_model')
+
             if train_samples is None:
                 train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
             else: 
@@ -493,7 +494,6 @@ class CMBPO(RLAlgorithm):
                 self._policy.update_policy(train_samples)
                 self._policy.update_critic(train_samples)
                 
-                gt.stamp('train')
                 self.policy_epoch += 1
 
                 #### empty train_samples
@@ -506,6 +506,7 @@ class CMBPO(RLAlgorithm):
             else: 
                 model_metrics.update({'Policy Update?':0})
 
+            gt.stamp('train')
             #=====================================================================#
             #  Log performance and stats                                          #
             #=====================================================================#
