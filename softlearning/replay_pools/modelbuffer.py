@@ -304,7 +304,7 @@ class ModelBuffer(CPOBuffer):
             # horizons = np.argmax(var_acc_mask, axis=-1)[...,None] if var_acc_mask.size != 0 else np.zeros_like(finish_mask.sum())[...,None]
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
-            ### alternative: trajectory variance larger than epistemic value variance
+            ### alternative a: trajectory variance larger than epistemic value variance
             # val_var_threshold = 1.5
             # ep_cval_vars = np.var(self.cval_buf[:, finish_mask, path_slice], axis=0)
             # ep_val_vars = np.var(self.val_buf[:, finish_mask, path_slice], axis=0)
@@ -315,6 +315,18 @@ class ModelBuffer(CPOBuffer):
             #     )
             # horizons = np.argmax(var_mask, axis=-1)[...,None]
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
+
+            ### alternative b: normalize return variances by first entry
+            # threshold = 2
+            # norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
+            # norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
+
+            # too_uncertain_mask = np.logical_or(
+            #     norm_cret_vars>threshold,
+            #     norm_ret_vars>threshold
+            # )
+            # horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
+            # self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
@@ -411,8 +423,8 @@ class ModelBuffer(CPOBuffer):
                                 poolm_cret_mean=cret_mean, 
                                 poolm_val_var_mean = ep_val_var,
                                 poolm_cval_var_mean = ep_cval_var,
-                                poolm_ep_val_std_mean = ep_val_var_mean,
-                                poolm_ep_cval_std_mean = ep_cval_var_mean,
+                                poolm_ep_val_var_mean = ep_val_var_mean,
+                                poolm_ep_cval_var_mean = ep_cval_var_mean,
                                 poolm_ep_ret_var_mean = ep_ret_var_mean,
                                 poolm_ep_cret_var_mean = ep_cret_var_mean,
                                 poolm_norm_adv_var = norm_adv_var_mean, 

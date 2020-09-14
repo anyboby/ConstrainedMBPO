@@ -280,7 +280,7 @@ class ModelSampler(CpoSampler):
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
-        threshold_var_ratio = 5      ### the real rollout horizon is determined in the buffer
+        threshold_var_ratio = 50      ### the real rollout horizon is determined in the buffer
         too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
                                             rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
 
