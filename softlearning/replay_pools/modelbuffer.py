@@ -317,16 +317,16 @@ class ModelBuffer(CPOBuffer):
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
             ### alternative b: normalize return variances by first entry
-            # threshold = 2
-            # norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
-            # norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
+            threshold = 5
+            norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
+            norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
-            # too_uncertain_mask = np.logical_or(
-            #     norm_cret_vars>threshold,
-            #     norm_ret_vars>threshold
-            # )
-            # horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
-            # self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
+            too_uncertain_mask = np.logical_or(
+                norm_cret_vars>threshold,
+                norm_ret_vars>threshold
+            )
+            horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
+            self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
