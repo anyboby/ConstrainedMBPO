@@ -72,7 +72,8 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        #use_scaler=True,
+                                        use_scaler_in =True,
+                                        # use_scaler_out =True,
                                         decay=1e-4,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
@@ -93,7 +94,8 @@ class FakeEnv:
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
-                                        # use_scaler=True,
+                                        use_scaler_in = True,
+                                        # use_scaler_out = True,
                                         # sc_factor=1-1e-5,
                                         # max_logvar=.5,
                                         # min_logvar=-8,
@@ -167,31 +169,28 @@ class FakeEnv:
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
         
-        ensemble_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
-        ensemble_dyn_var = np.mean(ensemble_dyn_var, axis=-1)
+        al_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
+        al_dyn_var = np.mean(al_dyn_var, axis=-1)
+        ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
 
-        ### calc disagreement of elites
-        average_dkl_per_output = average_dkl(ensemble_dyn_means, ensemble_model_stds)
-        ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
-        ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
+        ### calc DKL of elites
+        # average_dkl_per_output = average_dkl(ensemble_dyn_means, ensemble_model_stds)
+        # ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
+        # ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
 
         median_dkl_per_output = median_dkl(ensemble_dyn_means, ensemble_model_stds)
         ensemble_dkl_med = np.mean(median_dkl_per_output, axis=tuple(np.arange(1, len(median_dkl_per_output.shape))))
         ensemble_dkl_med = np.mean(ensemble_dkl_med)
         ###
 
-        ensemble_samples = ensemble_dyn_means
-
         #### choose one model from ensemble randomly
         if obs_depth<3:
             num_models, batch_size, _ = ensemble_dyn_means.shape
             model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
             batch_inds = np.arange(0, batch_size)
-            samples = ensemble_samples[model_inds, batch_inds]
+            samples = ensemble_dyn_means[model_inds, batch_inds]
         else: 
-            samples = ensemble_samples
-
-        # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
+            samples = ensemble_dyn_means
 
         #### retrieve r and done for new state
         next_obs = samples[...,:-self.rew_dim]
@@ -212,7 +211,8 @@ class FakeEnv:
         else:
             terminals = self.static_fns.termination_fn(obs, act, next_obs)
             rewards = samples[...,-self.rew_dim:]
-        rew_var = np.squeeze(np.var(rewards, axis=0))
+
+        ep_rew_var = np.squeeze(np.var(rewards, axis=0))
 
         if self.cares_about_cost:
             if self.prior_f:
@@ -220,12 +220,13 @@ class FakeEnv:
             else:
                 inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
 
-            costs, cost_var = self._cost_model.predict(inputs_cost, factored=False, inc_var=True)
-            cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
+            costs = self._cost_model.predict(inputs_cost, factored=False, inc_var=False)
+            #cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
+            ep_cost_var = np.var(costs, axis=0)
 
         else:
             costs = np.zeros_like(rewards)
-            cost_var = np.zeros(shape=rewards.shape[1:])
+            ep_cost_var = np.zeros(shape=rewards.shape[1:])
 
         # batch_size = model_means.shape[0]
         ###@anyboby TODO this calculation seems a bit suspicious to me
@@ -240,15 +241,12 @@ class FakeEnv:
             terminals = terminals[0]
             costs = costs[0]
         
-        info = {# 'return_mean': return_means,
-                # 'return_std': return_stds,
-                # 'log_prob': log_prob,
-                # 'dev': dev,
-                'dyn_ensemble_dkl_mean' : ensemble_dkl_mean,
+        info = {
                 'dyn_ensemble_dkl_med' : ensemble_dkl_med,
-                'dyn_ensemble_var_mean' : ensemble_dyn_var,
-                'cost_ensemble_var' : cost_var,
-                'rew_ensemble_var' : rew_var,
+                'dyn_al_var' : al_dyn_var,
+                'dyn_ep_var' : ep_dyn_var,
+                'cost_ep_var' : ep_cost_var,
+                'rew_ep_var' : ep_rew_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,

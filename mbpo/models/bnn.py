@@ -72,9 +72,11 @@ class BNN:
         self.min_logvar_param = params.get('min_logvar', -6)
         self.decays, self.optvars, self.nonoptvars = [], [], []
         self.end_act, self.end_act_name = None, None
-        self.use_scaler = params.get('use_scaler', True)
+        self.use_scaler_in = params.get('use_scaler_in', True)
+        self.use_scaler_out = params.get('use_scaler_out', False)
         self.sc_factor = params.get('sc_factor', 1)
-        self.scaler = None
+        self.scaler_in = None
+        self.scaler_out = None
 
         # Training objects
         self.optimizer = None
@@ -194,8 +196,14 @@ class BNN:
         # Construct all variables.
         with self.sess.as_default():
             with tf.variable_scope(self.name):
-                if self.use_scaler:
-                    self.scaler = TensorStandardScaler(self.layers[0].get_input_dim(), sc_factor=self.sc_factor)
+                if self.use_scaler_in:
+                    self.scaler_in = TensorStandardScaler(self.layers[0].get_input_dim(), sc_factor=self.sc_factor, name='scaler_in')
+                if self.use_scaler_out:
+                    if self.is_probabilistic:
+                        self.scaler_out = TensorStandardScaler(self.layers[-1].get_output_dim() // 2, sc_factor=self.sc_factor, name='scaler_out')
+                    else:
+                        self.scaler_out = TensorStandardScaler(self.layers[-1].get_output_dim(), sc_factor=self.sc_factor, name='scaler_out')
+                        
                 if self.is_probabilistic:
                     self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.max_logvar_param, dtype=tf.float32,
                                                 name="max_log_var")
@@ -211,8 +219,10 @@ class BNN:
                         self.optvars.extend(layer.get_vars())
         if self.is_probabilistic:
             self.optvars.extend([self.max_logvar, self.min_logvar])
-        if self.use_scaler:
-            self.nonoptvars.extend(self.scaler.get_vars())
+        if self.use_scaler_in:
+            self.nonoptvars.extend(self.scaler_in.get_vars())
+        if self.use_scaler_out:
+            self.nonoptvars.extend(self.scaler_out.get_vars())
 
 
         # Set up training
@@ -519,9 +529,13 @@ class BNN:
 
         print(f'[ {self.name} ] Training {inputs.shape} | Holdout: {holdout_inputs.shape}')
 
-        if self.use_scaler:
+        if self.use_scaler_in:
             with self.sess.as_default():
-                self.scaler.fit(inputs)
+                self.scaler_in.fit(inputs)
+        if self.use_scaler_out:
+            with self.sess.as_default():
+                self.scaler_out.fit(targets)
+
 
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
         if hide_progress:
@@ -766,7 +780,7 @@ class BNN:
         """See predict() above for documentation.
         """
         if self.is_probabilistic:
-            factored_mean, factored_variance = self._compile_outputs(inputs)
+            factored_mean, factored_variance = self._compile_outputs(inputs, scale_output=True)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
                 variance = tf.reduce_mean(tf.square(factored_mean), axis=0) - tf.reduce_mean(tf.square(factored_mean), axis=0) \
@@ -776,7 +790,7 @@ class BNN:
                 return mean, variance
             return factored_mean, factored_variance
         else: 
-            factored_mean = self._compile_outputs(inputs)
+            factored_mean = self._compile_outputs(inputs, scale_output=True)
             if inputs.shape.ndims == 2 and not factored:
                 mean = tf.reduce_mean(factored_mean, axis=0)
                 return mean
@@ -833,7 +847,7 @@ class BNN:
     # Compilation methods #
     #######################
 
-    def _compile_outputs(self, inputs, ret_log_var=False, raw_output=False,debug=False):
+    def _compile_outputs(self, inputs, ret_log_var=False, raw_output=False, scale_output=False, debug=False):
         """Compiles the output of the network at the given inputs.
 
         If inputs is 2D, returns a 3D tensor where output[i] is the output of the ith network in the ensemble.
@@ -848,9 +862,10 @@ class BNN:
         """
         dim_output = self.layers[-1].get_output_dim()
         cur_out = inputs
-        if self.use_scaler:
-            cur_out = self.scaler.transform(cur_out)
-            self.deb_scaler_out = self.scaler.transform(cur_out)
+        if self.use_scaler_in:
+            cur_out = self.scaler_in.transform(cur_out)
+            self.deb_scaler = self.scaler_in.transform(cur_out)
+
         if debug:
             self.layers_deb = []
         for layer in self.layers:
@@ -860,12 +875,13 @@ class BNN:
                 self.layers_deb.append(cur_out)
 
         mean = cur_out[:, :, :dim_output//2] if self.is_probabilistic else cur_out
-        # mean_shape = mean.get_shape()
-        # mean += tf.Variable(tf.random_normal(mean_shape, mean=0, stddev=self.logit_bias_std, dtype=tf.float32))
-        # # mean += tf.constant(np.random.normal(loc=0, scale=self.constant_prior, size=mean_shape), dtype=tf.float32)
 
         if self.end_act is not None and not raw_output:
             mean = self.end_act(mean)
+
+        if self.use_scaler_out and scale_output:
+            mean = self.scaler_out.inverse_transform(mean)
+            self.mean_deb = mean
 
         if self.is_probabilistic:
             logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
@@ -873,24 +889,14 @@ class BNN:
 
             # if self.logit_bias_std is not 0:
             #     logvar += tf.log(tf.constant(self.logit_bias_std**2, dtype=tf.float32))
-
+            if self.use_scaler_out and scale_output:
+                logvar *= tf.log(self.scaler_out.get_var())
+                self.logvar_deb = logvar
+                
             if ret_log_var: 
                 var = logvar
             else:
                 var = tf.exp(logvar)
-
-            # ##### testing
-            # var = cur_out[:, :, dim_output//2:]
-            # var = tf.clip_by_value(var, tf.exp(self.min_logvar), tf.exp(self.max_logvar))
-            # if debug:
-            #     self.var_deb_raw = var
-            # var = tf.log(1+tf.exp(var)) + 1e-8      ### positivity constraint on var
-            # if debug:
-            #     self.var_deb = var
-            # if ret_log_var: 
-            #     var = tf.log(var)
-            #     if debug:
-            #         self.var_deb_log = var
 
             return mean, var
 
@@ -938,6 +944,10 @@ class BNN:
             mean, log_var = self._compile_outputs(inputs), 0.0
             inv_var = 1.0
 
+        #### rescale targets if set to true
+        if self.use_scaler_out:
+            targets = self.scaler_out.transform(targets)
+
         #=====================================================================#
         #  Loss Clipping if provided                                          #
         #=====================================================================#
@@ -980,44 +990,6 @@ class BNN:
         total_losses = mse_losses + var_losses
 
         return total_losses
-
-    # def _clippedMSE_loss(self, inputs, targets, old_pred):
-    #     """Helper method for compiling the NLL loss function.
-
-    #     The loss function is obtained from the log likelihood, assuming that the output
-    #     distribution is Gaussian, with both mean and (diagonal) covariance matrix being determined
-    #     by network outputs.
-
-    #     if inc_var_loss is False, becomes standard MSE
-
-    #     Arguments:
-    #         inputs: (tf.Tensor) A tensor representing the input batch
-    #         targets: (tf.Tensor) The desired targets for each input vector in inputs.
-    #         inc_var_loss: (bool) If True, includes log variance loss.
-    #                         will throw an error if set to True in a model without variances included
-
-    #     Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
-    #     """
-
-    #     pred = self._compile_outputs(inputs)
-    #     pred_cl = old_pred + tf.clip_by_value(pred-old_pred, -self.cliprange, self.cliprange)
-
-    #     loss = tf.square(pred-targets)      ## unclipped loss
-    #     loss_cl = tf.square(pred_cl-targets)    ## loss of the clipped prediction 
-
-    #     total_losses = .5 * tf.reduce_mean(tf.reduce_mean(tf.maximum(loss, loss_cl), axis=-1), axis=-1)
-        
-    #     if self.name == 'VCEnsemble':
-    #         total_predclloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(pred-targets) , axis=-1), axis=-1)
-    #         total_oldpredloss_deb = tf.reduce_mean(tf.reduce_mean(tf.square(old_pred-targets) , axis=-1), axis=-1)
-
-    #         # kl = tf.log(tf.sqrt(total_oldpredloss_deb)/tf.sqrt(total_predclloss_deb)) + \
-    #         #     (total_oldpredloss_deb + tf.square(old_pred)
-
-    #         self.cl_loss_deb1 = .5 * tf.reduce_mean(tf.reduce_mean(loss, axis=-1), axis=-1)
-    #         self.cl_loss_deb2 = .5 * tf.reduce_mean(tf.reduce_mean(loss_cl, axis=-1), axis=-1)
-
-    #     return total_losses
 
 
     def _ce_loss(self, inputs, targets, tensor_loss=False, weights=None):

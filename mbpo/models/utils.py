@@ -90,7 +90,7 @@ def median_dkl(mu, std):
 class TensorStandardScaler:
     """Helper class for automatically normalizing inputs into the network.
     """
-    def __init__(self, x_dim, sc_factor=1):
+    def __init__(self, x_dim, sc_factor=1, name='Scaler'):
         """Initializes a scaler.
 
         Arguments:
@@ -99,18 +99,18 @@ class TensorStandardScaler:
         Returns: None.
         """
         self.fitted = False
-        with tf.variable_scope("Scaler"):
+        with tf.variable_scope(name):
             self.count = tf.get_variable(
-                name="scaler_count", shape=(), initializer=tf.constant_initializer(0),
+                name=name+'_count', shape=(), initializer=tf.constant_initializer(0),
                 trainable=False
             )
 
             self.mu = tf.get_variable(
-                name="scaler_mu", shape=[1, x_dim], initializer=tf.constant_initializer(0.0),
+                name=name+'_mu', shape=[1, x_dim], initializer=tf.constant_initializer(0.0),
                 trainable=False
             )
             self.var = tf.get_variable(
-                name="scaler_std", shape=[1, x_dim], initializer=tf.constant_initializer(1.0),
+                name=name+'_std', shape=[1, x_dim], initializer=tf.constant_initializer(1.0),
                 trainable=False
             )
 
@@ -171,12 +171,19 @@ class TensorStandardScaler:
         """
         return (tf.maximum(tf.sqrt(self.var), 1e-2)) * data + self.mu
 
+
     def get_vars(self):
         """Returns a list of variables managed by this object.
 
         Returns: (list<tf.Variable>) The list of variables.
         """
         return [self.mu, self.var]
+
+    def get_mu(self):
+        return self.mu
+
+    def get_var(self):
+        return self.var
 
     def cache(self):
         """Caches current values of this scaler.

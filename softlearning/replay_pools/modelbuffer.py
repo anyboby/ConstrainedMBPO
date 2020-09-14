@@ -373,10 +373,10 @@ class ModelBuffer(CPOBuffer):
                 ret_mean = self.ret_buf[self.populated_mask].mean()
                 cret_mean = self.cret_buf[self.populated_mask].mean()
 
-                val_var_mean = self.val_var_buf[self.model_ind, self.populated_mask].mean()
-                cval_var_mean = self.cval_var_buf[self.model_ind, self.populated_mask].mean()
-                ep_val_std_mean = np.mean(np.std(self.val_buf[:, self.populated_mask], axis=0))
-                ep_cval_std_mean = np.mean(np.std(self.cval_buf[:, self.populated_mask], axis=0))
+                ep_val_var = self.val_var_buf[self.model_ind, self.populated_mask].mean()
+                ep_cval_var = self.cval_var_buf[self.model_ind, self.populated_mask].mean()
+                ep_val_var_mean = np.mean(np.var(self.val_buf[:, self.populated_mask], axis=0))
+                ep_cval_var_mean = np.mean(np.var(self.cval_buf[:, self.populated_mask], axis=0))
                 ep_ret_var_mean = np.mean(self.ret_ep_var_buf[self.populated_mask])
                 ep_cret_var_mean = np.mean(self.cret_ep_var_buf[self.populated_mask])
                 norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
@@ -386,10 +386,10 @@ class ModelBuffer(CPOBuffer):
             else:
                 ret_mean = 0
                 cret_mean = 0
-                val_var_mean = 0
-                cval_var_mean = 0
-                ep_val_std_mean = 0
-                ep_cval_std_mean = 0
+                ep_val_var = 0
+                ep_cval_var = 0
+                ep_val_var_mean = 0
+                ep_cval_var_mean = 0
                 ep_ret_var_mean = 0
                 ep_cret_var_mean = 0
                 norm_adv_var_mean = 0
@@ -409,10 +409,10 @@ class ModelBuffer(CPOBuffer):
             diagnostics = dict( poolm_batch_size = self.populated_mask.sum(), 
                                 poolm_ret_mean=ret_mean, 
                                 poolm_cret_mean=cret_mean, 
-                                poolm_val_var_mean = val_var_mean,
-                                poolm_cval_var_mean = cval_var_mean,
-                                poolm_ep_val_std_mean = ep_val_std_mean,
-                                poolm_ep_cval_std_mean = ep_cval_std_mean,
+                                poolm_val_var_mean = ep_val_var,
+                                poolm_cval_var_mean = ep_cval_var,
+                                poolm_ep_val_std_mean = ep_val_var_mean,
+                                poolm_ep_cval_std_mean = ep_cval_var_mean,
                                 poolm_ep_ret_var_mean = ep_ret_var_mean,
                                 poolm_ep_cret_var_mean = ep_cret_var_mean,
                                 poolm_norm_adv_var = norm_adv_var_mean, 

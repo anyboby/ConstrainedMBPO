@@ -213,7 +213,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=50, 
+                                        max_path_length=80, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         use_inv_var = self.use_inv_var,
@@ -225,7 +225,7 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=50,
+        self.model_sampler = ModelSampler(max_path_length=80,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -397,12 +397,12 @@ class CMBPO(RLAlgorithm):
                 #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
     
                 #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 25 if self._epoch==0 else 5        ### overtrain a little in the beginning to jumpstart uncertainty prediction
+                min_epochs = 150 if self._epoch<10 else 5        ### overtrain a little in the beginning to jumpstart uncertainty prediction
                 max_epochs = 500 if self._epoch<10 else 10
                 # # if len(samples['observations'])>30000:
                 # #     samples = {k:v[-30000:] for k,v in samples.items()} 
                 # batch_size = 512 + min(self._epoch//50*512, 7*512)
-                batch_size = 1024
+                batch_size = 2048
 
                 if self._epoch%self._dyn_model_train_freq==0:
                     model_train_metrics_dyn = self.fake_env.train_dyn_model(

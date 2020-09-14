@@ -61,9 +61,8 @@ class ModelSampler(CpoSampler):
         self._total_cost = 0
         self._total_cost_var = 0
         self._total_dyn_var = 0
-        self._total_V_var = 0
-        self._total_CV_var = 0
-        self._total_dkl_mean_dyn = 0
+        self._total_V_al_var = 0
+        self._total_CV_al_var = 0
         self._total_dkl_med_dyn = 0
 
         self.batch_size = batch_size
@@ -113,30 +112,32 @@ class ModelSampler(CpoSampler):
         ensemble_rew_rate = np.sum(np.mean(self._path_return, axis=0))/(self._total_samples+EPS)
 
         vals_mean = self._total_Vs / (self._total_samples+EPS)
-        vals_var = self._total_V_var / (self._total_samples+EPS)
 
         cval_mean = self._total_CVs / (self._total_samples+EPS)
-        cval_var = self._total_CV_var / (self._total_samples+EPS)
 
-        dyn_Dkl_mean = self._total_dkl_mean_dyn / (self._total_samples+EPS)
         dyn_Dkl_med = self._total_dkl_med_dyn / (self._total_samples+EPS)
 
         diagnostics.update({
             'samples_added': self._total_samples,
             'rollout_length_max': self._n_episodes,
             'rollout_length_mean': mean_rollout_length,
-            'ensemble_rew_var_perstep': ensemble_rew_var_perstep,
-            'ensemble_cost_var_perstep' : ensemble_cost_var_perstep,
-            'ensemble_dyn_var_perstep' : ensemble_dyn_var_perstep,
+            'ensemble_ep_rew_var_perstep': ensemble_rew_var_perstep,
+            'ensemble_ep_cost_var_perstep' : ensemble_cost_var_perstep,
+            'ensemble_ep_dyn_var_perstep' : ensemble_dyn_var_perstep,
             'ensemble_cost_rate' : ensemble_cost_rate,
             'ensemble_rew_rate' : ensemble_rew_rate,
-            'ensemble_vals_mean':vals_mean,
-            'ensemble_vals_var':vals_var,
-            'ensemble_cval_mean':cval_mean,
-            'ensemble_cval_var':cval_var,
-            'ensemble_dyn_DKL_mean': dyn_Dkl_mean,
+            'ensemble_v_mean':vals_mean,
+            'ensemble_cv_mean':cval_mean,
             'ensemble_dyn_DKL_med': dyn_Dkl_med,
         })
+
+        if self.policy.vf_is_gaussian:
+            vals_al_var = self._total_V_al_var / (self._total_samples+EPS)
+            cval_al_var = self._total_CV_al_var / (self._total_samples+EPS)
+            diagnostics.update({
+                'ensemble_v_al_var':vals_al_var,
+                'ensemble_cv_al_var':cval_al_var,
+            })
 
         return diagnostics
 
@@ -216,9 +217,8 @@ class ModelSampler(CpoSampler):
         self._total_rew = 0
         self._total_rew_var = 0
         self._total_dyn_var = 0
-        self._total_V_var = 0
-        self._total_CV_var = 0
-        self._total_dkl_mean_dyn = 0
+        self._total_V_al_var = 0
+        self._total_CV_al_var = 0
         self._total_dkl_med_dyn = 0
 
     def sample(self):
@@ -241,8 +241,8 @@ class ModelSampler(CpoSampler):
 
         ##### @anyboby temporary
         ### unpack ensemble outputs, if gaussian
-        v_var = get_action_outs.get('v_var', np.tile(np.var(v_t, axis=0)[None], reps=(self.ensemble_size, 1)))
-        vc_var = get_action_outs.get('vc_var', np.tile(np.var(vc_t, axis=0)[None], reps=(self.ensemble_size, 1))) 
+        v_al_var = get_action_outs.get('v_var', 0)
+        vc_al_var = get_action_outs.get('vc_var', 0) 
         #####
 
         ## ____________________________________________ ##
@@ -252,16 +252,15 @@ class ModelSampler(CpoSampler):
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
 
         reward = np.squeeze(reward, axis=-1)
-        rew_var = info.get('rew_ensemble_var', np.zeros(reward.shape))
+        rew_var = info.get('rew_ep_var', np.zeros(reward.shape))
 
         c = np.squeeze(info.get('cost', np.zeros(reward.shape)))
-        c_var = info.get('cost_ensemble_var', np.zeros(reward.shape))
+        c_ep_var = info.get('cost_ep_var', np.zeros(reward.shape))
 
         terminal = np.squeeze(terminal, axis=-1)
 
-        dkl_mean_dyn = info.get('dyn_ensemble_dkl_mean', 0)
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
-        dyn_var = info.get('dyn_ensemble_var_mean', np.zeros(shape=reward.shape[1:]))
+        dyn_ep_var = info.get('dyn_ep_var', np.zeros(shape=reward.shape[1:]))
 
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
@@ -273,21 +272,15 @@ class ModelSampler(CpoSampler):
         next_val = self.policy.get_v(next_obs, factored=True, inc_var=False)
         next_cval = self.policy.get_vc(next_obs, factored=True, inc_var=False)
 
-        ep_cval_var_n = np.var(next_cval, axis=0)
-        ep_val_var_n = np.var(next_val, axis=0)
-
         rew_uncertainty = np.var(self._path_return[:,alive_paths]+next_val, axis=0)
         cost_uncertainty = np.var(self._path_cost[:,alive_paths]+next_cval, axis=0) 
         
-        # cost_cov = np.std(self._path_return+next_val, axis=0) / np.mean(abs(self._path_return+next_val), axis=0)
-        # ret_cov = np.std(self._path_cost+next_cval, axis=0) / np.mean(abs(self._path_cost+next_cval), axis=0)
-
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
-        threshold_var_ratio = 1e7      ### the real rollout horizon is determined in the buffer
+        threshold_var_ratio = 5      ### the real rollout horizon is determined in the buffer
         too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
                                             rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
 
@@ -314,15 +307,15 @@ class ModelSampler(CpoSampler):
         reward          = reward[:,remaining_paths]
         rew_var         = rew_var[remaining_paths]
         v_t             = v_t[:,remaining_paths]
-        v_var           = v_var[:,remaining_paths]
+        v_al_var           = v_al_var[:,remaining_paths]
 
         cost_uncertainty = cost_uncertainty[remaining_paths]
         rew_uncertainty = rew_uncertainty[remaining_paths]
         c               = c[:,remaining_paths]
-        c_var           = c_var[remaining_paths]
+        c_ep_var           = c_ep_var[remaining_paths]
         vc_t            = vc_t[:, remaining_paths]
-        vc_var          = vc_var[:, remaining_paths]
-        dyn_var         = dyn_var[remaining_paths]
+        vc_al_var          = vc_al_var[:, remaining_paths]
+        dyn_ep_var         = dyn_ep_var[remaining_paths]
         
         terminal        = terminal[:,remaining_paths]
 
@@ -344,16 +337,15 @@ class ModelSampler(CpoSampler):
         self._path_cost_var[alive_paths] = np.var(self._path_cost[:, alive_paths], axis=0)
         self._path_dyn_var[alive_paths] = np.mean(np.var(current_obs, axis=0), axis=-1)
 
-        self._total_cost_var += c_var.sum()
-        self._total_dyn_var += dyn_var.sum()
+        self._total_cost_var += c_ep_var.sum()
+        self._total_dyn_var += dyn_ep_var.sum()
         self._total_rew_var += rew_var.sum()
 
         self._total_Vs += v_t[self.model_inds].sum()
         self._total_CVs += vc_t[self.model_inds].sum()
-        self._total_V_var += v_var[self.model_inds].sum()
-        self._total_CV_var += vc_var[self.model_inds].sum()
+        self._total_V_al_var += v_al_var[self.model_inds].sum()
+        self._total_CV_al_var += vc_al_var[self.model_inds].sum()
         
-        self._total_dkl_mean_dyn += dkl_mean_dyn*alive_paths.sum()
         self._total_dkl_med_dyn += dkl_med_dyn*alive_paths.sum()
 
         self._max_path_return = max(self._max_path_return,
@@ -365,10 +357,10 @@ class ModelSampler(CpoSampler):
                                         next_obs,
                                         reward,
                                         v_t,
-                                        v_var,
+                                        v_al_var,
                                         c,
                                         vc_t,
-                                        vc_var,
+                                        vc_al_var,
                                         logp_t,
                                         pi_info_t,
                                         terminal)

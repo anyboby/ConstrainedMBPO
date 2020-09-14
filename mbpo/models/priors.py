@@ -64,13 +64,13 @@ def safety_gym_weights(obs_dim):
 
 
 PRIORS_BY_DOMAIN={
-    # 'Safexp-PointGoal2':prior_safety_gym,
+    'Safexp-PointGoal2':prior_safety_gym,
     'Safexp-PointGoal0':prior_safety_gym,
     'Safexp-PointGoal1':prior_safety_gym,
 }
 
 PRIOR_DIMS = {
-    # 'Safexp-PointGoal2':2,
+    'Safexp-PointGoal2':2,
     'Safexp-PointGoal0':2,
     'Safexp-PointGoal1':2,
 }

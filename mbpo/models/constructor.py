@@ -20,7 +20,8 @@ def construct_model(in_dim,
 					lr_decay = None,
 					decay_steps=None,
 					weighted=False, 
-					use_scaler = False,
+					use_scaler_in = False,
+					use_scaler_out = False,
 					sc_factor = 1,
 					clip_loss = False,
 					kl_cliprange = 0.1,
@@ -42,7 +43,8 @@ def construct_model(in_dim,
 				'num_networks': num_networks, 
 				'num_elites': num_elites, 
 				'sess': session,
-				'use_scaler': use_scaler,
+				'use_scaler_in': use_scaler_in,
+				'use_scaler_out': use_scaler_out,
 				'sc_factor': sc_factor,
 				'clip_loss': clip_loss,
 				'kl_cliprange':kl_cliprange,
@@ -97,30 +99,6 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None,
 	rew = np.squeeze(samples['rewards'])
 	terms = np.squeeze(samples['terminals'])
 
-
-	#### ---- preprocess samples for model training in safety gym -----####
-	# if safe_config:
-	# 	stacks = safe_config['stacks']
-	# 	stacking_axis = safe_config['stacking_axis']
-	# 	unstacked_obs_size = int(obs.shape[1+stacking_axis]/stacks)	
-	# 	delta_obs = next_obs[:, -unstacked_obs_size:] - obs[:, -unstacked_obs_size:]
-		
-	# 	## remove terminals and outliers, otherwise they will confuse the model when close to a goal:
-	# 	outlier_threshold = 0.2
-	# 	mask = np.invert(terms)
-	# 	mask_outlier = np.invert(np.max(ma.masked_greater(abs(delta_obs[:,3:19]), outlier_threshold).mask, axis=-1))  ###@anyboby for testing, code this better tomorrow !
-	# 	mask = mask*mask_outlier
-
-	# 	obs=obs[mask]
-	# 	act=act[mask]
-	# 	next_obs=next_obs[mask]
-	# 	rew = rew[mask]
-	# 	delta_obs = delta_obs[mask]			## testing, for similar gradient magnitudes
-	# 	delta_obs[:,:2] = 0 ### @anyboby TODO fix this its stupid
-	#	priors = priors[mask]
-
-	# else: 
-	# 	delta_obs = next_obs - obs
 	delta_obs = next_obs - obs
 
 	#### ----END preprocess samples for model training in safety gym -----####
@@ -129,10 +107,8 @@ def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None,
 	else:
 		inputs = np.concatenate((obs, act), axis=-1)
 
-	outputs = np.concatenate((delta_obs, rew[:, np.newaxis]), axis=-1)
+	outputs = np.concatenate((delta_obs, rew[..., None]), axis=-1)
 
-	# outputs[:,2] *= 25
-	# outputs[:,54:57] *= 10
 	# add noise
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
