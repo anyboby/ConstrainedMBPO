@@ -398,9 +398,10 @@ class CPOBuffer:
         deltas_r = self.rew_buf[...,:-1] + self.gamma * self.val_buf[...,1:] - self.val_buf[...,:-1]
         deltas_c = self.cost_buf[...,:-1] + self.gamma * self.cval_buf[...,1:] - self.cval_buf[...,:-1]
 
-
-        tdr = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0))
-        tdc = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0))
+        tdr_m = np.mean(np.var(deltas_r, axis=0))
+        tdc_m = np.mean(np.var(deltas_c, axis=0))
+        tdr_n = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0))
+        tdc_n = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0))
 
         diagnostics = dict(poolr_ret_mean=ret_mean, \
                             poolr_cret_mean=cret_mean, 
@@ -414,10 +415,11 @@ class CPOBuffer:
                             poolr_norm_cadv_var = norm_cadv_var_mean,
                             poolr_avg_Horizon_rew = avg_horizon_r,
                             poolr_avg_Horizon_c = avg_horizon_c,
-                            poolr_tdr = tdr,
-                            poolr_tdc = tdc,
+                            poolr_tdr_n = tdr_n,
+                            poolr_tdc_n = tdc_n,
+                            poolr_tdr_m = tdr_m,
+                            poolr_tdc_m = tdc_m,
                             )
-
 
         self.reset_buffers() ### reset
 

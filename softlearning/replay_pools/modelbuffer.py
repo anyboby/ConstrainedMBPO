@@ -410,20 +410,44 @@ class ModelBuffer(CPOBuffer):
                 ### td errors at rollout step
                 deltas_r = self.rew_buf[...,:-1] + self.gamma * self.val_buf[...,1:] - self.val_buf[...,:-1]
                 deltas_c = self.cost_buf[...,:-1] + self.gamma * self.cval_buf[...,1:] - self.cval_buf[...,:-1]
+                
+                tdr_mean = np.mean(np.mean(np.var(deltas_c, axis=0), axis=0), axis=0)
+                tdr_n = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)
 
-                tdr_1 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[1]
-                tdr_3 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[3]
-                tdr_5 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[5]
-                tdr_10 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[10]
-                tdr_15 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[15]
-                tdr_25 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[25]
-        
-                tdc_1 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[1]
-                tdc_3 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[3]
-                tdc_5 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[5]
-                tdc_10 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[10]
-                tdc_15 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[15]
-                tdc_25 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[25]
+                tdr_1 = tdr_n[1]
+                tdr_3 = tdr_n[3]
+                tdr_5 = tdr_n[5]
+                tdr_10 =tdr_n[10]
+                tdr_15 =tdr_n[15]
+                tdr_25 =tdr_n[25]
+                tdr_m1 = tdr_mean[1]
+                tdr_m3 = tdr_mean[3]
+                tdr_m5 = tdr_mean[5]
+                tdr_m10 =tdr_mean[10]
+                tdr_m15 =tdr_mean[15]
+                tdr_m25 =tdr_mean[25]
+                tdr_var = np.mean(np.var(deltas_r, axis=1))
+
+                tdc_mean = np.mean(np.mean(np.var(deltas_c, axis=0), axis=0), axis=0)
+                tdc_n = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)
+
+                tdc_1 = tdc_n[1]
+                tdc_3 = tdc_n[3]
+                tdc_5 = tdc_n[5]
+                tdc_10 =tdc_n[10]
+                tdc_15 =tdc_n[15]
+                tdc_25 =tdc_n[25]
+                tdc_m1 = tdc_mean[1]
+                tdc_m3 = tdc_mean[3]
+                tdc_m5 = tdc_mean[5]
+                tdc_m10 =tdc_mean[10]
+                tdc_m15 =tdc_mean[15]
+                tdc_m25 =tdc_mean[25]
+                tdc_var = np.mean(np.var(deltas_r, axis=1))
+
+                delta_obs = self.nextobs_buf-self.obs_buf
+                td_dyn_m = np.mean(np.mean(np.var(delta_obs, axis=0), axis=-1)[self.populated_mask])
+                td_dyn_n =  td_dyn_m/ np.var(np.mean(np.mean(delta_obs, axis=0),axis=-1)[self.populated_mask])
 
             else:
                 ret_mean = 0
@@ -463,7 +487,7 @@ class ModelBuffer(CPOBuffer):
                                 poolm_avg_Horizon_rew = avg_horizon_r,
                                 poolm_avg_Horizon_c = avg_horizon_c,
                                 poolm_tdr_1 = tdr_1,
-                                poolm_tdr_3 =  tdr_3,
+                                poolm_tdr_3 = tdr_3,
                                 poolm_tdr_5 = tdr_5,
                                 poolm_tdr_10= tdr_10,
                                 poolm_tdr_15= tdr_15,
@@ -473,7 +497,24 @@ class ModelBuffer(CPOBuffer):
                                 poolm_tdc_5 = tdc_5,
                                 poolm_tdc_10= tdc_10,
                                 poolm_tdc_15= tdc_15,
-                                poolm_tdc_25= tdc_25,                            
+                                poolm_tdc_25= tdc_25,
+                                poolm_tdr_m1 = tdr_m1,
+                                poolm_tdr_m3 = tdr_m3,
+                                poolm_tdr_m5 = tdr_m5,
+                                poolm_tdr_m10= tdr_m10,
+                                poolm_tdr_m15= tdr_m15,
+                                poolm_tdr_m25= tdr_m25,
+                                poolm_tdc_m1 = tdc_m1,
+                                poolm_tdc_m3 = tdc_m3,
+                                poolm_tdc_m5 = tdc_m5,
+                                poolm_tdc_m10= tdc_m10,
+                                poolm_tdc_m15= tdc_m15,
+                                poolm_tdc_m25= tdc_m25,        
+                                poolm_tdr_var = tdr_var,
+                                poolm_tdc_var = tdc_var,
+                                poolm_td_dyn_m = td_dyn_m,
+                                poolm_td_dyn_n = td_dyn_m,
+                                poolm_td_dyn_tdr = 
                                 )
         # reset
         self.reset()
