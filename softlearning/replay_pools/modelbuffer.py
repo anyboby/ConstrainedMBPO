@@ -325,7 +325,7 @@ class ModelBuffer(CPOBuffer):
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
             ### alternative b: normalize return variances by first entry
-            threshold = 1.5
+            threshold = 2
             norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
             norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
@@ -406,6 +406,25 @@ class ModelBuffer(CPOBuffer):
                 norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/cadv_var
                 avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
                 avg_horizon_c = np.mean(self.croll_lengths_buf[self.populated_mask])
+
+                ### td errors at rollout step
+                deltas_r = self.rew_buf[...,:-1] + self.gamma * self.val_buf[...,1:] - self.val_buf[...,:-1]
+                deltas_c = self.cost_buf[...,:-1] + self.gamma * self.cval_buf[...,1:] - self.cval_buf[...,:-1]
+
+                tdr_1 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[1]
+                tdr_3 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[3]
+                tdr_5 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[5]
+                tdr_10 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[10]
+                tdr_15 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[15]
+                tdr_25 = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)[25]
+        
+                tdc_1 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[1]
+                tdc_3 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[3]
+                tdc_5 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[5]
+                tdc_10 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[10]
+                tdc_15 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[15]
+                tdc_25 = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)[25]
+
             else:
                 ret_mean = 0
                 cret_mean = 0
@@ -443,6 +462,18 @@ class ModelBuffer(CPOBuffer):
                                 poolm_cutoff_horizon_avg = self.cutoff_horizons_mean,
                                 poolm_avg_Horizon_rew = avg_horizon_r,
                                 poolm_avg_Horizon_c = avg_horizon_c,
+                                poolm_tdr_1 = tdr_1,
+                                poolm_tdr_3 =  tdr_3,
+                                poolm_tdr_5 = tdr_5,
+                                poolm_tdr_10= tdr_10,
+                                poolm_tdr_15= tdr_15,
+                                poolm_tdr_25= tdr_25,
+                                poolm_tdc_1 = tdc_1,
+                                poolm_tdc_3 = tdc_3,
+                                poolm_tdc_5 = tdc_5,
+                                poolm_tdc_10= tdc_10,
+                                poolm_tdc_15= tdc_15,
+                                poolm_tdc_25= tdc_25,                            
                                 )
         # reset
         self.reset()
