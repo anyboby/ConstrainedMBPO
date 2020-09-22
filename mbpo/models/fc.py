@@ -129,7 +129,7 @@ class FC:
     # Methods for controlling internal Tensorflow variables #
     #########################################################
 
-    def construct_vars(self, bias_init_std=0.0):
+    def construct_vars(self, bias_init_std=1.0):
         """Constructs the variables of this fully-connected layer.
 
         Returns: None
@@ -144,7 +144,7 @@ class FC:
         self.weights = tf.get_variable(
             "FC_weights",
             shape=[self.ensemble_size, self.input_dim, self.output_dim],
-            initializer=tf.truncated_normal_initializer(stddev=1/(2*np.sqrt(self.input_dim)))
+            initializer=tf.truncated_normal_initializer(stddev=bias_init_std*1/(2*np.sqrt(self.input_dim)))
         )
 
         ### glorot / xavier better for tanh
@@ -155,18 +155,24 @@ class FC:
         #     initializer=tf.glorot_normal_initializer(),
         # )
 
-        if bias_init_std==0.0:
-            self.biases = tf.get_variable(
-                "FC_biases",
-                shape=[self.ensemble_size, 1, self.output_dim],
-                initializer=tf.constant_initializer(0.0)
-            )
-        else:
-            self.biases = tf.get_variable(
-                "FC_biases",
-                shape=[self.ensemble_size, 1, self.output_dim],
-                initializer=tf.truncated_normal_initializer(stddev=bias_init_std)
-            )
+        # if bias_init_std==0.0:
+        #     self.biases = tf.get_variable(
+        #         "FC_biases",
+        #         shape=[self.ensemble_size, 1, self.output_dim],
+        #         initializer=tf.constant_initializer(0.0)
+        #     )
+        # else:
+        #     self.biases = tf.get_variable(
+        #         "FC_biases",
+        #         shape=[self.ensemble_size, 1, self.output_dim],
+        #         initializer=tf.truncated_normal_initializer(stddev=bias_init_std)
+        #     )
+
+        self.biases = tf.get_variable(
+            "FC_biases",
+            shape=[self.ensemble_size, 1, self.output_dim],
+            initializer=tf.constant_initializer(0.0)
+        )
 
         if self.weight_decay is not None:
             self.decays = [tf.multiply(self.weight_decay, tf.nn.l2_loss(self.weights), name="weight_decay")]

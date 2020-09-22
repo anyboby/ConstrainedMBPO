@@ -117,7 +117,6 @@ class MBPO(RLAlgorithm):
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
-        self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
 
         #unstacked_obs_dim[self.stacking_axis] = int(obs_dim[self.stacking_axis]/self.num_stacks)
 
@@ -125,7 +124,6 @@ class MBPO(RLAlgorithm):
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
                                     num_elites=5, hidden_dims=(hidden_dim,hidden_dim,hidden_dim), 
-                                    safe_config=self.safe_config,
                                     session = self._session)
 
         self.use_mjc_state_model = use_mjc_state_model

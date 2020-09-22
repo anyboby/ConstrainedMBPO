@@ -28,7 +28,7 @@ def construct_model(in_dim,
 					var_corr = False,
 					max_logvar = .5,
 					min_logvar = -6,
-					logit_bias_std=0,
+					logit_bias_std=1.0,
 					session=None):
 	"""
 	Constructs a tf model.
@@ -79,7 +79,7 @@ def construct_model(in_dim,
 
 	return model
 
-def format_samples_for_dyn(samples, priors = None, safe_config=None, noise=None, discount = 1):
+def format_samples_for_dyn(samples, priors = None, noise=None, discount = 1):
 	"""
 	formats samples to fit training, specifically returns: 
 

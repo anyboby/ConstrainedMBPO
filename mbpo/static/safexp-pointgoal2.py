@@ -11,19 +11,21 @@ class StaticFns:
         # reward_goal = config.reward_goal
 
     @staticmethod
-    def termination_fn(obs, act, next_obs, safe_config):
+    def termination_fn(obs, act, next_obs, env):
         '''
         safeexp-pointgoal (like the other default safety-gym envs) doesn't terminate
         prematurely other than due to sampling errors etc., therefore just return Falses
         '''
-        assert StaticFns.task == safe_config['task']
-        obs_indices = safe_config['obs_indices']
+        
+        obs_space_dict = env.unwrapped.obs_space_dict
+        config = env.unwrapped.config
 
-        if safe_config['continue_goal'] == False:
-            goal_dist = next_obs[...,obs_indices['goal_dist']]
+        if config['continue_goal'] == False:
+            gd_slice = StaticFns.obs_indices('goal_dist', obs_space_dict)
+            goal_dist = -np.log(np.clip(next_obs[...,gd_slice], 1e-3, 1e3))
             goal_met_vec = np.vectorize(StaticFns._goal_met)
-            goal_met_vec.excluded.add(1)        ## exclude safe_config from vectorizing
-            done = goal_met_vec(goal_dist, safe_config)
+            goal_met_vec.excluded.add(1)   
+            done = goal_met_vec(goal_dist)
         else:
             done = np.zeros(shape=obs.shape[:-1], dtype=np.bool)
             done = done[...,None]
@@ -31,7 +33,7 @@ class StaticFns:
     
     #@anyboby  TODO @anyboby :/
     @staticmethod
-    def cost_fn(costs):
+    def cost_fn(costs, env):
         """
         interprets model ensemble regression output as probability and converts to binary cost between 1 and 0
         Args:
@@ -48,17 +50,19 @@ class StaticFns:
 
     
     @staticmethod
-    def rebuild_goal(obs, act, next_obs, new_obs_pool, safe_config):
+    def rebuild_goal(obs, act, next_obs, new_obs_pool, env):
         '''
         rebuild goal, if the goal was met in the starting obs, pool of new goal_obs should be provided
         please provide unstacked observations and next_observations
         '''
-        assert StaticFns.task == safe_config['task']
-        obs_indices = safe_config['obs_indices']
+        obs_space_dict = env.unwrapped.obs_space_dict
+        config = env.unwrapped.config
+        gd_slice = StaticFns.obs_indices('goal_dist', obs_space_dict)
+        gl_slice = StaticFns.obs_indices('goal_lidar', obs_space_dict)
 
         ### rebuild only if we already started in a goal
-        goal_dist = next_obs[...,obs_indices['goal_dist']] 
-        goal_size = safe_config['goal_size']
+        goal_dist = -np.log(np.clip(next_obs[...,gd_slice], 1e-3, 1e3))
+        goal_size = config['goal_size']
         
         ## seems a bit undirect
         goal_met = goal_dist <= goal_size
@@ -69,17 +73,17 @@ class StaticFns:
         if goals_met > 0:
             goal_met = np.repeat(goal_met, repeats=obs.shape[-1], axis=-1)
             goal_ind_mask = np.zeros_like(goal_met, dtype='bool')
-            goal_ind_mask[...,obs_indices['goal_dist']] = True
-            goal_ind_mask[...,obs_indices['goal_lidar']] = True
+            goal_ind_mask[...,gd_slice] = True
+            goal_ind_mask[...,gl_slice] = True
             goal_met = np.logical_and(goal_met, goal_ind_mask)
 
             ### bit ugly but random choice in numpy is tedious
-            fl_lidars = new_obs_pool[..., obs_indices['goal_lidar']]\
-                .reshape(np.prod(new_obs_pool[..., obs_indices['goal_lidar']].shape[:-1]),\
-                    new_obs_pool[..., obs_indices['goal_lidar']].shape[-1])
-            fl_dist = new_obs_pool[..., obs_indices['goal_dist']]\
-                .reshape(np.prod(new_obs_pool[..., obs_indices['goal_dist']]\
-                    .shape[:-1]),new_obs_pool[..., obs_indices['goal_dist']]\
+            fl_lidars = new_obs_pool[..., gl_slice]\
+                .reshape(np.prod(new_obs_pool[..., gl_slice].shape[:-1]),\
+                    new_obs_pool[..., gl_slice].shape[-1])
+            fl_dist = new_obs_pool[..., gd_slice]\
+                .reshape(np.prod(new_obs_pool[..., gd_slice]\
+                    .shape[:-1]),new_obs_pool[..., gd_slice]\
                         .shape[-1])
             assert fl_lidars.shape[0] == fl_dist.shape[0]
             fl_obs_pool = np.concatenate((fl_dist, fl_lidars), axis=-1)
@@ -93,9 +97,8 @@ class StaticFns:
         return rebuilt_obs
 
     @staticmethod
-    def _goal_met(dist_goal, safe_config):
-        assert StaticFns.task == safe_config['task']
-        goal_size = safe_config['goal_size']
+    def _goal_met(dist_goal, config):
+        goal_size = config['goal_size']
         ''' Return true if the current goal is met this step '''
         if 'goal' in StaticFns.task.lower():
             return dist_goal <= goal_size
@@ -104,18 +107,18 @@ class StaticFns:
         raise ValueError(f'Invalid task {StaticFns.task}')
 
     @staticmethod
-    def reward_f(obs, act, next_obs, safe_config):
-        assert StaticFns.task == safe_config['task']
-        obs_indices = safe_config['obs_indices']
+    def reward_f(obs, act, next_obs, env):
+        obs_space_dict = env.unwrapped.obs_space_dict
+        config = env.unwrapped.config
+        gd_slice = StaticFns.obs_indices('goal_dist', obs_space_dict)
+        gl_slice = StaticFns.obs_indices('goal_lidar', obs_space_dict)
 
-        reward_distance = safe_config['reward_distance']
-        reward_goal = safe_config['reward_goal']
-        goal_size = safe_config['goal_size']
-        # reward_clip = safe_config['reward_clip']
-        # reward_clip = 0.25 ### have to clip
+        reward_distance = config['reward_distance']
+        reward_goal = config['reward_goal']
+        goal_size = config['goal_size']
 
-        goal_dist = next_obs[...,obs_indices['goal_dist']]
-        last_dist = obs[...,obs_indices['goal_dist']]
+        goal_dist = -np.log(np.clip(next_obs[...,gd_slice], 1e-3, 1e3))
+        last_dist = -np.log(np.clip(obs[...,gd_slice], 1e-3, 1e3))
 
         ### Calculate the dense component of reward.  Call exactly once per step
         reward = np.zeros(shape=act.shape[:-1])[...,None]
@@ -167,3 +170,13 @@ class StaticFns:
             return obs[0] 
         else: 
             return obs
+    
+    @staticmethod
+    def obs_indices(key, obs_space_dict):
+        ind = 0
+        for k in sorted(obs_space_dict):
+            if k == key:
+                return slice(ind, ind + np.prod(obs_space_dict[k].shape))
+            ind += np.prod(obs_space_dict[k].shape)
+        
+        raise ValueError('Key not found in obs dict')

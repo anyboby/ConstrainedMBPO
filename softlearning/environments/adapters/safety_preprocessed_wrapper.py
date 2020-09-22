@@ -12,41 +12,47 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def __init__(self, env):
         super(SafetyPreprocessedEnv, self).__init__(env)
         self.action_space = gym.spaces.Box(-1, 1, (env.robot.nu,), dtype=np.float32) 
-        self.b, self.a = signal.butter(3, 0.1)
-        self.obs_replay_vy_real = []
-        self.obs_replay_vy_filt = []
-        self.obs_replay_acc_y_real = []
-        self.obs_replay_acc_y_filt = []
+        # self.b, self.a = signal.butter(3, 0.1)
+        # self.obs_replay_vy_real = []
+        # self.obs_replay_vy_filt = []
+        # self.obs_replay_acc_y_real = []
+        # self.obs_replay_acc_y_filt = []
         
         self.prev_obs = None
         self.prev_act = np.zeros(self.action_space.shape)
 
-        ## inits for action processing
-        self.prev_acc_spike = 0
-        self.time_since_spike = 0
-        self.transform_a_vec = np.vectorize(transform_a)
-        self.spike_vec = np.vectorize(spike)
+        # ## inits for action processing
+        # self.prev_acc_spike = 0
+        # self.time_since_spike = 0
+        # self.transform_a_vec = np.vectorize(transform_a)
+        # self.spike_vec = np.vectorize(spike)
 
-        ###@anyboby testing
-        self._cum_cost = 1e-8
+        # ###@anyboby testing
+        # self._cum_cost = 1e-8
 
-        self.remove_obs = [
-            'accelerometer',
-            'gyro',
-            #'ctrl',
-        ]
-        self.add_obs = 3
-        self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])+self.add_obs
-        self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
-        self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
+        # self.remove_obs = [
+        #     'accelerometer',
+        #     'gyro',
+        #     #'ctrl',
+        # ]
+        # self.add_obs = 3
+        # self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])+self.add_obs
+        # self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
+        # self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
+
+        self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])
+        self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)
         self.obs_indices = {}
         k_size = 0
         offset = 0
         for k in sorted(self.env.obs_space_dict.keys()):
-            if k not in self.remove_obs:
-                k_size = np.prod(self.env.obs_space_dict[k].shape)
-                self.obs_indices[k] = slice(offset,offset + k_size)
-                offset += k_size
+            # if k not in self.remove_obs:
+            #     k_size = np.prod(self.env.obs_space_dict[k].shape)
+            #     self.obs_indices[k] = slice(offset,offset + k_size)
+            #     offset += k_size
+            k_size = np.prod(self.env.obs_space_dict[k].shape)
+            self.obs_indices[k] = slice(offset,offset + k_size)
+            offset += k_size
 
 
     def reset(self, **kwargs):
@@ -58,8 +64,8 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         return self.observation(observation)
 
     def step(self, action):
-        a_transformed = action #self.transform_a_vec(action)
-        observation, reward, done, info = self.env.step(a_transformed)
+        # a_transformed = action #self.transform_a_vec(action)
+        observation, reward, done, info = self.env.step(action)
         self.prev_obs_unprocessed = observation
         observation = self.preprocess_obs(observation, action)
         #stacked_obs = np.concatenate((observation, self.prev_obs))
@@ -108,17 +114,18 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
 
         flat_obs = np.zeros(self.obs_flat_size)
         for key, index in self.obs_indices.items():
-            if key not in self.remove_obs:
-                flat_obs[index] = obs[key].flat
-            #### replace goal_dist with true dist
-            if key == 'goal_dist':
-                flat_obs[index] = self.env.dist_goal()
+            # if key not in self.remove_obs:
+            #     flat_obs[index] = obs[key].flat
+            # #### replace goal_dist with true dist
+            # if key == 'goal_dist':
+            #     flat_obs[index] = self.env.dist_goal()
+            flat_obs[index] = obs[key].flat
         obs = flat_obs
 
         # pos = self.env.world.robot_pos()
         # vel = self.env.world.robot_vel()
 
-        obs[-3:] = self.env.world.robot_pos()
+        # obs[-3:] = self.env.world.robot_pos()
         #obs[-1] = self._cum_cost/self.cost_lim
 
         #self.obs_indices['pos']=slice(self.obs_flat_size-3,self.obs_flat_size)

@@ -62,7 +62,7 @@ class BNN:
         self.clip_loss = params.get('clip_loss', False)
         self.kl_cliprange = params.get('kl_cliprange', 0.1)   #### Only relevant if clip_loss is True
 
-        self.logit_bias_std = params.get('logit_bias_std', 0)
+        self.logit_bias_std = params.get('logit_bias_std', 1.0)
         self.var_corr = params.get('var_corr', False) and self.loss_type=='NLL'
 
         # Instance variables
@@ -72,7 +72,7 @@ class BNN:
         self.min_logvar_param = params.get('min_logvar', -6)
         self.decays, self.optvars, self.nonoptvars = [], [], []
         self.end_act, self.end_act_name = None, None
-        self.use_scaler_in = params.get('use_scaler_in', True)
+        self.use_scaler_in = params.get('use_scaler_in', False)
         self.use_scaler_out = params.get('use_scaler_out', False)
         self.sc_factor = params.get('sc_factor', 1)
         self.scaler_in = None

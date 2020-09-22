@@ -1,1 +1,0 @@
-{"task": "Safexp-PointGoal0-v1", "stacks": 4, "stacking_axis": 0, "remove_sensors":["accelerometer", "gyro"]}

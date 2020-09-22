@@ -18,7 +18,7 @@ class ModelBuffer(CPOBuffer):
         self.env = env
         self.obs_shape = self.env.observation_space.shape
         self.act_shape = self.env.action_space.shape
-
+        self.pi_info_shapes = None
         self.use_inv_var = use_inv_var
         self.ensemble_size = ensemble_size
         self.model_ind = np.random.randint(ensemble_size)
@@ -30,13 +30,16 @@ class ModelBuffer(CPOBuffer):
                     gamma=0.99, lam = 0.95,
                     cost_gamma = 0.99, cost_lam = 0.95,
                     ):
+        self.pi_info_shapes = pi_info_shapes
         self.pi_info_bufs = {k: np.zeros(shape=[self.ensemble_size, self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
                             for k,v in pi_info_shapes.items()}
         self.sorted_pi_info_keys = keys_as_sorted_list(self.pi_info_bufs)
         self.gamma, self.lam = gamma, lam
         self.cost_gamma, self.cost_lam = cost_gamma, cost_lam
 
-    def reset(self):
+    def reset(self, batch_size=None):
+        if batch_size is not None:
+            self.batch_size = batch_size
         obs_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape)))
         act_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.act_shape)))
         ens_scalar_shape = (self.ensemble_size, self.batch_size, self.max_path_length)
@@ -67,6 +70,11 @@ class ModelBuffer(CPOBuffer):
         #self.cval_ep_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    # epistemic cost value variance
         self.logp_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.term_buf = np.zeros(ens_scalar_shape, dtype=np.bool_)
+        if self.pi_info_shapes:
+            self.pi_info_bufs = {k: np.zeros(shape=[self.ensemble_size, self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
+                                for k,v in self.pi_info_shapes.items()}
+
+        self.cutoff_horizons_mean = 0
 
         # ptr is a scalar to the current position in all paths. You are expected to store at the same timestep 
         #   in all parallel paths
@@ -317,7 +325,7 @@ class ModelBuffer(CPOBuffer):
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
             ### alternative b: normalize return variances by first entry
-            threshold = 5
+            threshold = 1.5
             norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
             norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
@@ -327,6 +335,7 @@ class ModelBuffer(CPOBuffer):
             )
             horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
             self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
+            self.cutoff_horizons_mean = np.mean(horizons)
 
         # mark terminated paths
         self.terminated_paths_mask += finish_mask
@@ -375,11 +384,13 @@ class ModelBuffer(CPOBuffer):
             if self.size>0:
                 # Advantage normalizing trick for policy gradient
                 adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[self.populated_mask].flatten())         # mpi can only handle 1d data
+                adv_var = np.var(self.adv_buf[self.populated_mask])
                 self.adv_buf[self.populated_mask] = (self.adv_buf[self.populated_mask] - adv_mean) / (adv_std + EPS)
 
                 # Center, but do NOT rescale advantages for cost gradient 
                 # (since we're not just minimizing but aiming for a specific c)
                 cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[self.populated_mask].flatten())
+                cadv_var = np.var(self.cadv_buf[self.populated_mask])
                 self.cadv_buf[self.populated_mask] -= cadv_mean
                 
                 ret_mean = self.ret_buf[self.populated_mask].mean()
@@ -391,8 +402,8 @@ class ModelBuffer(CPOBuffer):
                 ep_cval_var_mean = np.mean(np.var(self.cval_buf[:, self.populated_mask], axis=0))
                 ep_ret_var_mean = np.mean(self.ret_ep_var_buf[self.populated_mask])
                 ep_cret_var_mean = np.mean(self.cret_ep_var_buf[self.populated_mask])
-                norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/np.var(self.adv_buf[self.populated_mask])
-                norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/np.var(self.cadv_buf[self.populated_mask])
+                norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/adv_var
+                norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/cadv_var
                 avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
                 avg_horizon_c = np.mean(self.croll_lengths_buf[self.populated_mask])
             else:
@@ -429,6 +440,7 @@ class ModelBuffer(CPOBuffer):
                                 poolm_ep_cret_var_mean = ep_cret_var_mean,
                                 poolm_norm_adv_var = norm_adv_var_mean, 
                                 poolm_norm_cadv_var = norm_cadv_var_mean,
+                                poolm_cutoff_horizon_avg = self.cutoff_horizons_mean,
                                 poolm_avg_Horizon_rew = avg_horizon_r,
                                 poolm_avg_Horizon_c = avg_horizon_c,
                                 )

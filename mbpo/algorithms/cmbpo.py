@@ -127,9 +127,6 @@ class CMBPO(RLAlgorithm):
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
-        self.safe_config = training_environment.safeconfig if hasattr(training_environment, 'safeconfig') else None
-        # if self.safe_config: weighted=True 
-        # else: weighted=False
 
         self._dyn_m_discount = dyn_m_discount
         self._cost_m_discount = cost_m_discount
@@ -142,7 +139,6 @@ class CMBPO(RLAlgorithm):
                                     dyn_discount = self._dyn_m_discount,
                                     cost_m_discount = self._cost_m_discount,
                                     cares_about_cost=True,
-                                    safe_config=self.safe_config,
                                     session = self._session)
 
         self.use_mjc_state_model = use_mjc_state_model
@@ -213,7 +209,7 @@ class CMBPO(RLAlgorithm):
         ### model sampler and buffer
         self.use_inv_var = False
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=80, 
+                                        max_path_length=60, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         use_inv_var = self.use_inv_var,
@@ -225,7 +221,7 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=80,
+        self.model_sampler = ModelSampler(max_path_length=60,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             preprocess_type='default',
@@ -293,7 +289,7 @@ class CMBPO(RLAlgorithm):
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
             min_samples = 40e3
-            max_samples = 120e3
+            max_samples = 180e3
             samples_added = 0
 
             start_samples = self.sampler._total_samples                     
@@ -478,6 +474,63 @@ class CMBPO(RLAlgorithm):
                     model_metrics.update(model_data_diag)
 
                 gt.stamp('epoch_rollout_model')
+                
+                #=====================================================================#
+                #                           Model accuracy measurement                #
+                #=====================================================================#
+                # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
+                # start_states = real_samples[0][rand_inds]
+                start_states = real_samples[0][0::real_samples[0].shape[0]//100+1]
+
+                self.model_sampler.reset(start_states)
+                
+                for i in count():
+                    # print(f'Model Sampling step Nr. {i+1}')
+
+                    _,_,_,info = self.model_sampler.sample()
+                    alive_ratio = info.get('alive_ratio', 1)
+
+                    if alive_ratio<0.2 or \
+                        self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
+                        print(f'Stopping Measurement Rollout at step {i+1}')
+                        break
+                
+                ### diagnostics for rollout ###
+                rollout_diagnostics = self.model_sampler.finish_all_paths()
+                                    
+                
+                # model_metrics.update(rollout_diagnostics)
+
+                ######################################################################
+                ### get model_samples, get() invokes the inverse variance rollouts ###
+                measure_samples, measure_diagnostics = self.model_pool.get()
+                measure_diagnostics = {'measure/'+k:v for k,v in measure_diagnostics.items()}
+                model_metrics.update(measure_diagnostics)
+                samples_added += measure_diagnostics['measure/poolm_batch_size']
+                ######################################################################
+
+                ### norm adv var ratio
+                adv_var_m = measure_diagnostics['measure/poolm_norm_adv_var']
+                cadv_var_m = measure_diagnostics['measure/poolm_norm_cadv_var']
+                adv_var_r = buf_diag['poolr_norm_adv_var']
+                cadv_var_r = buf_diag['poolr_norm_cadv_var']
+
+                adv_var_ratio = adv_var_m / adv_var_r
+                cadv_var_ratio = cadv_var_m / cadv_var_r
+                
+                gt.stamp('epoch_measure_rollouts')
+
+                ### run diagnostics on model data
+                if measure_diagnostics['measure/poolm_batch_size']>0:
+                    measure_data_diag = self._policy.run_diagnostics(measure_samples)
+                    measure_data_diag = {'measure/'+k:v for k,v in measure_data_diag.items()}
+                    measure_data_diag.update({
+                        'measure/norm_adv_var_ratio':adv_var_ratio,
+                        'measure/norm_cadv_var_ratio':cadv_var_ratio,
+                    })
+
+                    model_metrics.update(measure_data_diag)
+
 
             if train_samples is None:
                 train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples

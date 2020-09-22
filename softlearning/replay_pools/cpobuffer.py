@@ -362,10 +362,12 @@ class CPOBuffer:
         assert self.ptr == self.max_size    # uffer has to be full before you can get
         # Advantage normalizing trick for policy gradient
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
+        adv_var = np.var(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
 
         # Center, but do NOT rescale advantages for cost gradient
         cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
+        cadv_var = np.var(self.cadv_buf)
         self.cadv_buf -= cadv_mean
         self.dump_to_archive() 
 
@@ -387,8 +389,8 @@ class CPOBuffer:
         ep_val_std_mean = np.mean(np.std(self.val_buf, axis=0))
         ep_ret_var_mean = np.mean(self.ret_ep_var_buf)
         ep_cret_var_mean = np.mean(self.cret_ep_var_buf)
-        norm_adv_var_mean = np.mean(self.ret_ep_var_buf)/np.var(self.adv_buf)
-        norm_cadv_var_mean = np.mean(self.cret_ep_var_buf)/np.var(self.cadv_buf)
+        norm_adv_var_mean = np.mean(self.ret_ep_var_buf)/adv_var
+        norm_cadv_var_mean = np.mean(self.cret_ep_var_buf)/cadv_var
         avg_horizon_r = np.mean(self.roll_lengths_buf)
         avg_horizon_c = np.mean(self.croll_lengths_buf)
 

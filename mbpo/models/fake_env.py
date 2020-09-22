@@ -23,10 +23,9 @@ class FakeEnv:
                     dyn_discount = 1,
                     cost_m_discount = 1,
                     cares_about_cost=False, 
-                    safe_config=None,
                     session = None):
         
-        self.domain = true_environment.domain
+        self.domain = true_environment.domain            
         self.env = true_environment
         self.obs_dim = np.prod(self.observation_space.shape)
         self.act_dim = np.prod(self.action_space.shape)
@@ -40,13 +39,6 @@ class FakeEnv:
         self.num_elites = num_elites
 
         self.static_fns = static_fns
-        self.safe_config = safe_config
-        if safe_config:
-            self.stacks = self.safe_config['stacks']
-            self.stacking_axis = self.safe_config['stacking_axis']
-        else:
-            self.stacks = 1
-            self.stacking_axis = 0
 
         target_weight_f = WEIGHTS_PER_DOMAIN.get(self.domain, None)
         self.target_weights = target_weight_f(self.obs_dim) if target_weight_f else None
@@ -72,8 +64,8 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        use_scaler_in =True,
-                                        # use_scaler_out =True,
+                                        use_scaler_in = True,
+                                        use_scaler_out = False ,
                                         decay=1e-4,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
@@ -81,21 +73,23 @@ class FakeEnv:
                                         session=self._session)
         if self.cares_about_cost:                                                    
             
-            self.cost_m_loss = 'MSE'
-            
+            self.cost_m_loss = 'CE'
+            output_activation = 'softmax' if self.cost_m_loss=='CE' else None
+
             self._cost_model = construct_model(in_dim=input_dim_c, 
-                                        out_dim=1,
+                                        out_dim=2,
                                         loss=self.cost_m_loss,
                                         name='CostNN',
                                         hidden_dims=(64,64),
                                         lr=8e-5,
+                                        output_activation = output_activation,
                                         # lr_decay=0.96,
                                         # decay_steps=10000, 
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
                                         use_scaler_in = True,
-                                        # use_scaler_out = True,
+                                        use_scaler_out = False,
                                         # sc_factor=1-1e-5,
                                         # max_logvar=.5,
                                         # min_logvar=-8,
@@ -201,11 +195,10 @@ class FakeEnv:
         
         #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
-        if self.safe_config:
-            self.task = self.safe_config['task']
-            rewards = self.static_fns.reward_f(obs, act, next_obs, self.safe_config)
-            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.safe_config)    ### non terminal for goal, but rebuild goal 
-            next_obs = self.static_fns.rebuild_goal(obs, act, next_obs, obs, self.safe_config)  ### rebuild goal if goal was met
+        if 'Safexp' in self.domain:
+            rewards = self.static_fns.reward_f(obs, act, next_obs, self.env)
+            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.env)    ### non terminal for goal, but rebuild goal 
+            next_obs = self.static_fns.rebuild_goal(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
         #### ----- special steps for safety-gym ----- ####
 
         else:
@@ -221,6 +214,9 @@ class FakeEnv:
                 inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
 
             costs = self._cost_model.predict(inputs_cost, factored=False, inc_var=False)
+
+            if self.cost_m_loss=='CE':
+                costs = np.argmax(costs, axis=-1)[...,None]
             #cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
             ep_cost_var = np.var(costs, axis=0)
 
@@ -262,7 +258,6 @@ class FakeEnv:
         if discount<1:
             train_inputs_dyn, train_outputs_dyn, weights = format_samples_for_dyn(samples, 
                                                                         priors=priors,
-                                                                        safe_config=self.safe_config,
                                                                         discount=discount,
                                                                         #noise=1e-4
                                                                         )
@@ -275,7 +270,6 @@ class FakeEnv:
         else:
             train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                         priors=priors,
-                                                                        safe_config=self.safe_config,
                                                                         #noise=1e-4
                                                                         )
             
@@ -294,7 +288,7 @@ class FakeEnv:
         
         if discount<1:
             inputs, targets, weights = format_samples_for_cost(samples, 
-                                                        one_hot=False,
+                                                        one_hot=self.cost_m_loss=='CE',
                                                         priors=priors,
                                                         discount=discount,
                                                         # noise=1e-4
@@ -306,7 +300,7 @@ class FakeEnv:
                                         )                                            
         else:
             inputs, targets = format_samples_for_cost(samples, 
-                                                        one_hot=False,
+                                                        one_hot=self.cost_m_loss=='CE',
                                                         priors=priors,
                                                         # noise=1e-4
                                                         )

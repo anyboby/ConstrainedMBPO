@@ -509,9 +509,9 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['clip_loss']      = self.vf_cliploss
             vf_kwargs['var_corr']      = self.vf_var_corr
             vf_kwargs['num_elites']     = self.vf_elites
-            vf_kwargs['use_scaler_in']  = False
+            vf_kwargs['use_scaler_in']  = True
             vf_kwargs['use_scaler_out'] = True
-            # vf_kwargs['sc_factor']      = 1.0
+            # vf_kwargs['sc_factor']      = 1e3
             vf_kwargs['session']        = self.sess
 
 

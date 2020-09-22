@@ -45,8 +45,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_clipping':          False,           # clip losses for a trust-region like update
         'vf_kl_cliprange':      0.0,
         'vf_var_corr':          False,           # include variance correction terms acc. to paper, only use with NLL
-        'v_logit_bias':         0.0,#1,         # logit bias to control initial values
-        'vc_logit_bias':        0.0,# 10,
+        'v_logit_bias':         1.0,#1,         # logit bias to control initial values
+        'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
         'target_kl':            0.01,
         'cost_lim_end':         5e8,

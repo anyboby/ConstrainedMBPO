@@ -48,7 +48,7 @@ GYM_ENVIRONMENTS = dict(GYM_ENVIRONMENTS)
 SAFETY_WRAPPER_IDS = {
     'Safexp-PointGoal2-v0':SafetyPreprocessedEnv,
     'Safexp-PointGoal1-v0':SafetyPreprocessedEnv,
-    'Safexp-PointGoal0-v0':SafetyPreprocessedEnv,
+    #'Safexp-PointGoal0-v0':SafetyPreprocessedEnv,
 }
 
 class GymAdapter(SoftlearningEnv):
@@ -106,37 +106,37 @@ class GymAdapter(SoftlearningEnv):
             dirname, _ = os.path.split(os.path.abspath(__file__))
             #### load config file
             with open(f'{dirname}/../gym/safety_gym/configs/{env_id}_config.json', 'r') as fp:
-                self.safeconfig = json.load(fp)
+                config = json.load(fp)
             fp.close()
-            with open(f'{dirname}/../gym/safety_gym/add_configs/{env_id}_add_config.json', 'r') as fp:
-                add_config = json.load(fp)
-            fp.close()
+            # with open(f'{dirname}/../gym/safety_gym/add_configs/{env_id}_add_config.json', 'r') as fp:
+            #     add_config = json.load(fp)
+            # fp.close()
 
 
-            env = Engine(self.safeconfig)
-            env = SAFETY_WRAPPER_IDS[env_id](env)
+            env = Engine(config)
+            # env = SAFETY_WRAPPER_IDS[env_id](env)
 
             #### additional config info like stacking etc.
-            for k in add_config.keys():
-                self.safeconfig[k] = add_config[k]
+            # for k in add_config.keys():
+            #     self.safeconfig[k] = add_config[k]
                     
             #### dump config file to current data dir
             with open(f'{env_id}_config.json', 'w') as fp:
-                json.dump(self.safeconfig, fp)
+                json.dump(config, fp)
             fp.close()
             ####
 
             ### adding unserializable additional info after dumping (lol)
-            self.obs_indices = env.obs_indices
-            self.safeconfig['obs_indices'] = self.obs_indices
+            # self.obs_indices = env.obs_indices
+            # self.safeconfig['obs_indices'] = self.obs_indices
 
             ### stack env
-            self.stacks = self.safeconfig['stacks'] ### for convenience
-            self.stacking_axis = self.safeconfig['stacking_axis']
+            self.stacks = config.get('stacks', 1) ### for convenience
+            self.stacking_axis = config.get('stacking_axis',0)
             if self.stacks>1:
                 env = DummyVecEnv([lambda:env])
                 #env = VecNormalize(env)        doesn't work at all for some reason
-                env = VecFrameStack(env, self.safeconfig['stacks'])
+                env = VecFrameStack(env, self.stacks)
 
         #### --- end specifically for safety_gym  --- ###
 

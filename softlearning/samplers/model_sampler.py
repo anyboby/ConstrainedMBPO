@@ -65,7 +65,7 @@ class ModelSampler(CpoSampler):
         self._total_CV_al_var = 0
         self._total_dkl_med_dyn = 0
 
-        self.batch_size = batch_size
+        # self.batch_size = batch_size
 
         self._obs_process_type = preprocess_type
         self.env = None
@@ -193,12 +193,16 @@ class ModelSampler(CpoSampler):
         return processed_observation
 
     def reset(self, observations):
+        self.batch_size = observations.shape[0]
+
         self._starting_uncertainty = np.var(self.policy.get_v(observations, factored=True, inc_var=False), axis=0)
         self._starting_uncertainty_c = np.var(self.policy.get_vc(observations, factored=True, inc_var=False), axis=0)
 
         self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
 
         self.policy.reset() #does nohing for cpo policy atm
+        self.pool.reset(self.batch_size)
+        
         self._path_length = np.zeros(self.batch_size)
         self._path_return = np.zeros(shape=(self.ensemble_size, self.batch_size))
         self._path_cost = np.zeros(shape=(self.ensemble_size, self.batch_size))
@@ -275,14 +279,19 @@ class ModelSampler(CpoSampler):
         rew_uncertainty = np.var(self._path_return[:,alive_paths]+next_val, axis=0)
         cost_uncertainty = np.var(self._path_cost[:,alive_paths]+next_cval, axis=0) 
         
+        # rew_uncertainty = np.var(self._path_return[:,alive_paths]+reward, axis=0)
+        # cost_uncertainty = np.var(self._path_cost[:,alive_paths]+c, axis=0) 
+
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
-        threshold_var_ratio = 100      ### the real rollout horizon is determined in the buffer
-        too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
-                                            rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
+        # threshold_var_ratio = 50      ### the real rollout horizon is determined in the buffer
+        # too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
+        #                                     rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
+        too_uncertain_paths = np.logical_or(cost_uncertainty > 1e5, \
+                                            rew_uncertainty > 1e5) 
 
         # too_uncertain_paths = np.logical_or(cost_cov > self._max_uncertainty_c, \
         #                                     ret_cov > self._max_uncertainty_rew) 
