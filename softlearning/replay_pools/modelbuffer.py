@@ -411,43 +411,46 @@ class ModelBuffer(CPOBuffer):
                 deltas_r = self.rew_buf[...,:-1] + self.gamma * self.val_buf[...,1:] - self.val_buf[...,:-1]
                 deltas_c = self.cost_buf[...,:-1] + self.gamma * self.cval_buf[...,1:] - self.cval_buf[...,:-1]
                 
-                tdr_mean = np.mean(np.var(deltas_r, axis=0), axis=0)
-                tdr_n = np.mean(np.var(deltas_r, axis=0)/np.mean(np.var(deltas_r, axis=1), axis=0), axis=0)
+                tdr_mean = np.var(deltas_r, axis=0)
+                tdr_n = np.var(deltas_r, axis=0)/(np.mean(np.var(deltas_r, axis=1), axis=0)+EPS)
 
-                tdr_1 = tdr_n[1]
-                tdr_3 = tdr_n[3]
-                tdr_5 = tdr_n[5]
-                tdr_10 =tdr_n[10]
-                tdr_15 =tdr_n[15]
-                tdr_25 =tdr_n[25]
-                tdr_m1 = tdr_mean[1]
-                tdr_m3 = tdr_mean[3]
-                tdr_m5 = tdr_mean[5]
-                tdr_m10 =tdr_mean[10]
-                tdr_m15 =tdr_mean[15]
-                tdr_m25 =tdr_mean[25]
+                tdr_1 = np.mean(tdr_n[...,1][self.populated_mask[...,1]])
+                tdr_3 = np.mean(tdr_n[...,3][self.populated_mask[...,3]])
+                tdr_5 = np.mean(tdr_n[...,5][self.populated_mask[...,5]])
+                tdr_10 =np.mean(tdr_n[...,10][self.populated_mask[...,10]])
+                tdr_15 =np.mean(tdr_n[...,15][self.populated_mask[...,15]])
+                tdr_25 =np.mean(tdr_n[...,25][self.populated_mask[...,25]])
+                tdr_m1 = np.mean(tdr_mean[...,1][self.populated_mask[...,1]])
+                tdr_m3 = np.mean(tdr_mean[...,3][self.populated_mask[...,3]])
+                tdr_m5 = np.mean(tdr_mean[...,5][self.populated_mask[...,5]])
+                tdr_m10 =np.mean(tdr_mean[...,10][self.populated_mask[...,10]])
+                tdr_m15 =np.mean(tdr_mean[...,15][self.populated_mask[...,15]])
+                tdr_m25 =np.mean(tdr_mean[...,25][self.populated_mask[...,25]])
                 tdr_var = np.var(deltas_r[self.model_ind, self.populated_mask[...,:-1]])
 
-                tdc_mean = np.mean(np.var(deltas_c, axis=0), axis=0)
-                tdc_n = np.mean(np.var(deltas_c, axis=0)/np.mean(np.var(deltas_c, axis=1), axis=0), axis=0)
+                tdc_mean = np.var(deltas_c, axis=0)
+                tdc_n = np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0)+EPS)
 
-                tdc_1 = tdc_n[1]
-                tdc_3 = tdc_n[3]
-                tdc_5 = tdc_n[5]
-                tdc_10 =tdc_n[10]
-                tdc_15 =tdc_n[15]
-                tdc_25 =tdc_n[25]
-                tdc_m1 = tdc_mean[1]
-                tdc_m3 = tdc_mean[3]
-                tdc_m5 = tdc_mean[5]
-                tdc_m10 =tdc_mean[10]
-                tdc_m15 =tdc_mean[15]
-                tdc_m25 =tdc_mean[25]
+                tdc_1 = np.mean(tdc_n[...,1][self.populated_mask[...,1]])
+                tdc_3 = np.mean(tdc_n[...,3][self.populated_mask[...,3]])
+                tdc_5 = np.mean(tdc_n[...,5][self.populated_mask[...,5]])
+                tdc_10 =np.mean(tdc_n[...,10][self.populated_mask[...,10]])
+                tdc_15 =np.mean(tdc_n[...,15][self.populated_mask[...,15]])
+                tdc_25 =np.mean(tdc_n[...,25][self.populated_mask[...,25]])
+                tdc_m1 = np.mean(tdc_mean[...,1][self.populated_mask[...,1]])
+                tdc_m3 = np.mean(tdc_mean[...,3][self.populated_mask[...,3]])
+                tdc_m5 = np.mean(tdc_mean[...,5][self.populated_mask[...,5]])
+                tdc_m10 =np.mean(tdc_mean[...,10][self.populated_mask[...,10]])
+                tdc_m15 =np.mean(tdc_mean[...,15][self.populated_mask[...,15]])
+                tdc_m25 =np.mean(tdc_mean[...,25][self.populated_mask[...,25]])
                 tdc_var = np.var(deltas_c[self.model_ind, self.populated_mask[...,:-1]])
 
                 delta_obs = self.nextobs_buf-self.obs_buf
                 td_dyn_m = np.mean(np.mean(np.var(delta_obs, axis=0), axis=-1)[self.populated_mask])
                 td_dyn_n =  td_dyn_m/ np.var(np.mean(np.mean(delta_obs, axis=0),axis=-1)[self.populated_mask])
+
+                tdc_overall = np.mean(np.var(deltas_c, axis=0)[self.populated_mask[...,:-1]])
+                tdr_overall = np.mean(np.var(deltas_r, axis=0)[self.populated_mask[...,:-1]])
 
             else:
                 ret_mean = 0
@@ -512,12 +515,12 @@ class ModelBuffer(CPOBuffer):
                                 poolm_tdc_m25= tdc_m25,        
                                 poolm_tdr_var = tdr_var,
                                 poolm_tdc_var = tdc_var,
-                                poolm_tdc_overall = np.mean(deltas_c[self.model_ind, self.populated_mask[...,:-1]]),
-                                poolm_tdr_overall = np.mean(deltas_r[self.model_ind, self.populated_mask[...,:-1]]),
+                                poolm_tdc_overall = tdc_overall,
+                                poolm_tdr_overall = tdr_overall,
                                 poolm_td_dyn_m = td_dyn_m,
                                 poolm_td_dyn_n = td_dyn_n,
-                                poolm_td_dyn_r_m = td_dyn_m,
-                                poolm_td_dyn_c_m = td_dyn_m,
+                                poolm_td_dynxr_m = tdr_overall*td_dyn_m,
+                                poolm_td_dynxc_m = tdc_overall*td_dyn_m,
                                 )
         # reset
         self.reset()
