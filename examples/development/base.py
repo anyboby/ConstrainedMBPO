@@ -48,12 +48,12 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
-        'target_kl':            0.01,
-        'cost_lim_end':         5e8,
-        'cost_lim':             5e8,
-        'cost_lam':             .95,
-        'cost_gamma':           0.99,
-        'lam':                  .95,
+        'target_kl':            0.008,
+        'cost_lim_end':         25,
+        'cost_lim':             25,
+        'cost_lam':             .98,
+        'cost_gamma':           0.97,
+        'lam':                  .98,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(2e4),
+                    'CPOBuffer':int(6e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
@@ -289,6 +289,11 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                spec.get('config', spec)
                ['policy_params']['kwargs'].get('vf_ensemble_size',1)
             )),
+            'iv_gae': tune.sample_from(lambda spec: (
+               spec.get('config', spec)
+               ['algorithm_params']['kwargs'].get('iv_gae',False)
+            )),
+
 
         }
     },
@@ -380,9 +385,6 @@ def get_variant_spec(args, env_params):
         variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = True
     else:
         variant_spec['algorithm_params']['kwargs']['use_mjc_state_model'] = False
-
-    #if env_params.kwargs['max_pool_size'] is not None:
-    #    variant_spec['replay_pool_params']['kwargs']['max_size'] = env_params.kwargs['max_pool_size']
         
 
     if args.checkpoint_replay_pool is not None:

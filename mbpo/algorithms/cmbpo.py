@@ -85,6 +85,7 @@ class CMBPO(RLAlgorithm):
             cost_m_discount = 1,                     
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
+            iv_gae = False,
             hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
 
@@ -207,12 +208,12 @@ class CMBPO(RLAlgorithm):
         self._action_shape = action_shape
 
         ### model sampler and buffer
-        self.use_inv_var = False
+        self.iv_gae = iv_gae
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
                                         max_path_length=60, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
-                                        use_inv_var = self.use_inv_var,
+                                        iv_gae = self.iv_gae,
                                         )
         self.model_pool.initialize(pi_info_shapes,
                                     gamma = self._policy.gamma,
@@ -228,7 +229,7 @@ class CMBPO(RLAlgorithm):
                                             max_uncertainty_c = self._max_uncertainty_c,
                                             max_uncertainty_r = self._max_uncertainty_rew,
                                             logger=None,
-                                            use_inv_var =self.use_inv_var,
+                                            iv_gae =self.iv_gae,
                                             )
 
         # provide policy and sampler with the same logger
@@ -288,7 +289,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 40e3
+            min_samples = 20e3
             max_samples = 180e3
             samples_added = 0
 

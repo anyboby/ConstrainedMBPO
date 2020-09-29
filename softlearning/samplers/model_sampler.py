@@ -22,9 +22,9 @@ class ModelSampler(CpoSampler):
                  batch_size=1000,
                  store_last_n_paths = 10,
                  preprocess_type='default',
-                 max_uncertainty_c = 1e3,
-                 max_uncertainty_r = 1e-2,
-                 use_inv_var = False,
+                 max_uncertainty_c = 3,
+                 max_uncertainty_r = 3,
+                 iv_gae = False,
                  logger = None):
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
@@ -34,7 +34,7 @@ class ModelSampler(CpoSampler):
         self._path_cost_var = np.zeros(batch_size)
         self._path_dyn_var = np.zeros(batch_size)
 
-        self.use_inv_var = use_inv_var
+        self.iv_gae = iv_gae
 
         if logger:
             self.logger = logger
@@ -288,10 +288,14 @@ class ModelSampler(CpoSampler):
 
         ## epistemic trajectory-return variance vs epistemic value variance as termination
         # threshold_var_ratio = 50      ### the real rollout horizon is determined in the buffer
-        # too_uncertain_paths = np.logical_or(cost_uncertainty > threshold_var_ratio * self._starting_uncertainty_c[alive_paths], \
-        #                                     rew_uncertainty > threshold_var_ratio * self._starting_uncertainty[alive_paths]) 
-        too_uncertain_paths = np.logical_or(cost_uncertainty > 1e5, \
-                                            rew_uncertainty > 1e5) 
+
+        if self.iv_gae:
+            too_uncertain_paths = np.logical_or(cost_uncertainty > 1e5, \
+                                                        rew_uncertainty > 1e5) 
+        else:                                                        
+            too_uncertain_paths = np.logical_or(cost_uncertainty > self._max_uncertainty_c * self._starting_uncertainty_c[alive_paths], \
+                                                rew_uncertainty > self._max_uncertainty_rew * self._starting_uncertainty[alive_paths]) 
+        
 
         # too_uncertain_paths = np.logical_or(cost_cov > self._max_uncertainty_c, \
         #                                     ret_cov > self._max_uncertainty_rew) 
