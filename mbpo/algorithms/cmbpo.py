@@ -398,6 +398,7 @@ class CMBPO(RLAlgorithm):
 
                 if self.ready_to_train or self._timestep>n_real_samples:
                     self.sampler.finish_all_paths(append_val=True)
+                    self.new_real_samples += self._timestep
                     break
 
             #=====================================================================#

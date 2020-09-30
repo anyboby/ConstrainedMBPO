@@ -49,11 +49,11 @@ params = {
         'cares_about_cost': False,
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' : 3.5,
-        'max_uncertainty_rew' : 3.5,
+        'max_uncertainty_c' : 4.5,
+        'max_uncertainty_rew' : 4.5,
         'iv_gae': False,
-        'max_tdxdyn_err' : 0.025,
+        'max_tdxdyn_err' : 0.01,
         'batch_size_policy': 5e3,              ### how many samples 
-        'min_real_samples_per_epoch': 5e2,
+        'min_real_samples_per_epoch': 2e2,
     }
 }

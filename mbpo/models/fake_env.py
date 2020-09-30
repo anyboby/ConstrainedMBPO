@@ -25,7 +25,7 @@ class FakeEnv:
                     cares_about_cost=False, 
                     session = None):
         
-        self.domain = true_environment.domain            
+        self.domain = true_environment.domain if true_environment.domain else ""
         self.env = true_environment
         self.obs_dim = np.prod(self.observation_space.shape)
         self.act_dim = np.prod(self.action_space.shape)
