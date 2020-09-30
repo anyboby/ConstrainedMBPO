@@ -49,8 +49,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
         'target_kl':            0.008,
-        'cost_lim_end':         25,
-        'cost_lim':             25,
+        'cost_lim_end':         50e5,
+        'cost_lim':             50e5,
         'cost_lam':             .98,
         'cost_gamma':           0.97,
         'lam':                  .98,
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(1000), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'SQL': {

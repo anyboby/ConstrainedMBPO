@@ -64,8 +64,8 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        use_scaler_in = True,
-                                        use_scaler_out = False ,
+                                        use_scaler_in = False,
+                                        use_scaler_out = False,
                                         decay=1e-4,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
@@ -73,11 +73,11 @@ class FakeEnv:
                                         session=self._session)
         if self.cares_about_cost:                                                    
             
-            self.cost_m_loss = 'CE'
+            self.cost_m_loss = 'MSE'
             output_activation = 'softmax' if self.cost_m_loss=='CE' else None
 
             self._cost_model = construct_model(in_dim=input_dim_c, 
-                                        out_dim=2,
+                                        out_dim=2 if self.cost_m_loss=='CE' else 1,
                                         loss=self.cost_m_loss,
                                         name='CostNN',
                                         hidden_dims=(64,64),
@@ -88,7 +88,7 @@ class FakeEnv:
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
-                                        use_scaler_in = True,
+                                        use_scaler_in = False,
                                         use_scaler_out = False,
                                         # sc_factor=1-1e-5,
                                         # max_logvar=.5,
@@ -100,8 +100,7 @@ class FakeEnv:
             self._cost_model = None
         
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
-        self.running_mean_stdscale = 1
-        self.last_tic = time.perf_counter()
+        self.dyn_target_var_rm = 1
 
     @property
     def observation_space(self):
@@ -224,11 +223,6 @@ class FakeEnv:
             costs = np.zeros_like(rewards)
             ep_cost_var = np.zeros(shape=rewards.shape[1:])
 
-        # batch_size = model_means.shape[0]
-        ###@anyboby TODO this calculation seems a bit suspicious to me
-        # return_means = np.concatenate((model_means[:,-1:], terminals, model_means[:,:-1]), axis=-1)
-        # return_stds = np.concatenate((model_stds[:,-1:], np.zeros((batch_size,1)), model_stds[:,:-1]), axis=-1)
-
         if return_single:
             next_obs = next_obs[0]
             return_means = return_means[0]
@@ -277,7 +271,7 @@ class FakeEnv:
                                                 train_outputs_dyn, 
                                                 **kwargs,
                                                 )
-
+        self.dyn_target_var_rm = np.var(train_outputs_dyn)
 
         return model_metrics
 
@@ -312,6 +306,10 @@ class FakeEnv:
                                         )                                            
             
         return cost_model_metrics
+
+    @property
+    def dyn_target_var(self):
+        return self.dyn_target_var_rm
 
     def random_inds(self, size):
         return self._model.random_inds(batch_size=size)

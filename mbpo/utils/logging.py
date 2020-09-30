@@ -2,6 +2,16 @@ import time
 import math
 import pdb
 
+
+
+def update_dict(dict_a, dict_b, weight=.5):
+	dict_a_cp = dict_a.copy()
+	dict_a.update(dict_b)
+	for k,v in dict_b.items():
+		if k in dict_a_cp.keys():
+			dict_a[k] = weight*dict_b[k] + (1-weight)*dict_a_cp[k]
+	return dict_a
+
 class Progress:
 
 	def __init__(self, total, name = 'Progress', ncol=3, max_length=20, indent=0, line_width=100, speed_update_freq=100):

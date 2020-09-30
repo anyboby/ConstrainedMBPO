@@ -25,13 +25,14 @@ from softlearning.replay_pools.modelbuffer import ModelBuffer
 from softlearning.replay_pools.cpobuffer import CPOBuffer
 from softlearning.samplers.model_sampler import ModelSampler
 from softlearning.policies.safe_utils.logx import EpochLogger
+from softlearning.policies.safe_utils.utils import EPS
 
 from mbpo.models.constructor import construct_model, format_samples_for_dyn, reset_model
 from mbpo.models.fake_env import FakeEnv
 from mbpo.models.perturbed_env import PerturbedEnv
 from mbpo.utils.writer import Writer
 from mbpo.utils.visualization import visualize_policy
-from mbpo.utils.logging import Progress
+from mbpo.utils.logging import Progress, update_dict
 import mbpo.utils.filesystem as filesystem
 
 
@@ -81,17 +82,20 @@ class CMBPO(RLAlgorithm):
             rollout_schedule=[20,100,1,1],
             dyn_model_train_schedule=[20, 100, 1, 5],
             cost_model_train_schedule=[20, 100, 1, 30],
+            cares_about_cost = False,
             dyn_m_discount = 1,
             cost_m_discount = 1,                     
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
             iv_gae = False,
+            max_tdxdyn_err = 1e-5,
+            min_real_samples_per_epoch = 1000,
+            batch_size_policy = 5000,
             hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
 
             use_mjc_state_model = False,
             model_std_inc = 0.02,
-
             **kwargs,
     ):
         """
@@ -131,7 +135,8 @@ class CMBPO(RLAlgorithm):
 
         self._dyn_m_discount = dyn_m_discount
         self._cost_m_discount = cost_m_discount
-        
+        self.cares_about_cost = cares_about_cost
+
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
@@ -139,7 +144,7 @@ class CMBPO(RLAlgorithm):
                                     hidden_dims=hidden_dims, 
                                     dyn_discount = self._dyn_m_discount,
                                     cost_m_discount = self._cost_m_discount,
-                                    cares_about_cost=True,
+                                    cares_about_cost=cares_about_cost,
                                     session = self._session)
 
         self.use_mjc_state_model = use_mjc_state_model
@@ -206,14 +211,20 @@ class CMBPO(RLAlgorithm):
         self._observation_shape = observation_shape
         assert len(action_shape) == 1, action_shape
         self._action_shape = action_shape
+        
 
         ### model sampler and buffer
+        self.max_tdxdyn_err = max_tdxdyn_err
         self.iv_gae = iv_gae
+        self.min_real_samples_per_epoch = min_real_samples_per_epoch
+        self.batch_size_policy = batch_size_policy
+
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
                                         max_path_length=60, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         iv_gae = self.iv_gae,
+                                        cares_about_cost = cares_about_cost,
                                         )
         self.model_pool.initialize(pi_info_shapes,
                                     gamma = self._policy.gamma,
@@ -225,7 +236,7 @@ class CMBPO(RLAlgorithm):
         self.model_sampler = ModelSampler(max_path_length=60,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
-                                            preprocess_type='default',
+                                            cares_about_cost = cares_about_cost,
                                             max_uncertainty_c = self._max_uncertainty_c,
                                             max_uncertainty_r = self._max_uncertainty_rew,
                                             logger=None,
@@ -273,10 +284,10 @@ class CMBPO(RLAlgorithm):
         gt.rename_root('RLAlgorithm')
         gt.set_def_unique(False)
         self.policy_epoch = 0       ### count policy updates
+        self.new_real_samples = 0
 
         #### not implemented, could train policy before hook
         self._training_before_hook()
-        train_samples = None 
 
         #### iterate over epochs, gt.timed_for to create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
@@ -289,14 +300,86 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 20e3
-            max_samples = 180e3
+
             samples_added = 0
+            #=====================================================================#
+            #            Rollout model                                            #
+            #=====================================================================#
+            model_samples = None
+            keep_rolling = True
+            #### start model rollout
+            if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+                while keep_rolling:
+                    #=====================================================================#
+                    #  Rollout Model                                                      #
+                    #=====================================================================#
+                    print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
+                        self._epoch, self._rollout_batch_size 
+                    ))                
 
+                    #=====================================================================#
+                    #                           Model Rollouts                            #
+                    #=====================================================================#
+                    # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
+                    # start_states = real_samples[0][rand_inds]
+                    start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+
+                    self.model_sampler.reset(start_states)
+                    
+                    for i in count():
+                        print(f'Model Sampling step Nr. {i+1}')
+
+                        _,_,_,info = self.model_sampler.sample()
+                        alive_ratio = info.get('alive_ratio', 1)
+
+                        if alive_ratio<0.2 or \
+                            self.model_sampler._total_samples + samples_added >= self.batch_size_policy-alive_ratio*self._rollout_batch_size:
+                            print(f'Stopping Rollout at step {i+1}')
+                            break
+                    
+                    ### diagnostics for rollout ###
+                    rollout_diagnostics = self.model_sampler.finish_all_paths()
+
+                    ######################################################################
+                    ### get model_samples, get() invokes the inverse variance rollouts ###
+                    model_samples_new, buffer_diagnostics_new = self.model_pool.get()
+                    model_samples = [np.concatenate((o,n), axis=0) for o,n in zip(model_samples, model_samples_new)] if model_samples else model_samples_new
+
+                    #model_metrics.update(buffer_diagnostics)
+                    old_n_samples = model_metrics.get('poolm_batch_size', 0) + EPS
+                    new_n_samples = buffer_diagnostics_new['poolm_batch_size']
+                    samples_added += new_n_samples
+
+                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+old_n_samples))
+
+                    ######################################################################
+
+                    ### run diagnostics on model data
+                    if buffer_diagnostics_new['poolm_batch_size']>0:
+                        model_data_diag = self._policy.run_diagnostics(model_samples_new)
+                        model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
+                        #model_metrics.update(model_data_diag)
+                    model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+old_n_samples))
+                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+old_n_samples))
+                    model_metrics.update({'samples_added':samples_added})
+
+                    td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
+            
+                    approx_model_batch = self.max_tdxdyn_err*self.batch_size_policy / td_dyn_err
+                    keep_rolling = ~(samples_added > approx_model_batch or samples_added > self.batch_size_policy)
+                    
+                gt.stamp('epoch_rollout_model')
+            
+
+
+            #=====================================================================#
+            #  Sample                                                             #
+            #=====================================================================#
+            n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
+            model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
-
             ### train for epoch_length ###
-            for i in count():           
+            for i in count():
 
                 #### _timestep is within an epoch
                 samples_now = self.sampler._total_samples
@@ -313,45 +396,22 @@ class CMBPO(RLAlgorithm):
                 self._timestep_after_hook()
                 gt.stamp('timestep_after_hook')
 
-                
-                if self.ready_to_train:
+                if self.ready_to_train or self._timestep>n_real_samples:
                     self.sampler.finish_all_paths(append_val=True)
                     break
 
             #=====================================================================#
+            #  Train model                                                        #
+            #=====================================================================#
+            if self.new_real_samples>2048:
+                model_diag = self.train_model(min_epochs=5, max_epochs=20)
+                self.new_real_samples = 0
+                model_metrics.update(model_diag)
+
+            #=====================================================================#
             #  Get Buffer Data                                                    #
             #=====================================================================#
-            #### get samples from buffer
-            if self._epoch==0:
-                arch_samples = self._pool.get_archive([     #### include initial expl. hook samples
-                        'observations',
-                        'actions',
-                        'advantages',
-                        'return_vars',
-                        'cadvantages',
-                        'creturn_vars',
-                        'returns',
-                        'creturns',
-                        'log_policies',
-                        'values',
-                        'value_vars',
-                        'cvalues',
-                        'cvalue_vars',
-                        'costs',
-                        'pi_infos',
-                    ])
-                arch_samples = list(arch_samples.values())       ### samples from initial exploration hook
-                real_samples, buf_diag = self._pool.get()        ### samples from first epoch
-                real_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, arch_samples)]       ### merge
-                
-                #### little trick: circumvent Trust Region critic update in first run to introduce some starting uncertainty
-                self._policy.update_critic(real_samples, 
-                                            kl_cliprange=1e5, 
-                                            min_epoch_before_break = 10, 
-                                            max_epochs=100)
-
-            else:
-                real_samples, buf_diag= self._pool.get()
+            real_samples, buf_diag = self._pool.get()
 
             ### run diagnostics on real data
             policy_diag = self._policy.run_diagnostics(real_samples)
@@ -359,206 +419,19 @@ class CMBPO(RLAlgorithm):
             model_metrics.update(policy_diag)
             model_metrics.update(buf_diag)
 
-            #=====================================================================#
-            #  Train and Rollout model                                            #
-            #=====================================================================#
-            model_samples = None
-            
-            #### start model rollout
-            if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
-                self._training_progress.pause()
-                self._dyn_model_train_freq = self._set_model_train_freq(
-                    self._dyn_model_train_freq, 
-                    self._dyn_model_train_schedule
-                    ) ## set current train freq.
-                self._cost_model_train_freq = self._set_model_train_freq(
-                    self._cost_model_train_freq, 
-                    self._cost_model_train_schedule
-                    )
-                print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
-                print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) | epoch train steps: {} (total: {})'.format(
-                    self._epoch, self._dyn_model_train_freq, self._timestep, self._total_timestep, self._train_steps_this_epoch, self._num_train_steps)
-                )
-
-                samples = self._pool.get_archive(['observations',
-                                                        'actions',
-                                                        'next_observations',
-                                                        'rewards',
-                                                        'costs',
-                                                        'terminals',
-                                                        'epochs',
-                                                        ])
-                # if len(samples['observations'])>25000:
-                #     dyn_samples = {k:v[-25000:] for k,v in samples.items()} 
-                # if len(samples['observations'])>10000:
-                #     cost_samples = {k:v[-10000:] for k,v in samples.items()} 
-    
-                #self.fake_env.reset_model()    # this behaves weirdly
-                min_epochs = 150 if self._epoch<10 else 5        ### overtrain a little in the beginning to jumpstart uncertainty prediction
-                max_epochs = 500 if self._epoch<10 else 10
-                # # if len(samples['observations'])>30000:
-                # #     samples = {k:v[-30000:] for k,v in samples.items()} 
-                # batch_size = 512 + min(self._epoch//50*512, 7*512)
-                batch_size = 2048
-
-                if self._epoch%self._dyn_model_train_freq==0:
-                    model_train_metrics_dyn = self.fake_env.train_dyn_model(
-                        samples, 
-                        discount = self._dyn_m_discount,
-                        batch_size=batch_size, #512
-                        max_epochs=max_epochs, # max_epochs 
-                        min_epoch_before_break=min_epochs, # min_epochs, 
-                        holdout_ratio=0.2, 
-                        max_t=self._max_model_t
-                        )
-                    model_metrics.update(model_train_metrics_dyn)
-
-                if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
-                    model_train_metrics_cost = self.fake_env.train_cost_model(
-                        samples, 
-                        discount = self._cost_m_discount,
-                        batch_size= batch_size, #batch_size, #512, 
-                        min_epoch_before_break= min_epochs,#min_epochs,
-                        max_epochs=max_epochs, # max_epochs, 
-                        holdout_ratio=0.2, 
-                        max_t=self._max_model_t
-                        )
-                    model_metrics.update(model_train_metrics_cost)
-
-                gt.stamp('epoch_train_model')
-
-                #=====================================================================#
-                #  Rollout Model                                                      #
-                #=====================================================================#
-                print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
-                    self._epoch, self._rollout_batch_size 
-                ))                
-                
-
-                #=====================================================================#
-                #                           Model Rollouts                            #
-                #=====================================================================#
-                # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
-                # start_states = real_samples[0][rand_inds]
-                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-
-                self.model_sampler.reset(start_states)
-                
-                for i in count():
-                    print(f'Model Sampling step Nr. {i+1}')
-
-                    _,_,_,info = self.model_sampler.sample()
-                    alive_ratio = info.get('alive_ratio', 1)
-
-                    if alive_ratio<0.2 or \
-                        self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
-                        print(f'Stopping Rollout at step {i+1}')
-                        break
-                
-                ### diagnostics for rollout ###
-                rollout_diagnostics = self.model_sampler.finish_all_paths()
-                                    
-                
-                model_metrics.update(rollout_diagnostics)
-
-                ######################################################################
-                ### get model_samples, get() invokes the inverse variance rollouts ###
-                model_samples, buffer_diagnostics = self.model_pool.get()
-                model_metrics.update(buffer_diagnostics)
-                samples_added += buffer_diagnostics['poolm_batch_size']
-                ######################################################################
-
-                ### run diagnostics on model data
-                if buffer_diagnostics['poolm_batch_size']>0:
-                    model_data_diag = self._policy.run_diagnostics(model_samples)
-                    model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
-                    model_metrics.update(model_data_diag)
-
-                gt.stamp('epoch_rollout_model')
-                
-                #=====================================================================#
-                #                           Model accuracy measurement                #
-                #=====================================================================#
-                # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
-                # start_states = real_samples[0][rand_inds]
-                start_states = real_samples[0][0::real_samples[0].shape[0]//100+1]
-
-                self.model_sampler.reset(start_states)
-                
-                for i in count():
-                    # print(f'Model Sampling step Nr. {i+1}')
-
-                    _,_,_,info = self.model_sampler.sample()
-                    alive_ratio = info.get('alive_ratio', 1)
-
-                    if alive_ratio<0.2 or \
-                        self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
-                        print(f'Stopping Measurement Rollout at step {i+1}')
-                        break
-                
-                ### diagnostics for rollout ###
-                rollout_diagnostics = self.model_sampler.finish_all_paths()
-                                    
-                
-                # model_metrics.update(rollout_diagnostics)
-
-                ######################################################################
-                ### get model_samples, get() invokes the inverse variance rollouts ###
-                measure_samples, measure_diagnostics = self.model_pool.get()
-                measure_diagnostics = {'measure/'+k:v for k,v in measure_diagnostics.items()}
-                model_metrics.update(measure_diagnostics)
-                samples_added += measure_diagnostics['measure/poolm_batch_size']
-                ######################################################################
-
-                ### norm adv var ratio
-                adv_var_m = measure_diagnostics['measure/poolm_norm_adv_var']
-                cadv_var_m = measure_diagnostics['measure/poolm_norm_cadv_var']
-                adv_var_r = buf_diag['poolr_norm_adv_var']
-                cadv_var_r = buf_diag['poolr_norm_cadv_var']
-
-                adv_var_ratio = adv_var_m / adv_var_r
-                cadv_var_ratio = cadv_var_m / cadv_var_r
-                
-                gt.stamp('epoch_measure_rollouts')
-
-                ### run diagnostics on model data
-                if measure_diagnostics['measure/poolm_batch_size']>0:
-                    measure_data_diag = self._policy.run_diagnostics(measure_samples)
-                    measure_data_diag = {'measure/'+k:v for k,v in measure_data_diag.items()}
-                    measure_data_diag.update({
-                        'measure/norm_adv_var_ratio':adv_var_ratio,
-                        'measure/norm_cadv_var_ratio':cadv_var_ratio,
-                    })
-
-                    model_metrics.update(measure_data_diag)
-
-
-            if train_samples is None:
-                train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-            else: 
-                new_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-                train_samples = [np.concatenate((t,n), axis=0) for t,n in zip(train_samples, new_samples)]
-
-            self._training_progress.resume()
 
             #=====================================================================#
             #  Update Policy                                                      #
             #=====================================================================#
-            if (len(train_samples[0])>=min_samples or self._epoch==0):     ### @anyboby TODO kickstarting at the beginning for logger (change this !)
-                self._policy.update_policy(train_samples)
-                self._policy.update_critic(train_samples)
-                
-                self.policy_epoch += 1
+            train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
 
-                #### empty train_samples
-                train_samples = None
-                samples_added = 0
+            self._policy.update_policy(train_samples)
+            self._policy.update_critic(train_samples)
+            
+            self.policy_epoch += 1
 
-                #### log policy diagnostics
-                self._policy.log()
-                model_metrics.update({'Policy Update?':1})
-            else: 
-                model_metrics.update({'Policy Update?':0})
+            #### log policy diagnostics
+            self._policy.log()
 
             gt.stamp('train')
             #=====================================================================#
@@ -661,15 +534,99 @@ class CMBPO(RLAlgorithm):
                 " n_initial_exploration_steps > 0.")
 
         self.sampler.initialize(env, initial_exploration_policy, pool)
-        while pool.arch_size < self._n_initial_exploration_steps:
+        while True:
             self.sampler.sample(timestep=0)
-            if self.ready_to_train:
+            if self.sampler._total_samples >= self._n_initial_exploration_steps:
                 self.sampler.finish_all_paths(append_val=True)
                 pool.get()  # moves policy samples to archive
+                break
+        
+        ### train model
+        self.train_model(min_epochs=150, max_epochs=500)
+
+        ### train critic
+        critic_samples = self._pool.get_archive([     #### include initial expl. hook samples
+                'observations',
+                'actions',
+                'advantages',
+                'return_vars',
+                'cadvantages',
+                'creturn_vars',
+                'returns',
+                'creturns',
+                'log_policies',
+                'values',
+                'value_vars',
+                'cvalues',
+                'cvalue_vars',
+                'costs',
+                'pi_infos',
+            ])
+        critic_samples = list(critic_samples.values())       ### samples from initial exploration hook
+        
+        self._policy.update_critic(critic_samples, 
+                                    min_epoch_before_break = 10, 
+                                    max_epochs=350)
+
+    def train_model(self, min_epochs=50, max_epochs=500, batch_size=2048):
+        self._dyn_model_train_freq = self._set_model_train_freq(
+            self._dyn_model_train_freq, 
+            self._dyn_model_train_schedule
+            ) ## set current train freq.
+        self._cost_model_train_freq = self._set_model_train_freq(
+            self._cost_model_train_freq, 
+            self._cost_model_train_schedule
+            )
+
+        print('[ MBPO ] log_dir: {} | ratio: {}'.format(self._log_dir, self._real_ratio))
+        print('[ MBPO ] Training model at epoch {} | freq {} | timestep {} (total: {}) (total: {})'.format(
+            self._epoch, self._dyn_model_train_freq, self._timestep, self._total_timestep, self._num_train_steps)
+        )
+
+        model_samples = self._pool.get_archive(['observations',
+                                                'actions',
+                                                'next_observations',
+                                                'rewards',
+                                                'costs',
+                                                'terminals',
+                                                'epochs',
+                                                ])
+
+        if self._epoch%self._dyn_model_train_freq==0:
+            diag_dyn = self.fake_env.train_dyn_model(
+                model_samples, 
+                discount = self._dyn_m_discount,
+                batch_size=batch_size, #512
+                max_epochs=max_epochs, # max_epochs 
+                min_epoch_before_break=min_epochs, # min_epochs, 
+                holdout_ratio=0.2, 
+                max_t=self._max_model_t
+                )
+
+        if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
+            diag_c = self.fake_env.train_cost_model(
+                model_samples, 
+                discount = self._cost_m_discount,
+                batch_size= batch_size, #batch_size, #512, 
+                min_epoch_before_break= min_epochs,#min_epochs,
+                max_epochs=max_epochs, # max_epochs, 
+                holdout_ratio=0.2, 
+                max_t=self._max_model_t
+                )
+            diag_dyn.update(diag_c)
+
+        return diag_dyn
+
                 
+    @property
+    def _total_timestep(self):
+        total_timestep = self.sampler._total_samples
+        return total_timestep
+
+   
     def _do_sampling(self, timestep):
         return self.sampler.sample(timestep = timestep)
-
+    
     def _set_model_train_freq(self, var, schedule):
         min_epoch, max_epoch, min_freq, max_freq = schedule
         if self._epoch <= min_epoch:

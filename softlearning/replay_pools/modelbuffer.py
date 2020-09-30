@@ -9,6 +9,7 @@ class ModelBuffer(CPOBuffer):
 
     def __init__(self, batch_size, env, max_path_length, ensemble_size,
                  iv_gae=False,
+                 cares_about_cost = False,
                  *args,
                  **kwargs,
                  ):
@@ -23,7 +24,7 @@ class ModelBuffer(CPOBuffer):
         self.model_ind = np.random.randint(ensemble_size)
         self.reset()
         self.use_iv_gae = iv_gae
-
+        self.cares_about_cost = cares_about_cost
 
     ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
     def initialize(self, pi_info_shapes,
@@ -37,7 +38,7 @@ class ModelBuffer(CPOBuffer):
         self.gamma, self.lam = gamma, lam
         self.cost_gamma, self.cost_lam = cost_gamma, cost_lam
 
-    def reset(self, batch_size=None):
+    def reset(self, batch_size=None , dynamics_normalization=1):
         if batch_size is not None:
             self.batch_size = batch_size
         obs_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape)))
@@ -75,7 +76,7 @@ class ModelBuffer(CPOBuffer):
                                 for k,v in self.pi_info_shapes.items()}
 
         self.cutoff_horizons_mean = 0
-
+        self.dyn_normalization = dynamics_normalization
         # ptr is a scalar to the current position in all paths. You are expected to store at the same timestep 
         #   in all parallel paths
         # path_start_idx is the path starting index, which will actually always be 0, since paths are parallel
@@ -314,39 +315,20 @@ class ModelBuffer(CPOBuffer):
             #  Determine Rollout Lengths                                          #
             #=====================================================================#
             
-            ### calc variance acceleration and normalize
-            # c_var_acc = np.diff(np.diff(self.cret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
-            # c_var_acc = (c_var_acc-np.mean(c_var_acc, axis=-1)[...,None])/(np.std(c_var_acc, axis=-1)[...,None]+EPS)
-            # v_var_acc = np.diff(np.diff(self.ret_var_buf[finish_mask, path_slice], axis=-1), axis=-1)
-            # v_var_acc = (v_var_acc-np.mean(v_var_acc, axis=-1)[...,None])/(np.std(v_var_acc, axis=-1)[...,None]+EPS)
-
-            # var_acc_threshold = 1 ### all variance accelerations above 1 std are filtered out
-            # var_acc_mask = np.logical_or(c_var_acc>var_acc_threshold, v_var_acc>var_acc_threshold)
-            # horizons = np.argmax(var_acc_mask, axis=-1)[...,None] if var_acc_mask.size != 0 else np.zeros_like(finish_mask.sum())[...,None]
-            # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
-
-            ### alternative a: trajectory variance larger than epistemic value variance
-            # val_var_threshold = 1.5
-            # ep_cval_vars = np.var(self.cval_buf[:, finish_mask, path_slice], axis=0)
-            # ep_val_vars = np.var(self.val_buf[:, finish_mask, path_slice], axis=0)
-
-            # var_mask = np.logical_or(
-            #     self.cret_var_buf[finish_mask, path_slice]>val_var_threshold * ep_cval_vars,
-            #     self.ret_var_buf[finish_mask, path_slice]>val_var_threshold * ep_val_vars,
-            #     )
-            # horizons = np.argmax(var_mask, axis=-1)[...,None]
-            # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
-
             if self.use_iv_gae:
                 ### alternative b: normalize return variances by first entry
                 threshold = 2.5
                 norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
                 norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
-                too_uncertain_mask = np.logical_or(
-                    norm_cret_vars>threshold,
-                    norm_ret_vars>threshold
-                )
+                if self.cares_about_cost:
+                    too_uncertain_mask = np.logical_or(
+                        norm_cret_vars>threshold,
+                        norm_ret_vars>threshold
+                    )
+                else:
+                    too_uncertain_mask = norm_ret_vars>threshold
+
                 horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
                 self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
 
@@ -397,40 +379,40 @@ class ModelBuffer(CPOBuffer):
             tdr_mean = np.var(deltas_r, axis=0)
             tdr_n = np.var(deltas_r, axis=0)/(np.mean(np.var(deltas_r, axis=1), axis=0)+EPS)
 
-            tdr_1 = np.mean(tdr_n[...,1][self.populated_mask[...,1]])
-            tdr_3 = np.mean(tdr_n[...,3][self.populated_mask[...,3]])
-            tdr_5 = np.mean(tdr_n[...,5][self.populated_mask[...,5]])
-            tdr_10 =np.mean(tdr_n[...,10][self.populated_mask[...,10]])
-            tdr_15 =np.mean(tdr_n[...,15][self.populated_mask[...,15]])
-            tdr_25 =np.mean(tdr_n[...,25][self.populated_mask[...,25]])
-            tdr_m1 = np.mean(tdr_mean[...,1][self.populated_mask[...,1]])
-            tdr_m3 = np.mean(tdr_mean[...,3][self.populated_mask[...,3]])
-            tdr_m5 = np.mean(tdr_mean[...,5][self.populated_mask[...,5]])
-            tdr_m10 =np.mean(tdr_mean[...,10][self.populated_mask[...,10]])
-            tdr_m15 =np.mean(tdr_mean[...,15][self.populated_mask[...,15]])
-            tdr_m25 =np.mean(tdr_mean[...,25][self.populated_mask[...,25]])
-            tdr_var = np.var(deltas_r[self.model_ind, self.populated_mask[...,:-1]])
+            # tdr_1 = np.mean(tdr_n[...,1][self.populated_mask[...,1]])
+            # tdr_3 = np.mean(tdr_n[...,3][self.populated_mask[...,3]])
+            # tdr_5 = np.mean(tdr_n[...,5][self.populated_mask[...,5]])
+            # tdr_10 =np.mean(tdr_n[...,10][self.populated_mask[...,10]])
+            # tdr_15 =np.mean(tdr_n[...,15][self.populated_mask[...,15]])
+            # tdr_25 =np.mean(tdr_n[...,25][self.populated_mask[...,25]])
+            # tdr_m1 = np.mean(tdr_mean[...,1][self.populated_mask[...,1]])
+            # tdr_m3 = np.mean(tdr_mean[...,3][self.populated_mask[...,3]])
+            # tdr_m5 = np.mean(tdr_mean[...,5][self.populated_mask[...,5]])
+            # tdr_m10 =np.mean(tdr_mean[...,10][self.populated_mask[...,10]])
+            # tdr_m15 =np.mean(tdr_mean[...,15][self.populated_mask[...,15]])
+            # tdr_m25 =np.mean(tdr_mean[...,25][self.populated_mask[...,25]])
+            # tdr_var = np.var(deltas_r[self.model_ind, self.populated_mask[...,:-1]])
 
             tdc_mean = np.var(deltas_c, axis=0)
             tdc_n = np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0)+EPS)
 
-            tdc_1 = np.mean(tdc_n[...,1][self.populated_mask[...,1]])
-            tdc_3 = np.mean(tdc_n[...,3][self.populated_mask[...,3]])
-            tdc_5 = np.mean(tdc_n[...,5][self.populated_mask[...,5]])
-            tdc_10 =np.mean(tdc_n[...,10][self.populated_mask[...,10]])
-            tdc_15 =np.mean(tdc_n[...,15][self.populated_mask[...,15]])
-            tdc_25 =np.mean(tdc_n[...,25][self.populated_mask[...,25]])
-            tdc_m1 = np.mean(tdc_mean[...,1][self.populated_mask[...,1]])
-            tdc_m3 = np.mean(tdc_mean[...,3][self.populated_mask[...,3]])
-            tdc_m5 = np.mean(tdc_mean[...,5][self.populated_mask[...,5]])
-            tdc_m10 =np.mean(tdc_mean[...,10][self.populated_mask[...,10]])
-            tdc_m15 =np.mean(tdc_mean[...,15][self.populated_mask[...,15]])
-            tdc_m25 =np.mean(tdc_mean[...,25][self.populated_mask[...,25]])
-            tdc_var = np.var(deltas_c[self.model_ind, self.populated_mask[...,:-1]])
+            # tdc_1 = np.mean(tdc_n[...,1][self.populated_mask[...,1]])
+            # tdc_3 = np.mean(tdc_n[...,3][self.populated_mask[...,3]])
+            # tdc_5 = np.mean(tdc_n[...,5][self.populated_mask[...,5]])
+            # tdc_10 =np.mean(tdc_n[...,10][self.populated_mask[...,10]])
+            # tdc_15 =np.mean(tdc_n[...,15][self.populated_mask[...,15]])
+            # tdc_25 =np.mean(tdc_n[...,25][self.populated_mask[...,25]])
+            # tdc_m1 = np.mean(tdc_mean[...,1][self.populated_mask[...,1]])
+            # tdc_m3 = np.mean(tdc_mean[...,3][self.populated_mask[...,3]])
+            # tdc_m5 = np.mean(tdc_mean[...,5][self.populated_mask[...,5]])
+            # tdc_m10 =np.mean(tdc_mean[...,10][self.populated_mask[...,10]])
+            # tdc_m15 =np.mean(tdc_mean[...,15][self.populated_mask[...,15]])
+            # tdc_m25 =np.mean(tdc_mean[...,25][self.populated_mask[...,25]])
+            # tdc_var = np.var(deltas_c[self.model_ind, self.populated_mask[...,:-1]])
 
             delta_obs = self.nextobs_buf-self.obs_buf
-            td_dyn_m = np.mean(np.mean(np.var(delta_obs, axis=0), axis=-1)[self.populated_mask])
-            td_dyn_n =  td_dyn_m/ np.var(np.mean(np.mean(delta_obs, axis=0),axis=-1)[self.populated_mask])
+            td_dyn_m = np.mean(np.var(delta_obs, axis=0)[self.populated_mask])
+            td_dyn_n =  td_dyn_m/self.dyn_normalization
 
             tdc_overall = np.mean(np.var(deltas_c, axis=0)[self.populated_mask[...,:-1]])
             tdr_overall = np.mean(np.var(deltas_r, axis=0)[self.populated_mask[...,:-1]])
@@ -450,32 +432,32 @@ class ModelBuffer(CPOBuffer):
             cutoff_horizons_mean = 0
             avg_horizon_r = 0
             avg_horizon_c = 0
-            poolm_tdr_n1 =0
-            poolm_tdr_n3 =0
-            poolm_tdr_n5 =0
-            poolm_tdr_n10= 0
-            poolm_tdr_n15= 0
-            poolm_tdr_n25= 0
-            poolm_tdc_n1 =0
-            poolm_tdc_n3 =0
-            poolm_tdc_n5 =0
-            poolm_tdc_n10= 0
-            poolm_tdc_n15= 0
-            poolm_tdc_n25= 0
-            poolm_tdr_m1 = 0
-            poolm_tdr_m3 = 0
-            poolm_tdr_m5 = 0
-            poolm_tdr_m10=0
-            poolm_tdr_m15=0
-            poolm_tdr_m25= 0
-            poolm_tdc_m1 = 0
-            poolm_tdc_m3 = 0
-            poolm_tdc_m5 = 0
-            poolm_tdc_m10= 0
-            poolm_tdc_m15= 0
-            poolm_tdc_m25= 0
-            poolm_tdr_var = 0
-            poolm_tdc_var = 0
+            # poolm_tdr_n1 =0
+            # poolm_tdr_n3 =0
+            # poolm_tdr_n5 =0
+            # poolm_tdr_n10= 0
+            # poolm_tdr_n15= 0
+            # poolm_tdr_n25= 0
+            # poolm_tdc_n1 =0
+            # poolm_tdc_n3 =0
+            # poolm_tdc_n5 =0
+            # poolm_tdc_n10= 0
+            # poolm_tdc_n15= 0
+            # poolm_tdc_n25= 0
+            # poolm_tdr_m1 = 0
+            # poolm_tdr_m3 = 0
+            # poolm_tdr_m5 = 0
+            # poolm_tdr_m10=0
+            # poolm_tdr_m15=0
+            # poolm_tdr_m25= 0
+            # poolm_tdc_m1 = 0
+            # poolm_tdc_m3 = 0
+            # poolm_tdc_m5 = 0
+            # poolm_tdc_m10= 0
+            # poolm_tdc_m15= 0
+            # poolm_tdc_m25= 0
+            # poolm_tdr_var = 0
+            # poolm_tdc_var = 0
             poolm_tdc_overall =0 
             poolm_tdr_overall =0 
             poolm_td_dyn_m = 0
@@ -505,32 +487,32 @@ class ModelBuffer(CPOBuffer):
                             poolm_cutoff_horizon_avg = cutoff_horizons_mean,
                             poolm_avg_Horizon_rew = avg_horizon_r,
                             poolm_avg_Horizon_c = avg_horizon_c,
-                            poolm_tdr_n1 = tdr_1,
-                            poolm_tdr_n3 = tdr_3,
-                            poolm_tdr_n5 = tdr_5,
-                            poolm_tdr_n10= tdr_10,
-                            poolm_tdr_n15= tdr_15,
-                            poolm_tdr_n25= tdr_25,
-                            poolm_tdc_n1 = tdc_1,
-                            poolm_tdc_n3 = tdc_3,
-                            poolm_tdc_n5 = tdc_5,
-                            poolm_tdc_n10= tdc_10,
-                            poolm_tdc_n15= tdc_15,
-                            poolm_tdc_n25= tdc_25,
-                            poolm_tdr_m1 = tdr_m1,
-                            poolm_tdr_m3 = tdr_m3,
-                            poolm_tdr_m5 = tdr_m5,
-                            poolm_tdr_m10= tdr_m10,
-                            poolm_tdr_m15= tdr_m15,
-                            poolm_tdr_m25= tdr_m25,
-                            poolm_tdc_m1 = tdc_m1,
-                            poolm_tdc_m3 = tdc_m3,
-                            poolm_tdc_m5 = tdc_m5,
-                            poolm_tdc_m10= tdc_m10,
-                            poolm_tdc_m15= tdc_m15,
-                            poolm_tdc_m25= tdc_m25,        
-                            poolm_tdr_var = tdr_var,
-                            poolm_tdc_var = tdc_var,
+                            # poolm_tdr_n1 = tdr_1,
+                            # poolm_tdr_n3 = tdr_3,
+                            # poolm_tdr_n5 = tdr_5,
+                            # poolm_tdr_n10= tdr_10,
+                            # poolm_tdr_n15= tdr_15,
+                            # poolm_tdr_n25= tdr_25,
+                            # poolm_tdc_n1 = tdc_1,
+                            # poolm_tdc_n3 = tdc_3,
+                            # poolm_tdc_n5 = tdc_5,
+                            # poolm_tdc_n10= tdc_10,
+                            # poolm_tdc_n15= tdc_15,
+                            # poolm_tdc_n25= tdc_25,
+                            # poolm_tdr_m1 = tdr_m1,
+                            # poolm_tdr_m3 = tdr_m3,
+                            # poolm_tdr_m5 = tdr_m5,
+                            # poolm_tdr_m10= tdr_m10,
+                            # poolm_tdr_m15= tdr_m15,
+                            # poolm_tdr_m25= tdr_m25,
+                            # poolm_tdc_m1 = tdc_m1,
+                            # poolm_tdc_m3 = tdc_m3,
+                            # poolm_tdc_m5 = tdc_m5,
+                            # poolm_tdc_m10= tdc_m10,
+                            # poolm_tdc_m15= tdc_m15,
+                            # poolm_tdc_m25= tdc_m25,        
+                            # poolm_tdr_var = tdr_var,
+                            # poolm_tdc_var = tdc_var,
                             poolm_tdc_overall = tdc_overall,
                             poolm_tdr_overall = tdr_overall,
                             poolm_td_dyn_m = td_dyn_m,

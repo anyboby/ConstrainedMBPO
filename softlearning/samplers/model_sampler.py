@@ -21,7 +21,7 @@ class ModelSampler(CpoSampler):
                  max_path_length,
                  batch_size=1000,
                  store_last_n_paths = 10,
-                 preprocess_type='default',
+                 cares_about_cost = False,
                  max_uncertainty_c = 3,
                  max_uncertainty_r = 3,
                  iv_gae = False,
@@ -34,6 +34,7 @@ class ModelSampler(CpoSampler):
         self._path_cost_var = np.zeros(batch_size)
         self._path_dyn_var = np.zeros(batch_size)
 
+        self.cares_about_cost = cares_about_cost
         self.iv_gae = iv_gae
 
         if logger:
@@ -65,9 +66,6 @@ class ModelSampler(CpoSampler):
         self._total_CV_al_var = 0
         self._total_dkl_med_dyn = 0
 
-        # self.batch_size = batch_size
-
-        self._obs_process_type = preprocess_type
         self.env = None
         self.policy = None
         self.pool = None
@@ -201,8 +199,8 @@ class ModelSampler(CpoSampler):
         self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
 
         self.policy.reset() #does nohing for cpo policy atm
-        self.pool.reset(self.batch_size)
-        
+        self.pool.reset(self.batch_size, self.env.dyn_target_var)
+
         self._path_length = np.zeros(self.batch_size)
         self._path_return = np.zeros(shape=(self.ensemble_size, self.batch_size))
         self._path_cost = np.zeros(shape=(self.ensemble_size, self.batch_size))
@@ -286,19 +284,18 @@ class ModelSampler(CpoSampler):
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
-        ## epistemic trajectory-return variance vs epistemic value variance as termination
-        # threshold_var_ratio = 50      ### the real rollout horizon is determined in the buffer
-
         if self.iv_gae:
-            too_uncertain_paths = np.logical_or(cost_uncertainty > 1e5, \
-                                                        rew_uncertainty > 1e5) 
-        else:                                                        
-            too_uncertain_paths = np.logical_or(cost_uncertainty > self._max_uncertainty_c * self._starting_uncertainty_c[alive_paths], \
-                                                rew_uncertainty > self._max_uncertainty_rew * self._starting_uncertainty[alive_paths]) 
+            limit_r = 1e6
+            limit_c = 1e6
+        else: 
+            limit_r = self._max_uncertainty_rew * self._starting_uncertainty[alive_paths]
+            limit_c = self._max_uncertainty_c * self._starting_uncertainty_c[alive_paths]
         
-
-        # too_uncertain_paths = np.logical_or(cost_cov > self._max_uncertainty_c, \
-        #                                     ret_cov > self._max_uncertainty_rew) 
+        if self.cares_about_cost:
+            too_uncertain_paths = np.logical_or(cost_uncertainty > limit_c, \
+                                                rew_uncertainty > limit_r) 
+        else:
+            too_uncertain_paths = rew_uncertainty>limit_r
 
         ### finish too uncertain paths before storing info of the taken step
         # remaining_paths refers to the paths we have finished and has the same shape 
