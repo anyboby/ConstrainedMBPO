@@ -3,7 +3,7 @@ import tensorflow as tf
 import pdb
 
 from mbpo.models.constructor import construct_model, format_samples_for_dyn, format_samples_for_cost
-from mbpo.models.priors import WEIGHTS_PER_DOMAIN, PRIORS_BY_DOMAIN, PRIOR_DIMS, POSTS_BY_DOMAIN
+from mbpo.models.priors import PRIORS_BY_DOMAIN, PRIOR_DIMS
 from mbpo.models.utils import average_dkl, median_dkl
 from mbpo.utils.logging import Progress, Silent
 
@@ -39,12 +39,8 @@ class FakeEnv:
         self.num_elites = num_elites
 
         self.static_fns = static_fns
-
-        target_weight_f = WEIGHTS_PER_DOMAIN.get(self.domain, None)
-        self.target_weights = target_weight_f(self.obs_dim) if target_weight_f else None
         
         self.prior_f = PRIORS_BY_DOMAIN.get(self.domain, False)
-        self.post_f =  POSTS_BY_DOMAIN.get(self.domain, False)
         self.prior_dim = PRIOR_DIMS.get(self.domain, 0)
         #### create fake env from model 
 
@@ -64,7 +60,7 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        use_scaler_in = True,
+                                        use_scaler_in = False,
                                         use_scaler_out = False ,
                                         decay=1e-4,
                                         #sc_factor=1-1e-5,
@@ -73,11 +69,11 @@ class FakeEnv:
                                         session=self._session)
         if self.cares_about_cost:                                                    
             
-            self.cost_m_loss = 'CE'
+            self.cost_m_loss = 'MSE'
             output_activation = 'softmax' if self.cost_m_loss=='CE' else None
 
             self._cost_model = construct_model(in_dim=input_dim_c, 
-                                        out_dim=2,
+                                        out_dim=2 if self.cost_m_loss=='CE' else 1,
                                         loss=self.cost_m_loss,
                                         name='CostNN',
                                         hidden_dims=(64,64),
@@ -88,7 +84,7 @@ class FakeEnv:
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
-                                        use_scaler_in = True,
+                                        use_scaler_in = False,
                                         use_scaler_out = False,
                                         # sc_factor=1-1e-5,
                                         # max_logvar=.5,
@@ -133,7 +129,7 @@ class FakeEnv:
 
         return log_prob, stds
     
-    def step(self, obs, act, deterministic=False):
+    def step(self, obs, act, deterministic=False, additional_priors=None):
         assert len(obs.shape) == len(act.shape)
         obs_depth = len(obs.shape)
         if obs_depth == 1:
@@ -144,7 +140,7 @@ class FakeEnv:
             return_single = False
 
         if self.prior_f:
-            priors = self.static_fns.prior_f(obs, act)
+            priors = self.static_fns.prior_f(obs, act, additional_priors)
             inputs = np.concatenate((obs, act, priors), axis=-1)
         else:
             inputs = np.concatenate((obs, act), axis=-1)
@@ -188,10 +184,6 @@ class FakeEnv:
 
         #### retrieve r and done for new state
         next_obs = samples[...,:-self.rew_dim]
-
-        ## post_processing
-        if self.post_f:
-            next_obs = self.static_fns.post_f(next_obs, act)
         
         #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
@@ -252,7 +244,7 @@ class FakeEnv:
 
     def train_dyn_model(self, samples, discount=1, **kwargs):
         # check priors
-        priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
+        priors = self.static_fns.prior_f(samples['observations'], samples['actions'], samples['infos']) if self.prior_f else None
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
         if discount<1:
@@ -283,7 +275,7 @@ class FakeEnv:
 
     def train_cost_model(self, samples, discount=1, **kwargs):        
         # check priors
-        priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
+        priors = self.static_fns.prior_f(samples['observations'], samples['actions'],  samples['infos']) if self.prior_f else None
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
         
         if discount<1:

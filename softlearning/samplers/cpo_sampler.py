@@ -9,8 +9,13 @@ from softlearning.policies.safe_utils.logx import EpochLogger
 from softlearning.policies.safe_utils.mpi_tools import mpi_sum
 
 from .base_sampler import BaseSampler
-ACTION_PROCESS_ENVS = [
+OBSERVE_LAYOUT = [
     'Safexp-PointGoal2',
+    'Safexp-PointGoal1',
+    'Safexp-PointGoal0',
+    'Safexp-DoggoGoal2',
+    'Safexp-DoggoGoal1',
+    'Safexp-DoggoGoal0',
     ]
 
 class CpoSampler():
@@ -65,6 +70,7 @@ class CpoSampler():
 
     def initialize(self, env, policy, pool):
         self.env = env
+        self.domain = self.env.domain
         self.policy = policy
         self.vf_ensemble_size = self.policy.vf_ensemble_size
         self.pool = pool
@@ -190,8 +196,10 @@ class CpoSampler():
         if self.learn_penalty_mult:
             reward = reward * self.penalty_mult(self.cum_cost)
 
+        layout = np.array([*self.env.unwrapped.layout.values()], dtype=np.float32) if self.domain in OBSERVE_LAYOUT else None
+
         #save and log
-        self.pool.store(self._current_observation, a, next_observation, reward, v_t, v_var, c, vc_t, vc_var, logp_t, pi_info_t, terminal, timestep)
+        self.pool.store(self._current_observation, a, next_observation, reward, v_t, v_var, c, vc_t, vc_var, logp_t, pi_info_t, terminal, timestep, info=layout.flatten())
         self.logger.store(VVals=v_t, CostVVals=vc_t, VVars = v_var, CostVVars=vc_var)
         
         self._path_length += 1

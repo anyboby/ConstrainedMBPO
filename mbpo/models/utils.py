@@ -158,7 +158,7 @@ class TensorStandardScaler:
         # scaling = 1+self.sc_factor*(self.sigma-1)
         # scaling = tf.clip_by_value(scaling, 1.0e-8, 1.0e8)
 
-        scaled_transform = (data-self.mu)/(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-2))
+        scaled_transform = (data-self.mu)/(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-5))
         return scaled_transform
 
     def inverse_transform(self, data):
@@ -169,7 +169,7 @@ class TensorStandardScaler:
 
         Returns: (np.array) The transformed dataset.
         """
-        return (tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-2)) * data + self.mu
+        return (tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-5)) * data + self.mu
 
 
     def get_vars(self):

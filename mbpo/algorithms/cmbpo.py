@@ -288,7 +288,7 @@ class CMBPO(RLAlgorithm):
             #######   note: sampler may already contain samples in its pool from initial_exploration_hook or previous epochs
             self._training_progress = Progress(self._epoch_length * self._n_train_repeat/self._train_every_n_steps)
 
-            min_samples = 40e3
+            min_samples = 20e3
             max_samples = 180e3
             samples_added = 0
 
@@ -385,6 +385,7 @@ class CMBPO(RLAlgorithm):
                                                         'rewards',
                                                         'costs',
                                                         'terminals',
+                                                        'infos',
                                                         'epochs',
                                                         ])
                 # if len(samples['observations'])>25000:
@@ -439,9 +440,10 @@ class CMBPO(RLAlgorithm):
                 #=====================================================================#
                 # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
                 # start_states = real_samples[0][rand_inds]
-                start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-
-                self.model_sampler.reset(start_states)
+                start_samples = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations', 'infos'])
+                start_states = start_samples['observations']
+                start_infos = start_samples['infos']
+                self.model_sampler.reset(start_states, infos=start_infos)
                 
                 for i in count():
                     print(f'Model Sampling step Nr. {i+1}')
@@ -474,63 +476,6 @@ class CMBPO(RLAlgorithm):
                     model_metrics.update(model_data_diag)
 
                 gt.stamp('epoch_rollout_model')
-                
-                #=====================================================================#
-                #                           Model accuracy measurement                #
-                #=====================================================================#
-                # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
-                # start_states = real_samples[0][rand_inds]
-                start_states = real_samples[0][0::real_samples[0].shape[0]//100+1]
-
-                self.model_sampler.reset(start_states)
-                
-                for i in count():
-                    # print(f'Model Sampling step Nr. {i+1}')
-
-                    _,_,_,info = self.model_sampler.sample()
-                    alive_ratio = info.get('alive_ratio', 1)
-
-                    if alive_ratio<0.2 or \
-                        self.model_sampler._total_samples + samples_added >= max_samples-alive_ratio*self._rollout_batch_size:                         
-                        print(f'Stopping Measurement Rollout at step {i+1}')
-                        break
-                
-                ### diagnostics for rollout ###
-                rollout_diagnostics = self.model_sampler.finish_all_paths()
-                                    
-                
-                # model_metrics.update(rollout_diagnostics)
-
-                ######################################################################
-                ### get model_samples, get() invokes the inverse variance rollouts ###
-                measure_samples, measure_diagnostics = self.model_pool.get()
-                measure_diagnostics = {'measure/'+k:v for k,v in measure_diagnostics.items()}
-                model_metrics.update(measure_diagnostics)
-                samples_added += measure_diagnostics['measure/poolm_batch_size']
-                ######################################################################
-
-                ### norm adv var ratio
-                adv_var_m = measure_diagnostics['measure/poolm_norm_adv_var']
-                cadv_var_m = measure_diagnostics['measure/poolm_norm_cadv_var']
-                adv_var_r = buf_diag['poolr_norm_adv_var']
-                cadv_var_r = buf_diag['poolr_norm_cadv_var']
-
-                adv_var_ratio = adv_var_m / adv_var_r
-                cadv_var_ratio = cadv_var_m / cadv_var_r
-                
-                gt.stamp('epoch_measure_rollouts')
-
-                ### run diagnostics on model data
-                if measure_diagnostics['measure/poolm_batch_size']>0:
-                    measure_data_diag = self._policy.run_diagnostics(measure_samples)
-                    measure_data_diag = {'measure/'+k:v for k,v in measure_data_diag.items()}
-                    measure_data_diag.update({
-                        'measure/norm_adv_var_ratio':adv_var_ratio,
-                        'measure/norm_cadv_var_ratio':cadv_var_ratio,
-                    })
-
-                    model_metrics.update(measure_data_diag)
-
 
             if train_samples is None:
                 train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples

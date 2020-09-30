@@ -38,6 +38,7 @@ class CPOBuffer:
             'observations': self.obs_buf,
             'actions':      self.act_buf,
             'next_observations': self.nextobs_buf,
+            'infos':        self.info_buf,
             'advantages':   self.adv_buf,
             'return_vars': self.ret_var_buf,
             'return_ep_vars': self.ret_ep_var_buf,
@@ -61,6 +62,7 @@ class CPOBuffer:
             'observations': self.obs_archive,
             'actions':      self.act_archive,
             'next_observations': self.nextobs_archive,
+            'infos':        self.info_archive,
             'advantages':   self.adv_archive,
             'return_vars': self.ret_var_archive,
             'return_ep_vars': self.ret_ep_var_archive,            
@@ -98,7 +100,8 @@ class CPOBuffer:
         size = self.max_size
         self.obs_buf = np.zeros(combined_shape(size, self.obs_shape), dtype=np.float32)
         self.act_buf = np.zeros(combined_shape(size, self.act_shape), dtype=np.float32)
-        self.nextobs_buf = np.zeros(combined_shape(size, self.obs_shape), dtype=np.float32)          
+        self.nextobs_buf = np.zeros(combined_shape(size, self.obs_shape), dtype=np.float32)     
+        self.info_buf = np.zeros(size, dtype=np.object)
         self.adv_buf = np.zeros(size, dtype=np.float32)
         self.ret_var_buf = np.zeros(size, dtype=np.float32)
         self.ret_ep_var_buf = np.zeros(size, dtype=np.float32)
@@ -127,6 +130,7 @@ class CPOBuffer:
         self.act_archive = np.zeros(combined_shape(archive_size, self.act_shape), dtype=np.float32)
         # bit memory inefficient, but more convenient, to store next_obs
         self.nextobs_archive = np.zeros(combined_shape(archive_size, self.obs_shape), dtype=np.float32)
+        self.info_archive = np.zeros(archive_size, dtype=np.object)
         self.adv_archive = np.zeros(archive_size, dtype=np.float32)
         self.ret_var_archive = np.zeros(archive_size, dtype=np.float32)
         self.ret_ep_var_archive = np.zeros(archive_size, dtype=np.float32)
@@ -156,7 +160,7 @@ class CPOBuffer:
             return self.archive_ptr
         else: return self.archive_size
 
-    def store(self, obs, act, next_obs, rew, val, val_var, cost, cval, cval_var, logp, pi_info, term, epoch):
+    def store(self, obs, act, next_obs, rew, val, val_var, cost, cval, cval_var, logp, pi_info, term, epoch, info=None):
         assert self.ptr < self.max_size     # buffer has to have room so you can store
         self.obs_buf[self.ptr] = obs
         self.act_buf[self.ptr] = act
@@ -170,6 +174,9 @@ class CPOBuffer:
         self.logp_buf[self.ptr] = logp
         self.term_buf[self.ptr] = term
         self.epoch_buf[self.ptr] = epoch
+
+        if info is not None:
+            self.info_buf[self.ptr] = info
 
         for k in self.sorted_pi_info_keys:
             self.pi_info_bufs[k][self.ptr] = pi_info[k]
@@ -327,6 +334,7 @@ class CPOBuffer:
         self.obs_archive[arch_slice] = self.obs_buf[buf_slice]
         self.act_archive[arch_slice] = self.act_buf[buf_slice]
         self.nextobs_archive[arch_slice] = self.nextobs_buf[buf_slice]
+        self.info_archive[arch_slice] = self.info_buf[buf_slice]
         self.rew_archive[arch_slice] = self.rew_buf[buf_slice]
         self.val_archive[arch_slice] = self.val_buf[self.model_ind, buf_slice]
         self.val_var_archive[arch_slice] = self.val_var_buf[self.model_ind, buf_slice]
@@ -437,6 +445,7 @@ class CPOBuffer:
             'observations'
             'actions'
             'next_observations'
+            'infos'
             'advantages'
             'rewards'
             'returns'

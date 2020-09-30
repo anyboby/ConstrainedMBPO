@@ -139,7 +139,7 @@ class StaticFns:
         return reward
 
     @staticmethod
-    def prior_f(obs, acts):
+    def prior_f(obs, acts, infos):
         '''
         Predicts a spike based on 0-transition between actions
         !! very specifically designed for acceleration spike detection
@@ -154,22 +154,10 @@ class StaticFns:
         sign_mask = np.logical_or(np.logical_or(last_acts/(acts+1e-8)<0, abs(last_acts/(acts+10))<1e-8), abs(acts/(last_acts+10))<1e-8)
         acc_spikes[sign_mask] = (acts[sign_mask]-last_acts[sign_mask])/(abs((acts[sign_mask]-last_acts[sign_mask]))+1e-8)
         
-        return acc_spikes
-    
-    @staticmethod
-    def post_f(obs, acts):
-        assert len(obs.shape) == len(acts.shape)
-        if len(obs.shape)==1:
-            obs = obs[None]
-            acts = acts[None]
-            return_single = True
-        else: return_single = False
+        priors = np.concatenate((acc_spikes, np.array(list(infos))), axis=-1)
 
-        obs[...,:2] = acts[...,:2]
-        if return_single:
-            return obs[0] 
-        else: 
-            return obs
+        return priors
+    
     
     @staticmethod
     def obs_indices(key, obs_space_dict):

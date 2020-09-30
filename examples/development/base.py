@@ -48,13 +48,13 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
-        'target_kl':            0.01,
-        'cost_lim_end':         5e8,
-        'cost_lim':             5e8,
-        'cost_lam':             .95,
-        'cost_gamma':           0.99,
-        'lam':                  .95,
-        'gamma':                0.99,
+        'target_kl':            0.007,
+        'cost_lim_end':         40,
+        'cost_lim':             40,
+        'cost_lam':             .98,
+        'cost_gamma':           0.97,
+        'lam':                  .98,
+        'gamma':                0.97,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
                ['algorithm_params']['kwargs']['epoch_length'] 
@@ -259,7 +259,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(6e4),
+                    'CPOBuffer':int(5e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(2e4),
+                    'CPOBuffer':int(5e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

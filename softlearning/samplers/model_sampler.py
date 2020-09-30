@@ -192,13 +192,14 @@ class ModelSampler(CpoSampler):
 
         return processed_observation
 
-    def reset(self, observations):
+    def reset(self, observations, infos=None):
         self.batch_size = observations.shape[0]
 
         self._starting_uncertainty = np.var(self.policy.get_v(observations, factored=True, inc_var=False), axis=0)
         self._starting_uncertainty_c = np.var(self.policy.get_vc(observations, factored=True, inc_var=False), axis=0)
 
         self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
+        self._starting_info = np.tile(np.array(list(infos))[None], (self.ensemble_size, 1, 1))
 
         self.policy.reset() #does nohing for cpo policy atm
         self.pool.reset(self.batch_size)
@@ -253,7 +254,7 @@ class ModelSampler(CpoSampler):
         ##                      Step                    ##
         ## ____________________________________________ ##
 
-        next_obs, reward, terminal, info = self.env.step(current_obs, a)
+        next_obs, reward, terminal, info = self.env.step(current_obs, a, additional_priors = self._starting_info)
 
         reward = np.squeeze(reward, axis=-1)
         rew_var = info.get('rew_ep_var', np.zeros(reward.shape))
@@ -279,9 +280,6 @@ class ModelSampler(CpoSampler):
         rew_uncertainty = np.var(self._path_return[:,alive_paths]+next_val, axis=0)
         cost_uncertainty = np.var(self._path_cost[:,alive_paths]+next_cval, axis=0) 
         
-        # rew_uncertainty = np.var(self._path_return[:,alive_paths]+reward, axis=0)
-        # cost_uncertainty = np.var(self._path_cost[:,alive_paths]+c, axis=0) 
-
         ### running means of variances
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)

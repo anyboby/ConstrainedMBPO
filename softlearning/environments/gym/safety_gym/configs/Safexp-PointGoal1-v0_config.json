@@ -14,9 +14,9 @@
 "constrain_hazards": true,
 "observe_hazards": true,
 "observe_vases": true,
-"placements_extents": [-2, -2, 2, 2],
+"placements_extents": [-1.5, -1.5, 1.5, 1.5],
 "constrain_vases": true,
-"hazards_num": 10,
-"vases_num": 10,  
+"hazards_num": 8,
+"vases_num": 1,
 "observation_flatten": true
 }

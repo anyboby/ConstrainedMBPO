@@ -325,7 +325,7 @@ class ModelBuffer(CPOBuffer):
             # self.populated_mask[finish_mask,:] = self.populated_indices[finish_mask,:]<horizons
 
             ### alternative b: normalize return variances by first entry
-            threshold = 2
+            threshold = 2.5
             norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
             norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
@@ -465,6 +465,36 @@ class ModelBuffer(CPOBuffer):
                 norm_cadv_var_mean = 0
                 avg_horizon_r = 0
                 avg_horizon_c = 0
+                tdr_1=0
+                tdr_3=0
+                tdr_5=0
+                tdr_10=0
+                tdr_15=0
+                tdr_25=0
+                tdc_1=0
+                tdc_3=0
+                tdc_5=0
+                tdc_10=0
+                tdc_15=0
+                tdc_25=0
+                tdr_m1=0
+                tdr_m3=0
+                tdr_m5=0
+                tdr_m10=0
+                tdr_m15=0
+                tdr_m25=0
+                tdc_m1=0
+                tdc_m3=0
+                tdc_m5=0
+                tdc_m10=0
+                tdc_m15=0
+                tdc_m25=0
+                tdr_var=0
+                tdc_var=0
+                tdc_overall=0
+                tdr_overall=0
+                td_dyn_m=0
+                td_dyn_n=0
 
 
             res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,
