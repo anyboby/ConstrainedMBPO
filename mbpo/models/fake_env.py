@@ -156,7 +156,9 @@ class FakeEnv:
         if obs_depth==3:
             ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
         
-        ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
+        ### maybe better estimates but less reliable uncertainty measures
+        #ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
+        
         ensemble_dyn_vars = ensemble_dyn_vars[0]
         
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely

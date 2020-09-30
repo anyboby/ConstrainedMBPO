@@ -88,7 +88,8 @@ class CMBPO(RLAlgorithm):
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
             iv_gae = False,
-            max_tdxdyn_err = 1e-5,
+            max_tddyn_err = 1e-5,
+            max_tddyn_err_decay = .995,
             min_real_samples_per_epoch = 1000,
             batch_size_policy = 5000,
             hidden_dims=(200, 200, 200, 200),
@@ -214,7 +215,8 @@ class CMBPO(RLAlgorithm):
         
 
         ### model sampler and buffer
-        self.max_tdxdyn_err = max_tdxdyn_err
+        self.max_tddyn_err = max_tddyn_err
+        self.max_tddyn_err_decay = max_tddyn_err_decay
         self.iv_gae = iv_gae
         self.min_real_samples_per_epoch = min_real_samples_per_epoch
         self.batch_size_policy = batch_size_policy
@@ -266,7 +268,6 @@ class CMBPO(RLAlgorithm):
         evaluation_environment = self._evaluation_environment
         policy = self._policy
         pool = self._pool
-        model_metrics = {}
 
         if not self._training_started:
             #### perform some initial steps (gather samples) using initial policy
@@ -285,6 +286,7 @@ class CMBPO(RLAlgorithm):
         gt.set_def_unique(False)
         self.policy_epoch = 0       ### count policy updates
         self.new_real_samples = 0
+        self.approx_model_batch = 0.5*self.batch_size_policy    ### some size to start off
 
         #### not implemented, could train policy before hook
         self._training_before_hook()
@@ -307,6 +309,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             model_samples = None
             keep_rolling = True
+            model_metrics = {}
             #### start model rollout
             if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 while keep_rolling:
@@ -323,9 +326,8 @@ class CMBPO(RLAlgorithm):
                     # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
                     # start_states = real_samples[0][rand_inds]
                     start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
-
                     self.model_sampler.reset(start_states)
-                    
+
                     for i in count():
                         print(f'Model Sampling step Nr. {i+1}')
 
@@ -333,7 +335,7 @@ class CMBPO(RLAlgorithm):
                         alive_ratio = info.get('alive_ratio', 1)
 
                         if alive_ratio<0.2 or \
-                            self.model_sampler._total_samples + samples_added >= self.batch_size_policy-alive_ratio*self._rollout_batch_size:
+                            self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
                             print(f'Stopping Rollout at step {i+1}')
                             break
                     
@@ -346,11 +348,8 @@ class CMBPO(RLAlgorithm):
                     model_samples = [np.concatenate((o,n), axis=0) for o,n in zip(model_samples, model_samples_new)] if model_samples else model_samples_new
 
                     #model_metrics.update(buffer_diagnostics)
-                    old_n_samples = model_metrics.get('poolm_batch_size', 0) + EPS
-                    new_n_samples = buffer_diagnostics_new['poolm_batch_size']
-                    samples_added += new_n_samples
-
-                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+old_n_samples))
+                    new_n_samples = self.model_sampler._total_samples
+                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+samples_added))
 
                     ######################################################################
 
@@ -359,17 +358,19 @@ class CMBPO(RLAlgorithm):
                         model_data_diag = self._policy.run_diagnostics(model_samples_new)
                         model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
                         #model_metrics.update(model_data_diag)
-                    model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+old_n_samples))
-                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+old_n_samples))
+                    model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+samples_added))
+                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+samples_added))
+                    
+                    samples_added += new_n_samples
                     model_metrics.update({'samples_added':samples_added})
 
                     td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
             
-                    approx_model_batch = self.max_tdxdyn_err*self.batch_size_policy / td_dyn_err
-                    keep_rolling = ~(samples_added > approx_model_batch or samples_added > self.batch_size_policy)
+                    self.approx_model_batch = self.max_tddyn_err*self.batch_size_policy / td_dyn_err
+                    keep_rolling = ~(samples_added > .95*self.approx_model_batch or samples_added > self.batch_size_policy)
                     
                 gt.stamp('epoch_rollout_model')
-            
+                model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
 
 
             #=====================================================================#
@@ -430,7 +431,7 @@ class CMBPO(RLAlgorithm):
             self._policy.update_critic(train_samples)
             
             self.policy_epoch += 1
-
+            self.max_tddyn_err *= self.max_tddyn_err_decay
             #### log policy diagnostics
             self._policy.log()
 

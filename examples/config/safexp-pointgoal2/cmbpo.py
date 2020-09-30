@@ -12,7 +12,7 @@ params = {
 
     'kwargs': {
         'n_epochs': 10000,
-        'epoch_length': 5000, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
@@ -34,7 +34,7 @@ params = {
         'hidden_dims':(512,512), #(512, 512, 512, 512),               # hidden layer size of model bnn
         'model_train_freq': 4000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 5.0e2,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 3.0e2,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
@@ -49,11 +49,12 @@ params = {
         'cares_about_cost': False,
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' : 4.5,
-        'max_uncertainty_rew' : 4.5,
+        'max_uncertainty_c' : 5.5,
+        'max_uncertainty_rew' : 5.5,
         'iv_gae': False,
-        'max_tdxdyn_err' : 0.01,
+        'max_tddyn_err' : 0.02,
+        'max_tddyn_err_decay' : .997,
         'batch_size_policy': 5e3,              ### how many samples 
-        'min_real_samples_per_epoch': 2e2,
+        'min_real_samples_per_epoch': 5e2,
     }
 }
