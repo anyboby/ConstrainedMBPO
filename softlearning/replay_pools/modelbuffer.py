@@ -8,8 +8,10 @@ import scipy.signal
 class ModelBuffer(CPOBuffer):
 
     def __init__(self, batch_size, env, max_path_length, ensemble_size,
-                 iv_gae=False,
+                 rollout_mode=False,
                  cares_about_cost = False,
+                 max_uncertainty_r = 5.5,
+                 max_uncertainty_c = 5.5,
                  *args,
                  **kwargs,
                  ):
@@ -23,8 +25,10 @@ class ModelBuffer(CPOBuffer):
         self.ensemble_size = ensemble_size
         self.model_ind = np.random.randint(ensemble_size)
         self.reset()
-        self.use_iv_gae = iv_gae
+        self.rollout_mode = rollout_mode
         self.cares_about_cost = cares_about_cost
+        self.max_uncertainty_r = max_uncertainty_r
+        self.max_uncertainty_c = max_uncertainty_c
 
     ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
     def initialize(self, pi_info_shapes,
@@ -171,7 +175,7 @@ class ModelBuffer(CPOBuffer):
             #### only choose single trajectory for deltas
             deltas = rews[self.model_ind][...,:-1] + self.gamma * vals[self.model_ind][..., 1:] - vals[self.model_ind][..., :-1]
 
-            if self.use_iv_gae:
+            if self.rollout_mode=='iv_gae':
                 #=====================================================================#
                 #  Inverse Variance Weighted Advantages                               #
                 #=====================================================================#
@@ -252,7 +256,7 @@ class ModelBuffer(CPOBuffer):
             #### only choose single trajectory for deltas
             cdeltas = costs[self.model_ind][...,:-1] + self.cost_gamma * cvals[self.model_ind][..., 1:] - cvals[self.model_ind][..., :-1]
             
-            if self.use_iv_gae:
+            if self.rollout_mode=='iv_gae':
                 #=====================================================================#
                 #  Inverse Variance Weighted Cost Advantages                          #
                 #=====================================================================#
@@ -315,19 +319,18 @@ class ModelBuffer(CPOBuffer):
             #  Determine Rollout Lengths                                          #
             #=====================================================================#
             
-            if self.use_iv_gae:
+            if self.rollout_mode == 'iv_gae':
                 ### alternative b: normalize return variances by first entry
-                threshold = 2.5
                 norm_cret_vars = self.cret_var_buf[finish_mask, path_slice]/(self.cret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
                 norm_ret_vars = self.ret_var_buf[finish_mask, path_slice]/(self.ret_var_buf[finish_mask, path_slice][...,0:1]+EPS)
 
                 if self.cares_about_cost:
                     too_uncertain_mask = np.logical_or(
-                        norm_cret_vars>threshold,
-                        norm_ret_vars>threshold
+                        norm_cret_vars>self.max_uncertainty_c,
+                        norm_ret_vars>self.max_uncertainty_r
                     )
                 else:
-                    too_uncertain_mask = norm_ret_vars>threshold
+                    too_uncertain_mask = norm_ret_vars>self.max_uncertainty_r
 
                 horizons = np.argmax(too_uncertain_mask, axis=-1)[...,None]
                 self.populated_mask[finish_mask,:] *= self.populated_indices[finish_mask,:]<horizons
@@ -458,10 +461,10 @@ class ModelBuffer(CPOBuffer):
             # poolm_tdc_m25= 0
             # poolm_tdr_var = 0
             # poolm_tdc_var = 0
-            poolm_tdc_overall =0 
-            poolm_tdr_overall =0 
-            poolm_td_dyn_m = 0
-            poolm_td_dyn_n = 0
+            tdc_overall =0 
+            tdr_overall =0 
+            td_dyn_m = 0
+            td_dyn_n = 0
                 
 
 

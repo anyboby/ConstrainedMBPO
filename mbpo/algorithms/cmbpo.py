@@ -79,7 +79,6 @@ class CMBPO(RLAlgorithm):
             model_retain_epochs=20,
             rollout_batch_size=100e3,
             real_ratio=0.1,
-            rollout_schedule=[20,100,1,1],
             dyn_model_train_schedule=[20, 100, 1, 5],
             cost_model_train_schedule=[20, 100, 1, 30],
             cares_about_cost = False,
@@ -87,7 +86,8 @@ class CMBPO(RLAlgorithm):
             cost_m_discount = 1,                     
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
-            iv_gae = False,
+            rollout_mode = 'schedule',
+            rollout_schedule=[20,100,1,1],
             max_tddyn_err = 1e-5,
             max_tddyn_err_decay = .995,
             min_real_samples_per_epoch = 1000,
@@ -215,18 +215,20 @@ class CMBPO(RLAlgorithm):
         
 
         ### model sampler and buffer
+        self.rollout_mode = rollout_mode
         self.max_tddyn_err = max_tddyn_err
         self.max_tddyn_err_decay = max_tddyn_err_decay
-        self.iv_gae = iv_gae
         self.min_real_samples_per_epoch = min_real_samples_per_epoch
         self.batch_size_policy = batch_size_policy
 
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=60, 
+                                        max_path_length=80, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
-                                        iv_gae = self.iv_gae,
+                                        rollout_mode = self.rollout_mode,
                                         cares_about_cost = cares_about_cost,
+                                        max_uncertainty_c = self._max_uncertainty_c,
+                                        max_uncertainty_r = self._max_uncertainty_rew,                                        
                                         )
         self.model_pool.initialize(pi_info_shapes,
                                     gamma = self._policy.gamma,
@@ -235,14 +237,14 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=60,
+        self.model_sampler = ModelSampler(max_path_length=80,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             cares_about_cost = cares_about_cost,
                                             max_uncertainty_c = self._max_uncertainty_c,
                                             max_uncertainty_r = self._max_uncertainty_rew,
                                             logger=None,
-                                            iv_gae =self.iv_gae,
+                                            rollout_mode = self.rollout_mode,
                                             )
 
         # provide policy and sampler with the same logger
@@ -312,6 +314,9 @@ class CMBPO(RLAlgorithm):
             model_metrics = {}
             #### start model rollout
             if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+                if self.rollout_mode == 'schedule':
+                    self._set_rollout_length()
+
                 while keep_rolling:
                     #=====================================================================#
                     #  Rollout Model                                                      #
@@ -334,10 +339,20 @@ class CMBPO(RLAlgorithm):
                         _,_,_,info = self.model_sampler.sample()
                         alive_ratio = info.get('alive_ratio', 1)
 
-                        if alive_ratio<0.2 or \
-                            self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
-                            print(f'Stopping Rollout at step {i+1}')
-                            break
+                        ### stop rollout depending on rollout_mode
+                        if self.rollout_mode=='schedule':
+                            if i+1>self._rollout_length or \
+                                    self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
+                                break
+                        elif self.rollout_mode=='iv_gae':
+                            if alive_ratio<0.2:
+                                print(f'Stopping Rollout at step {i+1}')
+                                break
+                        else:
+                            if alive_ratio<0.2 or \
+                                    self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
+                                print(f'Stopping Rollout at step {i+1}')
+                                break
                     
                     ### diagnostics for rollout ###
                     rollout_diagnostics = self.model_sampler.finish_all_paths()
@@ -348,7 +363,7 @@ class CMBPO(RLAlgorithm):
                     model_samples = [np.concatenate((o,n), axis=0) for o,n in zip(model_samples, model_samples_new)] if model_samples else model_samples_new
 
                     #model_metrics.update(buffer_diagnostics)
-                    new_n_samples = self.model_sampler._total_samples
+                    new_n_samples = len(model_samples_new[0])
                     model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+samples_added))
 
                     ######################################################################
@@ -376,7 +391,8 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Sample                                                             #
             #=====================================================================#
-            n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
+            
+            n_real_samples = max(samples_added*(td_dyn_err/self.max_tddyn_err-1), self.min_real_samples_per_epoch)
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
             ### train for epoch_length ###
@@ -624,6 +640,20 @@ class CMBPO(RLAlgorithm):
     def _total_timestep(self):
         total_timestep = self.sampler._total_samples
         return total_timestep
+
+    def _set_rollout_length(self):
+        min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        if self._epoch <= min_epoch:
+            y = min_length
+        else:
+            dx = (self._epoch - min_epoch) / (max_epoch - min_epoch)
+            dx = min(dx, 1)
+            y = dx * (max_length - min_length) + min_length
+
+        self._rollout_length = int(y)
+        print('[ Model Length ] Epoch: {} (min: {}, max: {}) | Length: {} (min: {} , max: {})'.format(
+            self._epoch, min_epoch, max_epoch, self._rollout_length, min_length, max_length
+        ))
 
    
     def _do_sampling(self, timestep):

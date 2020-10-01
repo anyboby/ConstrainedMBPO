@@ -43,9 +43,14 @@ class FakeEnv:
         target_weight_f = WEIGHTS_PER_DOMAIN.get(self.domain, None)
         self.target_weights = target_weight_f(self.obs_dim) if target_weight_f else None
         
-        self.prior_f = PRIORS_BY_DOMAIN.get(self.domain, False)
-        self.post_f =  POSTS_BY_DOMAIN.get(self.domain, False)
-        self.prior_dim = PRIOR_DIMS.get(self.domain, 0)
+
+        self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
+        self.static_r = self.static_fns.reward_f if "reward_f" in dir(self.static_fns) else False
+        self.static_done = self.static_fns.term_f if "term_f" in dir(self.static_fns) else False
+        self.static_c = self.static_fns.cost_f if "cost_f" in dir(self.static_fns) else False
+        self.post_f = self.static_fns.post_f if "post_f" in dir(self.static_fns) else False
+        self.prior_f = self.static_fns.prior_f if "prior_f" in dir(self.static_fns) else False
+        self.prior_dim = self.static_fns.PRIOR_DIM if "PRIOR_DIM" in dir(self.static_fns) else 0
         #### create fake env from model 
 
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
@@ -71,7 +76,7 @@ class FakeEnv:
                                         max_logvar=.5,
                                         min_logvar=-10,
                                         session=self._session)
-        if self.cares_about_cost:                                                    
+        if self.cares_about_cost and not self.static_c:                                                    
             
             self.cost_m_loss = 'MSE'
             output_activation = 'softmax' if self.cost_m_loss=='CE' else None
@@ -99,7 +104,6 @@ class FakeEnv:
         else:
             self._cost_model = None
         
-        self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.dyn_target_var_rm = 1
 
     @property
@@ -143,7 +147,7 @@ class FakeEnv:
             return_single = False
 
         if self.prior_f:
-            priors = self.static_fns.prior_f(obs, act)
+            priors = self.prior_f(obs, act)
             inputs = np.concatenate((obs, act, priors), axis=-1)
         else:
             inputs = np.concatenate((obs, act), axis=-1)
@@ -189,36 +193,38 @@ class FakeEnv:
 
         #### retrieve r and done for new state
         next_obs = samples[...,:-self.rew_dim]
-
-        ## post_processing
-        if self.post_f:
-            next_obs = self.static_fns.post_f(next_obs, act)
         
         #### ----- special steps for safety-gym ----- ####
         #### stack previous obs with newly predicted obs
-        if 'Safexp' in self.domain:
-            rewards = self.static_fns.reward_f(obs, act, next_obs, self.env)
-            terminals = self.static_fns.termination_fn(obs, act, next_obs, self.env)    ### non terminal for goal, but rebuild goal 
-            next_obs = self.static_fns.rebuild_goal(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
-        #### ----- special steps for safety-gym ----- ####
-
+        if self.static_r:
+            rewards = self.static_r(obs, act, next_obs, self.env)
         else:
-            terminals = self.static_fns.termination_fn(obs, act, next_obs)
             rewards = samples[...,-self.rew_dim:]
+        
+        if 'Safexp' in self.domain:
+            terminals = self.static_done(obs, act, next_obs, self.env)    ### non terminal for goal, but rebuild goal 
+        else:
+            terminals = self.static_done(obs, act, next_obs)
+
+        if 'Safexp' in self.domain:
+            next_obs = self.post_f(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
+
 
         ep_rew_var = np.squeeze(np.var(rewards, axis=0))
 
         if self.cares_about_cost:
-            if self.prior_f:
-                inputs_cost = np.concatenate((obs, act, next_obs, priors), axis=-1)
+            if self.static_c:
+                costs = self.static_fns.cost_f(obs, act, next_obs, self.env) 
             else:
-                inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
+                if self.prior_f:
+                    inputs_cost = np.concatenate((obs, act, next_obs, priors), axis=-1)
+                else:
+                    inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
+                costs = self._cost_model.predict(inputs_cost, factored=False, inc_var=False)
 
-            costs = self._cost_model.predict(inputs_cost, factored=False, inc_var=False)
+                if self.cost_m_loss=='CE':
+                    costs = np.argmax(costs, axis=-1)[...,None]
 
-            if self.cost_m_loss=='CE':
-                costs = np.argmax(costs, axis=-1)[...,None]
-            #cost_var = (np.mean(cost_var, axis=0) + np.mean(costs**2, axis=0) - (np.mean(costs, axis=0))**2)[...,0]
             ep_cost_var = np.var(costs, axis=0)
 
         else:
@@ -282,32 +288,35 @@ class FakeEnv:
         priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
         
-        if discount<1:
-            inputs, targets, weights = format_samples_for_cost(samples, 
-                                                        one_hot=self.cost_m_loss=='CE',
-                                                        priors=priors,
-                                                        discount=discount,
-                                                        # noise=1e-4
-                                                        )
-            kwargs['weights'] = weights
-            cost_model_metrics = self._cost_model.train(inputs,
-                                        targets,
-                                        **kwargs,
-                                        )                                            
+        if self.static_c:
+            return {}
         else:
-            inputs, targets = format_samples_for_cost(samples, 
-                                                        one_hot=self.cost_m_loss=='CE',
-                                                        priors=priors,
-                                                        # noise=1e-4
-                                                        )
-            #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
+            if discount<1:
+                inputs, targets, weights = format_samples_for_cost(samples, 
+                                                            one_hot=self.cost_m_loss=='CE',
+                                                            priors=priors,
+                                                            discount=discount,
+                                                            # noise=1e-4
+                                                            )
+                kwargs['weights'] = weights
+                cost_model_metrics = self._cost_model.train(inputs,
+                                            targets,
+                                            **kwargs,
+                                            )                                            
+            else:
+                inputs, targets = format_samples_for_cost(samples, 
+                                                            one_hot=self.cost_m_loss=='CE',
+                                                            priors=priors,
+                                                            # noise=1e-4
+                                                            )
+                #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
-            cost_model_metrics = self._cost_model.train(inputs,
-                                        targets,
-                                        **kwargs,
-                                        )                                            
-            
-        return cost_model_metrics
+                cost_model_metrics = self._cost_model.train(inputs,
+                                            targets,
+                                            **kwargs,
+                                            )                                            
+                
+            return cost_model_metrics
 
     @property
     def dyn_target_var(self):

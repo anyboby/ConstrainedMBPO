@@ -48,9 +48,9 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
-        'target_kl':            0.008,
-        'cost_lim_end':         50e5,
-        'cost_lim':             50e5,
+        'target_kl':            0.012,
+        'cost_lim_end':         25,
+        'cost_lim':             25,
         'cost_lam':             .98,
         'cost_gamma':           0.97,
         'lam':                  .98,
@@ -289,9 +289,9 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                spec.get('config', spec)
                ['policy_params']['kwargs'].get('vf_ensemble_size',1)
             )),
-            'iv_gae': tune.sample_from(lambda spec: (
+            'rollout_mode': tune.sample_from(lambda spec: (
                spec.get('config', spec)
-               ['algorithm_params']['kwargs'].get('iv_gae',False)
+               ['algorithm_params']['kwargs'].get('rollout_mode',False)
             )),
 
 

@@ -24,7 +24,7 @@ class ModelSampler(CpoSampler):
                  cares_about_cost = False,
                  max_uncertainty_c = 3,
                  max_uncertainty_r = 3,
-                 iv_gae = False,
+                 rollout_mode = False,
                  logger = None):
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
@@ -35,7 +35,7 @@ class ModelSampler(CpoSampler):
         self._path_dyn_var = np.zeros(batch_size)
 
         self.cares_about_cost = cares_about_cost
-        self.iv_gae = iv_gae
+        self.rollout_mode = rollout_mode
 
         if logger:
             self.logger = logger
@@ -284,10 +284,10 @@ class ModelSampler(CpoSampler):
         cost_var_rm = self._total_cost_var+EPS**2/(self._total_samples+EPS)
         rew_var_rm = self._total_rew_var+EPS**2/(self._total_samples+EPS)
 
-        if self.iv_gae:
-            limit_r = 1e6
+        if self.rollout_mode=='schedule' or self.rollout_mode=='iv_gae':
+            limit_r = 1e6       ### terminated externally
             limit_c = 1e6
-        else: 
+        elif self.rollout_mode=='uncertainty': 
             limit_r = self._max_uncertainty_rew * self._starting_uncertainty[alive_paths]
             limit_c = self._max_uncertainty_c * self._starting_uncertainty_c[alive_paths]
         

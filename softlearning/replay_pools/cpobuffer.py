@@ -10,7 +10,7 @@ class CPOBuffer:
     def __init__(self, size, archive_size, 
                  observation_space, action_space, 
                  value_ensemble_size,
-                 iv_gae = False,
+                 rollout_mode = 'schedule',
                  *args,
                  **kwargs,
                  ):
@@ -20,7 +20,7 @@ class CPOBuffer:
         self.max_size = size
         self.value_ensemble_size = value_ensemble_size
         self.model_ind = np.random.randint(value_ensemble_size)
-        self.use_iv_gae = iv_gae
+        self.use_iv_gae = rollout_mode == 'iv_gae'
 
         # _____________________________ #
         # Create buffers and archives   #

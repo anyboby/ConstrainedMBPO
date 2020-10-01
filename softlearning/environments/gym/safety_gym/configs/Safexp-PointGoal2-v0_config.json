@@ -18,5 +18,6 @@
 "constrain_vases": true,
 "hazards_num": 10,
 "vases_num": 10,  
-"observation_flatten": true
+"observation_flatten": true,
+"vases_velocity_cost":0
 }
