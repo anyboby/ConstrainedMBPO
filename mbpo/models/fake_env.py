@@ -46,7 +46,7 @@ class FakeEnv:
 
         self._static_fns = static_fns           # termination functions for the envs (model can't simulate those)
         self.static_r = self.static_fns.reward_f if "reward_f" in dir(self.static_fns) else False
-        self.static_done = self.static_fns.term_f if "term_f" in dir(self.static_fns) else False
+        self.static_done = self.static_fns.termination_fn if "termination_fn" in dir(self.static_fns) else False
         self.static_c = self.static_fns.cost_f if "cost_f" in dir(self.static_fns) else False
         self.post_f = self.static_fns.post_f if "post_f" in dir(self.static_fns) else False
         self.prior_f = self.static_fns.prior_f if "prior_f" in dir(self.static_fns) else False
@@ -69,9 +69,9 @@ class FakeEnv:
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
-                                        use_scaler_in = False,
-                                        use_scaler_out = False,
-                                        decay=1e-4,
+                                        use_scaler_in = True,
+                                        use_scaler_out = True,
+                                        decay=3e-4,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
                                         min_logvar=-10,

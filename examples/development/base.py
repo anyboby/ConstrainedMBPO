@@ -48,12 +48,12 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
-        'target_kl':            0.012,
-        'cost_lim_end':         25,
-        'cost_lim':             25,
+        'target_kl':            0.13,
+        'cost_lim_end':         25e3,
+        'cost_lim':             25e3,
         'cost_lam':             .98,
         'cost_gamma':           0.97,
-        'lam':                  .98,
+        'lam':                  .95,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)

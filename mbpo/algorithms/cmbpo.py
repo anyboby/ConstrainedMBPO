@@ -387,12 +387,11 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('epoch_rollout_model')
                 model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
 
-
             #=====================================================================#
             #  Sample                                                             #
             #=====================================================================#
             
-            n_real_samples = max(samples_added*(td_dyn_err/self.max_tddyn_err-1), self.min_real_samples_per_epoch)
+            n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
             ### train for epoch_length ###
@@ -421,8 +420,8 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>2048:
-                model_diag = self.train_model(min_epochs=5, max_epochs=20)
+            if self.new_real_samples>2048 and self._real_ratio<1.0:
+                model_diag = self.train_model(min_epochs=15, max_epochs=150)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)
 
@@ -560,7 +559,8 @@ class CMBPO(RLAlgorithm):
                 break
         
         ### train model
-        self.train_model(min_epochs=150, max_epochs=500)
+        if self._real_ratio<1.0:
+            self.train_model(min_epochs=150, max_epochs=500)
 
         ### train critic
         critic_samples = self._pool.get_archive([     #### include initial expl. hook samples

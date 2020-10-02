@@ -280,7 +280,7 @@ class BNN:
                                                             oldpred_var = self.old_pred_var_ph)
                                                             )
                 train_loss += tf.add_n(self.decays)
-                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
+                #train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
             
