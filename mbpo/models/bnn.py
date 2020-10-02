@@ -760,6 +760,12 @@ class BNN:
                         feed_dict={self.sy_pred_in3d: inputs}
                     )
                 elif inc_var and not self.is_probabilistic:
+                    res3d_mean = self.sess.run(
+                        self.sy_pred_mean3d_fac,
+                        feed_dict={self.sy_pred_in3d: inputs}
+                    )
+                    # res3d_var = np.repeat(np.var(res3d_mean, axis=0)[None], repeats = res3d_mean.shape[0], axis=0)
+
                     orig_shape = inputs.shape
                     inputs_2d = inputs.reshape([np.prod(inputs.shape[:-1]), inputs.shape[-1]])
                     res2d_mean = self.sess.run(
@@ -767,7 +773,7 @@ class BNN:
                             feed_dict={self.sy_pred_in2d: inputs_2d}
                         )
                     tar_shape = (orig_shape[0], orig_shape[1]) + res2d_mean.shape[2:]
-                    res3d_mean = np.mean(res2d_mean, axis=0).reshape(tar_shape)
+                    # res3d_mean = np.mean(res2d_mean, axis=0).reshape(tar_shape)
                     res3d_var = np.var(res2d_mean, axis=0).reshape(tar_shape)
                     return res3d_mean, res3d_var
                 elif not inc_var:

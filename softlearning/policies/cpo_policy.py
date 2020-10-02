@@ -916,12 +916,12 @@ class CPOPolicy(BasePolicy):
             feed_obs_fl = feed_obs.reshape([np.prod(feed_obs.shape[:-1]), feed_obs.shape[-1]])
             get_action_outs = self.sess.run(self.ops_for_action_3d, 
                         feed_dict={self.obs_ph: feed_obs_fl})
-
         else:
             get_action_outs = self.sess.run(self.ops_for_action, 
                             feed_dict={self.obs_ph: feed_obs})
 
         if inc_var:
+                ####careful! if v is a probabilistic model, the var is aleatoric variance, whereas otherwise its epistemic
                 v, v_var = self.get_v(feed_obs, factored=factored, inc_var=True)
                 vc, vc_var = self.get_vc(feed_obs, factored=factored, inc_var=True)
 

@@ -88,6 +88,7 @@ class CMBPO(RLAlgorithm):
             max_uncertainty_c = None,
             rollout_mode = 'schedule',
             rollout_schedule=[20,100,1,1],
+            maxroll = 80,
             max_tddyn_err = 1e-5,
             max_tddyn_err_decay = .995,
             min_real_samples_per_epoch = 1000,
@@ -222,7 +223,7 @@ class CMBPO(RLAlgorithm):
         self.batch_size_policy = batch_size_policy
 
         self.model_pool = ModelBuffer(batch_size=self._rollout_batch_size, 
-                                        max_path_length=80, 
+                                        max_path_length=maxroll, 
                                         env = self.fake_env,
                                         ensemble_size=num_networks,
                                         rollout_mode = self.rollout_mode,
@@ -237,7 +238,7 @@ class CMBPO(RLAlgorithm):
                                     cost_lam = self._policy.cost_lam,
                                     ) 
         #@anyboby debug
-        self.model_sampler = ModelSampler(max_path_length=80,
+        self.model_sampler = ModelSampler(max_path_length=maxroll,
                                             batch_size=self._rollout_batch_size,
                                             store_last_n_paths=10,
                                             cares_about_cost = cares_about_cost,
@@ -332,6 +333,8 @@ class CMBPO(RLAlgorithm):
                     # start_states = real_samples[0][rand_inds]
                     start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
                     self.model_sampler.reset(start_states)
+                    if self.rollout_mode=='uncertainty':
+                        self.model_sampler.set_max_uncertainty(self.max_tddyn_err)
 
                     for i in count():
                         print(f'Model Sampling step Nr. {i+1}')
@@ -381,8 +384,8 @@ class CMBPO(RLAlgorithm):
 
                     td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
             
-                    self.approx_model_batch = self.max_tddyn_err*self.batch_size_policy / td_dyn_err
-                    keep_rolling = ~(samples_added > .95*self.approx_model_batch or samples_added > self.batch_size_policy)
+                    self.approx_model_batch = min(self.max_tddyn_err*self.batch_size_policy / td_dyn_err, self.batch_size_policy-self.min_real_samples_per_epoch)
+                    keep_rolling = not(samples_added > .95*self.approx_model_batch)
                     
                 gt.stamp('epoch_rollout_model')
                 model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
@@ -420,7 +423,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>2048 and self._real_ratio<1.0:
+            if self.new_real_samples>1024 and self._real_ratio<1.0:
                 model_diag = self.train_model(min_epochs=15, max_epochs=150)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)

@@ -56,7 +56,7 @@ class FakeEnv:
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
         input_dim_c = 2 * self.obs_dim + self.act_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
-        self.dyn_loss = 'NLL'
+        self.dyn_loss = 'MSE'
 
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
@@ -162,34 +162,27 @@ class FakeEnv:
         
         ### maybe better estimates but less reliable uncertainty measures
         #ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
-        
-        ensemble_dyn_vars = ensemble_dyn_vars[0]
+        if obs_depth==3:
+            ep_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
+        else:
+            ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
         
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
-        ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
+        ensemble_model_stds = np.sqrt(ep_dyn_var)
         
-        al_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
-        al_dyn_var = np.mean(al_dyn_var, axis=-1)
-        ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
-
-        ### calc DKL of elites
-        # average_dkl_per_output = average_dkl(ensemble_dyn_means, ensemble_model_stds)
-        # ensemble_dkl_mean = np.mean(average_dkl_per_output, axis=tuple(np.arange(1, len(average_dkl_per_output.shape))))
-        # ensemble_dkl_mean = np.mean(ensemble_dkl_mean)
-
         median_dkl_per_output = median_dkl(ensemble_dyn_means, ensemble_model_stds)
         ensemble_dkl_med = np.mean(median_dkl_per_output, axis=tuple(np.arange(1, len(median_dkl_per_output.shape))))
         ensemble_dkl_med = np.mean(ensemble_dkl_med)
         ###
 
         #### choose one model from ensemble randomly
-        if obs_depth<3:
+        if obs_depth==3:
+            samples = ensemble_dyn_means
+        else:
             num_models, batch_size, _ = ensemble_dyn_means.shape
             model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
             batch_inds = np.arange(0, batch_size)
             samples = ensemble_dyn_means[model_inds, batch_inds]
-        else: 
-            samples = ensemble_dyn_means
 
         #### retrieve r and done for new state
         next_obs = samples[...,:-self.rew_dim]
@@ -209,9 +202,6 @@ class FakeEnv:
         if 'Safexp' in self.domain:
             next_obs = self.post_f(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
 
-
-        ep_rew_var = np.squeeze(np.var(rewards, axis=0))
-
         if self.cares_about_cost:
             if self.static_c:
                 costs = self.static_fns.cost_f(obs, act, next_obs, self.env) 
@@ -225,11 +215,8 @@ class FakeEnv:
                 if self.cost_m_loss=='CE':
                     costs = np.argmax(costs, axis=-1)[...,None]
 
-            ep_cost_var = np.var(costs, axis=0)
-
         else:
             costs = np.zeros_like(rewards)
-            ep_cost_var = np.zeros(shape=rewards.shape[1:])
 
         if return_single:
             next_obs = next_obs[0]
@@ -241,10 +228,7 @@ class FakeEnv:
         
         info = {
                 'dyn_ensemble_dkl_med' : ensemble_dkl_med,
-                'dyn_al_var' : al_dyn_var,
                 'dyn_ep_var' : ep_dyn_var,
-                'cost_ep_var' : ep_cost_var,
-                'rew_ep_var' : ep_rew_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,

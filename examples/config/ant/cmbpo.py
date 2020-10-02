@@ -46,16 +46,17 @@ params = {
         'cares_about_cost': False,
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' : 5.5,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 5.5,
-        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 5000, 4, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
+        'max_uncertainty_rew' : 4.0,
+        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [150, 2000, 8, 25], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'max_tddyn_err' : 0.08,
-        'max_tddyn_err_decay' : .9995,
+        'maxroll': 50,      ### only really relevant for iv gae
+        'max_tddyn_err' : 0.0025,
+        'max_tddyn_err_decay' : .9997,
         'batch_size_policy': 4096,              ### how many samples 
-        'min_real_samples_per_epoch': 1e2,
+        'min_real_samples_per_epoch': 128,
     }
 }

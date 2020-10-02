@@ -24,8 +24,8 @@ class ModelBuffer(CPOBuffer):
         self.pi_info_shapes = None
         self.ensemble_size = ensemble_size
         self.model_ind = np.random.randint(ensemble_size)
-        self.reset()
         self.rollout_mode = rollout_mode
+        self.reset()
         self.cares_about_cost = cares_about_cost
         self.max_uncertainty_r = max_uncertainty_r
         self.max_uncertainty_c = max_uncertainty_c
@@ -45,17 +45,26 @@ class ModelBuffer(CPOBuffer):
     def reset(self, batch_size=None , dynamics_normalization=1):
         if batch_size is not None:
             self.batch_size = batch_size
-        obs_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape)))
-        act_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.act_shape)))
-        ens_scalar_shape = (self.ensemble_size, self.batch_size, self.max_path_length)
+        if self.rollout_mode=='iv_gae':
+            obs_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape)))
+            act_buf_shape = combined_shape(self.ensemble_size, combined_shape(self.batch_size, combined_shape(self.max_path_length, self.act_shape)))
+            ens_scalar_shape = (self.ensemble_size, self.batch_size, self.max_path_length)
+        else:
+            obs_buf_shape = combined_shape(self.batch_size, combined_shape(self.max_path_length, self.obs_shape))
+            act_buf_shape = combined_shape(self.batch_size, combined_shape(self.max_path_length, self.act_shape))
+            ens_scalar_shape = (self.batch_size, self.max_path_length)
+
         single_scalar_shape = (self.batch_size, self.max_path_length)
 
         self.obs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.act_buf = np.zeros(act_buf_shape, dtype=np.float32)
+
+        self.dyn_error_buf = np.zeros(single_scalar_shape, dtype=np.float32)
+
         self.nextobs_buf = np.zeros(obs_buf_shape, dtype=np.float32)
         self.adv_buf = np.zeros(single_scalar_shape, dtype=np.float32)
         self.ret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)
-        self.ret_ep_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)    ## epistemic value variance
+        self.ret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)    ## epistemic value variance
         self.roll_lengths_buf = np.zeros(single_scalar_shape, dtype=np.float32)
         self.rew_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.rew_path_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
@@ -65,7 +74,7 @@ class ModelBuffer(CPOBuffer):
         #self.val_ep_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)      ## epistemic value variance
         self.cadv_buf = np.zeros(single_scalar_shape, dtype=np.float32)    
         self.cret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)   
-        self.cret_ep_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)   ## epistemic cost return variance
+        self.cret_var_buf = np.zeros(single_scalar_shape, dtype=np.float32)   ## epistemic cost return variance
         self.croll_lengths_buf = np.zeros(single_scalar_shape, dtype=np.float32)   
         self.cost_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    
         self.cost_path_var_buf = np.zeros(ens_scalar_shape, dtype=np.float32)    
@@ -76,8 +85,12 @@ class ModelBuffer(CPOBuffer):
         self.logp_buf = np.zeros(ens_scalar_shape, dtype=np.float32)
         self.term_buf = np.zeros(ens_scalar_shape, dtype=np.bool_)
         if self.pi_info_shapes:
-            self.pi_info_bufs = {k: np.zeros(shape=[self.ensemble_size, self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
-                                for k,v in self.pi_info_shapes.items()}
+            if self.rollout_mode == 'iv_gae':
+                self.pi_info_bufs = {k: np.zeros(shape=[self.ensemble_size, self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
+                                    for k,v in self.pi_info_shapes.items()}
+            else:
+                self.pi_info_bufs = {k: np.zeros(shape=[self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
+                                    for k,v in self.pi_info_shapes.items()}
 
         self.cutoff_horizons_mean = 0
         self.dyn_normalization = dynamics_normalization
@@ -100,7 +113,6 @@ class ModelBuffer(CPOBuffer):
                                                             np.repeat(np.arange(self.max_path_length)[None], axis=0, repeats=self.batch_size), \
                                                             np.zeros(self.batch_size, dtype=np.bool)
 
-
     @property
     def size(self):
         return self.populated_mask.sum()
@@ -115,32 +127,53 @@ class ModelBuffer(CPOBuffer):
     def alive_paths(self):
         return np.logical_not(self.terminated_paths_mask)
 
-    def store_multiple(self, obs, act, next_obs, rew, val, val_var, cost, cval, cval_var, logp, pi_info, term):
+    def store_multiple(self, obs, act, next_obs, rew, val, val_var, cost, cval, cval_var, dyn_error, logp, pi_info, term):
         assert (self.ptr < self.max_size).all()
-        assert obs.shape[1]==self.alive_paths.sum()   # mismatch of alive paths and input obs ! call alive_paths !
         alive_paths = self.alive_paths
         
-        self.obs_buf[:, alive_paths, self.ptr] = obs
-        self.act_buf[:, alive_paths, self.ptr] = act
-        self.nextobs_buf[:, alive_paths, self.ptr] = next_obs
-        self.rew_buf[:, alive_paths, self.ptr] = rew
-        #self.rew_path_var_buf[:, alive_paths, self.ptr] = rew_var
-        self.val_buf[:, alive_paths, self.ptr] = val
-        self.val_var_buf[:, alive_paths, self.ptr] = val_var
-        self.cost_buf[:, alive_paths, self.ptr] = cost
-        #self.cost_path_var_buf[:, alive_paths, self.ptr] = cost_var
-        self.cval_buf[:, alive_paths, self.ptr] = cval
-        self.cval_var_buf[:, alive_paths, self.ptr] = cval_var
-        self.logp_buf[:, alive_paths, self.ptr] = logp
-        self.term_buf[:, alive_paths, self.ptr] = term
-        for k in self.sorted_pi_info_keys:
-            self.pi_info_bufs[k][:, alive_paths, self.ptr] = pi_info[k]
+        if self.rollout_mode=='iv_gae':
+            self.obs_buf[:, alive_paths, self.ptr] = obs
+            self.act_buf[:, alive_paths, self.ptr] = act
+            self.nextobs_buf[:, alive_paths, self.ptr] = next_obs
+            self.rew_buf[:, alive_paths, self.ptr] = rew
+            #self.rew_path_var_buf[:, alive_paths, self.ptr] = rew_var
+            self.val_buf[:, alive_paths, self.ptr] = val
+            self.val_var_buf[:, alive_paths, self.ptr] = val_var
+            self.cost_buf[:, alive_paths, self.ptr] = cost
+            #self.cost_path_var_buf[:, alive_paths, self.ptr] = cost_var
+            self.cval_buf[:, alive_paths, self.ptr] = cval
+            self.cval_var_buf[:, alive_paths, self.ptr] = cval_var
+            self.logp_buf[:, alive_paths, self.ptr] = logp
+            self.term_buf[:, alive_paths, self.ptr] = term
+
+            for k in self.sorted_pi_info_keys:
+                self.pi_info_bufs[k][:, alive_paths, self.ptr] = pi_info[k]
+        else:
+            self.obs_buf[alive_paths, self.ptr] = obs
+            self.act_buf[alive_paths, self.ptr] = act
+            self.nextobs_buf[alive_paths, self.ptr] = next_obs
+            self.rew_buf[alive_paths, self.ptr] = rew
+            #self.rew_path_var_buf[:, alive_paths, self.ptr] = rew_var
+            self.val_buf[alive_paths, self.ptr] = val
+            self.val_var_buf[alive_paths, self.ptr] = val_var
+            self.cost_buf[alive_paths, self.ptr] = cost
+            #self.cost_path_var_buf[:, alive_paths, self.ptr] = cost_var
+            self.cval_buf[alive_paths, self.ptr] = cval
+            self.cval_var_buf[alive_paths, self.ptr] = cval_var
+            self.logp_buf[alive_paths, self.ptr] = logp
+            self.term_buf[alive_paths, self.ptr] = term
+
+            for k in self.sorted_pi_info_keys:
+                self.pi_info_bufs[k][alive_paths, self.ptr] = pi_info[k]
+
+        self.dyn_error_buf[alive_paths, self.ptr] = dyn_error
         self.populated_mask[alive_paths, self.ptr] = True
+
         
         self.ptr += 1
 
 
-    def finish_path_multiple(self, term_mask, last_val=0, last_val_var=0, last_cval=0, last_cval_var=0):
+    def finish_path_multiple(self, term_mask, last_val=0, last_cval=0):
         """
         finishes multiple paths according to term_mask. 
         Note: if the term_mask indicates to terminate a path that has not yet been populated,
@@ -165,21 +198,17 @@ class ModelBuffer(CPOBuffer):
         if self.ptr>0:
             path_slice = slice(self.path_start_idx, self.ptr)
             
-            rews = np.append(self.rew_buf[:, finish_mask, path_slice], last_val[..., None], axis=-1)
-            vals = np.append(self.val_buf[:, finish_mask, path_slice], last_val[..., None], axis=-1)
+            rews = np.append(self.rew_buf[..., finish_mask, path_slice], last_val[..., None], axis=-1)
+            vals = np.append(self.val_buf[..., finish_mask, path_slice], last_val[..., None], axis=-1)
             
-            # @anyboby maybe remove GMM variance
-            val_vars = np.append(self.val_var_buf[:, finish_mask, path_slice], last_val_var[..., None], axis=-1)
-            val_vars = np.mean(val_vars, axis=0) + np.mean(vals**2, axis=0) - (np.mean(vals, axis=0))**2 
-
-            #### only choose single trajectory for deltas
-            deltas = rews[self.model_ind][...,:-1] + self.gamma * vals[self.model_ind][..., 1:] - vals[self.model_ind][..., :-1]
 
             if self.rollout_mode=='iv_gae':
                 #=====================================================================#
                 #  Inverse Variance Weighted Advantages                               #
                 #=====================================================================#
-                
+                #### only choose single trajectory for deltas
+                deltas = rews[self.model_ind][...,:-1] + self.gamma * vals[self.model_ind][..., 1:] - vals[self.model_ind][..., :-1]
+
                 ### define some utility indices
                 t, t_p_h, h = triu_indices_t_h(size=deltas.shape[-1])
                 Ht, HH = np.diag_indices(deltas.shape[-1])
@@ -211,27 +240,18 @@ class ModelBuffer(CPOBuffer):
                 d_weight_mat = discount_cumsum(weight_mat, 1.0, 1.0, axis=-1)               #### sum from l to H to get the delta-weight-matrix
                 weight_norm = 1/d_weight_mat[..., 0]                                  #### normalize:
                 d_weight_mat[...,t,h] = d_weight_mat[...,t,h]*weight_norm[..., t]     ####    first entry for every t containts sum of all weights
-                
-                ######################
-                #### calculate aleatoric and epistemic return variances (later as variance correction targets)
-                al_var_mat = rew_var_t_h.copy()
-                al_var_mat[...,t,h] = rew_var_t_h[...,t,h] + val_vars[..., t_p_h+1]*disc_vec_sq[..., h+1]
 
-                ### squared weights for variances
-                al_var_weight_mat = al_var_mat.copy()
-                al_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t])**2 * al_var_mat[...,t,h]
-                
-                ep_var_weight_mat = al_var_mat.copy()
-                ep_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t])**2 * rew_var_t_h[...,t,h]
 
-                ### calculate (epistemic) iv-weighted advantages
+                #### this is a bit peculiar: variances reduce squared per definition in a weighted average, but does that make sense here ?
+                ####    should the uncertainty really be much lower only because there are more elements counted into the weighted average ?                                 
+                ep_var_weight_mat = np.zeros(shape=weight_mat.shape)
+                ep_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t]) * rew_var_t_h[...,t,h]
+                # ep_var_weight_mat[...,t,h] = (weight_mat[...,t, h]*weight_norm[..., t])**2 * rew_var_t_h[...,t,h]
+
                 ### calculate (epistemic) iv-weighted advantages
                 self.adv_buf[finish_mask, path_slice] = discount_cumsum_weighted(deltas, self.gamma, d_weight_mat)
 
                 self.ret_var_buf[finish_mask, path_slice] = \
-                    discount_cumsum_weighted(np.ones_like(deltas), 1.0, al_var_weight_mat)
-
-                self.ret_ep_var_buf[finish_mask, path_slice] = \
                     discount_cumsum_weighted(np.ones_like(deltas), 1.0, ep_var_weight_mat)
 
                 self.roll_lengths_buf[finish_mask, path_slice] = \
@@ -240,34 +260,29 @@ class ModelBuffer(CPOBuffer):
                 self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[self.model_ind, finish_mask, path_slice]
 
             else:
+                deltas = rews[...,:-1] + self.gamma * vals[..., 1:] - vals[..., :-1]
                 ### calculate (epistemic) iv-weighted advantages
                 self.adv_buf[finish_mask, path_slice] = discount_cumsum(deltas, self.gamma, self.lam, axis=-1)
                 #### R_t = A_GAE,t^iv + V_t
-                self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[self.model_ind, finish_mask, path_slice]
+                self.ret_buf[finish_mask, path_slice] = self.adv_buf[finish_mask, path_slice] + self.val_buf[finish_mask, path_slice]
 
-
-            costs = np.append(self.cost_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
-            cvals = np.append(self.cval_buf[:, finish_mask, path_slice], last_cval[..., None], axis=-1)
-
-            cval_vars = np.append(self.cval_var_buf[:, finish_mask, path_slice], last_cval_var[..., None], axis=-1)
-            # @anyboby maybe remove GMM variance
-            cval_vars = np.mean(cval_vars, axis=0) + np.mean(cval_vars**2, axis=0) - (np.mean(cval_vars, axis=0))**2 
-            
-            #### only choose single trajectory for deltas
-            cdeltas = costs[self.model_ind][...,:-1] + self.cost_gamma * cvals[self.model_ind][..., 1:] - cvals[self.model_ind][..., :-1]
+            costs = np.append(self.cost_buf[..., finish_mask, path_slice], last_cval[..., None], axis=-1)
+            cvals = np.append(self.cval_buf[..., finish_mask, path_slice], last_cval[..., None], axis=-1)
             
             if self.rollout_mode=='iv_gae':
                 #=====================================================================#
                 #  Inverse Variance Weighted Cost Advantages                          #
                 #=====================================================================#
+                #### only choose single trajectory for deltas
+                cdeltas = costs[self.model_ind][...,:-1] + self.cost_gamma * cvals[self.model_ind][..., 1:] - cvals[self.model_ind][..., :-1]
+
                 ### define some utility vectors for lambda and gamma
                 c_disc_vec = scipy.signal.lfilter([1], [1, float(-self.cost_gamma)], seed)     ### create vector of discounts
                 c_disc_vec_sq = scipy.signal.lfilter([1], [1, float(-(self.cost_gamma**2))], seed)     ### create vector of squared discounts
                 c_lam_vec = scipy.signal.lfilter([1], [1, float(-self.cost_lam*self.cost_gamma**2)], seed)     ### create vector of lambdas 
 
                 ### calculate empirial epistemic variance per trajectory and rollout length
-                ## @anyboby: for now without discount since we want the weighting to equal GAE for equal variances
-                c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=self.gamma) #self.gamma)
+                c_t_h = disc_cumsum_matrix(self.cost_buf[:, finish_mask, path_slice], discount=self.gamma)
                 c_t_h[..., t, h] += cvals[..., t_p_h+1]*c_disc_vec[..., h+1]
                 c_var_t_h = np.var(c_t_h, axis=0)       ### epistemic variances per timestep and rollout-length
                 
@@ -284,25 +299,16 @@ class ModelBuffer(CPOBuffer):
                 c_weight_norm = 1/cd_weight_mat[..., 0]                                  #### normalize:
                 cd_weight_mat[...,t,h] = cd_weight_mat[...,t,h]*c_weight_norm[..., t]     ####    first entry for every t containts sum of all weights
 
-                ######################
-                #### calculate aleatoric and epistemic return variances (later as variance correction targets)
-                c_al_var_mat = c_var_t_h.copy()
-                c_al_var_mat[...,t,h] = c_var_t_h[...,t,h] + cval_vars[..., t_p_h+1]*c_disc_vec_sq[..., h+1]
-
-                ### squared weights for variances
-                c_al_var_weight_mat = c_al_var_mat.copy()
-                c_al_var_weight_mat[...,t,h] = (c_weight_mat[...,t, h]*c_weight_norm[..., t])**2 * c_al_var_mat[...,t,h]
-
-                c_ep_var_weight_mat = c_al_var_mat.copy()
-                c_ep_var_weight_mat[...,t,h] = (c_weight_mat[...,t, h]*c_weight_norm[..., t])**2 * c_var_t_h[...,t,h]
+                #### this is a bit peculiar: variances reduce squared per definition in a weighted average, but does that make sense here ?
+                ####    should the uncertainty really be much lower only because there are more elements counted into the weighted average ? 
+                c_ep_var_weight_mat = np.zeros(shape=c_weight_mat.shape)
+                c_ep_var_weight_mat[...,t,h] = (c_weight_mat[...,t,h]*c_weight_norm[..., t]) * c_var_t_h[...,t,h]
+                # c_ep_var_weight_mat[...,t,h] = (c_weight_mat[...,t,h]*c_weight_norm[..., t])**2 * c_var_t_h[...,t,h]
 
                 ### calculate (epistemic) iv-weighted advantages
                 self.cadv_buf[finish_mask, path_slice] = discount_cumsum_weighted(cdeltas, self.cost_gamma, cd_weight_mat)
 
                 self.cret_var_buf[finish_mask, path_slice] = \
-                    discount_cumsum_weighted(np.ones_like(cdeltas), 1.0, c_al_var_weight_mat)
-
-                self.cret_ep_var_buf[finish_mask, path_slice] = \
                     discount_cumsum_weighted(np.ones_like(deltas), 1.0, c_ep_var_weight_mat)
 
                 self.croll_lengths_buf[finish_mask, path_slice] = \
@@ -310,10 +316,11 @@ class ModelBuffer(CPOBuffer):
                 #### R_t = A_GAE,t^iv + V_t
                 self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[self.model_ind, finish_mask, path_slice]
             else:
+                cdeltas = costs[...,:-1] + self.cost_gamma * cvals[..., 1:] - cvals[..., :-1]
                 ### calculate (epistemic) iv-weighted advantages
                 self.cadv_buf[finish_mask, path_slice] = discount_cumsum(cdeltas, self.cost_gamma, self.cost_lam, axis=-1)
                 #### R_t = A_GAE,t^iv + V_t
-                self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[self.model_ind, finish_mask, path_slice]
+                self.cret_buf[finish_mask, path_slice] = self.cadv_buf[finish_mask, path_slice] + self.cval_buf[finish_mask, path_slice]
                 
             #=====================================================================#
             #  Determine Rollout Lengths                                          #
@@ -364,12 +371,11 @@ class ModelBuffer(CPOBuffer):
             ret_mean = self.ret_buf[self.populated_mask].mean()
             cret_mean = self.cret_buf[self.populated_mask].mean()
 
-            ep_val_var = self.val_var_buf[self.model_ind, self.populated_mask].mean()
-            ep_cval_var = self.cval_var_buf[self.model_ind, self.populated_mask].mean()
-            ep_val_var_mean = np.mean(np.var(self.val_buf[:, self.populated_mask], axis=0))
-            ep_cval_var_mean = np.mean(np.var(self.cval_buf[:, self.populated_mask], axis=0))
-            ep_ret_var_mean = np.mean(self.ret_ep_var_buf[self.populated_mask])
-            ep_cret_var_mean = np.mean(self.cret_ep_var_buf[self.populated_mask])
+            ep_val_var = self.val_var_buf[..., self.populated_mask].mean()
+            ep_cval_var = self.cval_var_buf[..., self.populated_mask].mean()
+            
+            ep_ret_var_mean = np.mean(self.ret_var_buf[self.populated_mask])
+            ep_cret_var_mean = np.mean(self.cret_var_buf[self.populated_mask])
             norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/adv_var
             norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/cadv_var
             avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
@@ -396,9 +402,6 @@ class ModelBuffer(CPOBuffer):
             # tdr_m25 =np.mean(tdr_mean[...,25][self.populated_mask[...,25]])
             # tdr_var = np.var(deltas_r[self.model_ind, self.populated_mask[...,:-1]])
 
-            tdc_mean = np.var(deltas_c, axis=0)
-            tdc_n = np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0)+EPS)
-
             # tdc_1 = np.mean(tdc_n[...,1][self.populated_mask[...,1]])
             # tdc_3 = np.mean(tdc_n[...,3][self.populated_mask[...,3]])
             # tdc_5 = np.mean(tdc_n[...,5][self.populated_mask[...,5]])
@@ -413,12 +416,20 @@ class ModelBuffer(CPOBuffer):
             # tdc_m25 =np.mean(tdc_mean[...,25][self.populated_mask[...,25]])
             # tdc_var = np.var(deltas_c[self.model_ind, self.populated_mask[...,:-1]])
 
-            delta_obs = self.nextobs_buf-self.obs_buf
-            td_dyn_m = np.mean(np.var(delta_obs, axis=0)[self.populated_mask])
+            td_dyn_m = np.mean(self.dyn_error_buf[self.populated_mask])
             td_dyn_n =  td_dyn_m/self.dyn_normalization
 
-            tdc_overall = np.mean(np.var(deltas_c, axis=0)[self.populated_mask[...,:-1]])
-            tdr_overall = np.mean(np.var(deltas_r, axis=0)[self.populated_mask[...,:-1]])
+            if self.rollout_mode == 'iv_gae':
+                tdc_mean = np.var(deltas_c, axis=0)
+                tdc_n = np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0)+EPS)
+
+                tdc_overall = np.mean(np.var(deltas_c, axis=0)[self.populated_mask[...,:-1]])
+                tdr_overall = np.mean(np.var(deltas_r, axis=0)[self.populated_mask[...,:-1]])
+            else:
+                tdc_mean = 0
+                tdc_n = 0
+                tdc_overall =0
+                tdr_overall=0
 
             cutoff_horizons_mean = self.populated_mask.sum()/self.batch_size
         else:
@@ -426,8 +437,6 @@ class ModelBuffer(CPOBuffer):
             cret_mean = 0
             ep_val_var = 0
             ep_cval_var = 0
-            ep_val_var_mean = 0
-            ep_cval_var_mean = 0
             ep_ret_var_mean = 0
             ep_cret_var_mean = 0
             norm_adv_var_mean = 0
@@ -467,13 +476,18 @@ class ModelBuffer(CPOBuffer):
             td_dyn_n = 0
                 
 
-
-        res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,
-                self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
-                self.logp_buf[self.model_ind], self.val_buf[self.model_ind], self.val_var_buf[self.model_ind], 
-                self.cval_buf[self.model_ind], self.cval_var_buf[self.model_ind], self.cost_buf[self.model_ind]] \
-                + [v[self.model_ind] for v in values_as_sorted_list(self.pi_info_bufs)]
-
+        if self.rollout_mode=='iv_gae':
+            res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,
+                    self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
+                    self.logp_buf[self.model_ind], self.val_buf[self.model_ind], self.val_var_buf[self.model_ind], 
+                    self.cval_buf[self.model_ind], self.cval_var_buf[self.model_ind], self.cost_buf[self.model_ind]] \
+                    + [v[self.model_ind] for v in values_as_sorted_list(self.pi_info_bufs)]
+        else:
+            res = [self.obs_buf, self.act_buf, self.adv_buf, self.ret_var_buf,
+                    self.cadv_buf, self.cret_var_buf, self.ret_buf, self.cret_buf, 
+                    self.logp_buf, self.val_buf, self.val_var_buf, 
+                    self.cval_buf, self.cval_var_buf, self.cost_buf] \
+                    + [v for v in values_as_sorted_list(self.pi_info_bufs)]
         # filter out unpopulated entries / finished paths
         res = [buf[self.populated_mask] for buf in res]
         diagnostics = dict( poolm_batch_size = self.populated_mask.sum(), 
@@ -481,8 +495,6 @@ class ModelBuffer(CPOBuffer):
                             poolm_cret_mean=cret_mean, 
                             poolm_val_var_mean = ep_val_var,
                             poolm_cval_var_mean = ep_cval_var,
-                            poolm_ep_val_var_mean = ep_val_var_mean,
-                            poolm_ep_cval_var_mean = ep_cval_var_mean,
                             poolm_ep_ret_var_mean = ep_ret_var_mean,
                             poolm_ep_cret_var_mean = ep_cret_var_mean,
                             poolm_norm_adv_var = norm_adv_var_mean, 
