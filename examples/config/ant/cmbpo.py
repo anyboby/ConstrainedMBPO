@@ -11,12 +11,13 @@ params = {
     'use_mjc_state_model': False,      
 
     'kwargs': {
-        'n_epochs': 10000,
+        'n_epochs': 100000,
         'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
-        'eval_n_episodes': 1,
+        'eval_n_episodes': 5,
+        'eval_every_n_steps': 10e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -48,15 +49,15 @@ params = {
         'cost_m_discount' : 1,
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 4.0,
-        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 2000, 8, 25], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [150, 4000, 4, 6], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 50,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.0025,
-        'max_tddyn_err_decay' : .9997,
-        'batch_size_policy': 4096,              ### how many samples 
-        'min_real_samples_per_epoch': 128,
+        'maxroll': 35,      ### only really relevant for iv gae
+        'max_tddyn_err' : 0.003,
+        'max_tddyn_err_decay' : .9999,
+        'batch_size_policy': 8096,              ### how many samples 
+        'min_real_samples_per_epoch': 96,
     }
 }

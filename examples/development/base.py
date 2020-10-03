@@ -48,7 +48,7 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              0.0,
-        'target_kl':            0.13,
+        'target_kl':            0.1,
         'cost_lim_end':         25e3,
         'cost_lim':             25e3,
         'cost_lam':             .98,
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(100), #5000
         }
     },
     'SQL': {
@@ -158,12 +158,12 @@ ALGORITHM_PARAMS_ADDITIONAL = {
 DEFAULT_NUM_EPOCHS = 200
 
 NUM_EPOCHS_PER_DOMAIN = {
-    'Swimmer': int(3e3),
-    'Hopper': int(1e3),
-    'HalfCheetah': int(3e3),
-    'Walker2d': int(3e3),
-    'Ant': int(3e3),
-    'Humanoid': int(1e4),
+    # 'Swimmer': int(3e3),
+    # 'Hopper': int(1e3),
+    # 'HalfCheetah': int(3e3),
+    # 'Walker2d': int(3e3),
+    # 'Ant': int(3e3),
+    # 'Humanoid': int(1e4),
     'Pusher2d': int(2e3),
     'HandManipulatePen': int(1e4),
     'HandManipulateEgg': int(1e4),
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(6e4),
+                    'CPOBuffer':int(10e4),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

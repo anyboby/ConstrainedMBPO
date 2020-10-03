@@ -71,6 +71,7 @@ class CMBPO(RLAlgorithm):
             action_prior='uniform',
             reparameterize=False,
             store_extra_policy_info=False,
+            eval_every_n_steps=5e3,
 
             deterministic=False,
             model_train_freq=250,
@@ -155,6 +156,7 @@ class CMBPO(RLAlgorithm):
         self._max_model_t = max_model_t
 
         self._model_retain_epochs = model_retain_epochs
+        self.eval_every_n_steps= eval_every_n_steps
 
         self._dyn_model_train_schedule = dyn_model_train_schedule
         self._cost_model_train_schedule = cost_model_train_schedule
@@ -289,6 +291,7 @@ class CMBPO(RLAlgorithm):
         gt.set_def_unique(False)
         self.policy_epoch = 0       ### count policy updates
         self.new_real_samples = 0
+        self.last_eval_step = 0
         self.approx_model_batch = 0.5*self.batch_size_policy    ### some size to start off
 
         #### not implemented, could train policy before hook
@@ -465,34 +468,31 @@ class CMBPO(RLAlgorithm):
 
             #=====================================================================#
 
-            training_paths = self.sampler.get_last_n_paths(
-                math.ceil(self._epoch_length / self.sampler._max_path_length))
-            gt.stamp('training_paths')
-            evaluation_paths = self._evaluation_paths(
-                policy, evaluation_environment)
-            gt.stamp('evaluation_paths')
+            if self._total_timestep // self.eval_every_n_steps > self.last_eval_step:
+                evaluation_paths = self._evaluation_paths(
+                    policy, evaluation_environment)
+                gt.stamp('evaluation_paths')
+                
+                self.last_eval_step = self._total_timestep // self.eval_every_n_steps
+            else: 
+                evaluation_paths = []
 
-            training_metrics = self._evaluate_rollouts(
-                training_paths, training_environment)
-            gt.stamp('training_metrics')
             if evaluation_paths:
                 evaluation_metrics = self._evaluate_rollouts(
                     evaluation_paths, evaluation_environment)
                 gt.stamp('evaluation_metrics')
+                diag_obs_batch = np.concatenate(([evaluation_paths[i]['observations'] for i in range(len(evaluation_paths))]), axis=0)
             else:
                 evaluation_metrics = {}
+                diag_obs_batch = []
 
-
-            self._epoch_after_hook(training_paths)
             gt.stamp('epoch_after_hook')
 
             sampler_diagnostics = self.sampler.get_diagnostics()
 
-            diag_obs_batch = np.concatenate(([evaluation_paths[i]['observations'] for i in range(len(evaluation_paths))]), axis=0)
             diagnostics = self.get_diagnostics(
                 iteration=self._total_timestep,
                 obs_batch=diag_obs_batch,
-                training_paths=training_paths,
                 evaluation_paths=evaluation_paths)
 
             time_diagnostics = gt.get_times().stamps.itrs
@@ -504,10 +504,6 @@ class CMBPO(RLAlgorithm):
                 *(
                     (f'evaluation/{key}', evaluation_metrics[key])
                     for key in sorted(evaluation_metrics.keys())
-                ),
-                *(
-                    (f'training/{key}', training_metrics[key])
-                    for key in sorted(training_metrics.keys())
                 ),
                 *(
                     (f'times/{key}', time_diagnostics[key][-1])
@@ -693,9 +689,9 @@ class CMBPO(RLAlgorithm):
 
     def get_diagnostics(self,
                         iteration,
-                        obs_batch,
-                        training_paths,
-                        evaluation_paths):
+                        obs_batch = None,
+                        training_paths = None,
+                        evaluation_paths = None):
         """Return diagnostic information as ordered dictionary.
 
         Records state value function, and TD-loss (mean squared Bellman error)
@@ -707,18 +703,20 @@ class CMBPO(RLAlgorithm):
         # @anyboby 
         warnings.warn('diagnostics not implemented yet!')
 
-        diagnostics = OrderedDict({
-            })
+        # diagnostics = OrderedDict({
+        #     })
 
-        policy_diagnostics = self._policy.get_diagnostics(                  #use eval paths
-            obs_batch[:,-self.active_obs_dim:])
-        diagnostics.update({
-            f'policy/{key}': value
-            for key, value in policy_diagnostics.items()
-        })
+        # policy_diagnostics = self._policy.get_diagnostics(                  #use eval paths
+        #     obs_batch[:,-self.active_obs_dim:])
+        # diagnostics.update({
+        #     f'policy/{key}': value
+        #     for key, value in policy_diagnostics.items()
+        # })
 
-        if self._plotter:
-            self._plotter.draw()
+        # if self._plotter:
+        #     self._plotter.draw()
+
+        diagnostics = {}
 
         return diagnostics
 

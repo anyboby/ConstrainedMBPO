@@ -71,7 +71,7 @@ class FakeEnv:
                                         weighted=dyn_discount<1,    
                                         use_scaler_in = True,
                                         use_scaler_out = True,
-                                        decay=3e-4,
+                                        decay=1e-5,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
                                         min_logvar=-10,
@@ -245,7 +245,7 @@ class FakeEnv:
             train_inputs_dyn, train_outputs_dyn, weights = format_samples_for_dyn(samples, 
                                                                         priors=priors,
                                                                         discount=discount,
-                                                                        #noise=1e-4
+                                                                        noise=1e-4
                                                                         )
             kwargs['weights'] = weights
             model_metrics = self._model.train(train_inputs_dyn, 
@@ -256,7 +256,7 @@ class FakeEnv:
         else:
             train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                         priors=priors,
-                                                                        #noise=1e-4
+                                                                        noise=1e-4
                                                                         )
             
             model_metrics = self._model.train(train_inputs_dyn, 
@@ -280,7 +280,7 @@ class FakeEnv:
                                                             one_hot=self.cost_m_loss=='CE',
                                                             priors=priors,
                                                             discount=discount,
-                                                            # noise=1e-4
+                                                            noise=1e-4
                                                             )
                 kwargs['weights'] = weights
                 cost_model_metrics = self._cost_model.train(inputs,
@@ -291,7 +291,7 @@ class FakeEnv:
                 inputs, targets = format_samples_for_cost(samples, 
                                                             one_hot=self.cost_m_loss=='CE',
                                                             priors=priors,
-                                                            # noise=1e-4
+                                                            noise=1e-4
                                                             )
                 #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
