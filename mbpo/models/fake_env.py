@@ -164,8 +164,10 @@ class FakeEnv:
         #ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
         if obs_depth==3:
             ep_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
+            ep_dyn_var_traj = np.var(ensemble_dyn_means, axis=0)
         else:
             ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
+            ep_dyn_var_traj = 0
         
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ep_dyn_var)
@@ -198,6 +200,7 @@ class FakeEnv:
             terminals = self.static_done(obs, act, next_obs, self.env)    ### non terminal for goal, but rebuild goal 
         else:
             terminals = self.static_done(obs, act, next_obs)
+            terminals = np.zeros_like(terminals, dtype=np.bool)
 
         if 'Safexp' in self.domain:
             next_obs = self.post_f(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
@@ -229,6 +232,7 @@ class FakeEnv:
         info = {
                 'dyn_ensemble_dkl_med' : ensemble_dkl_med,
                 'dyn_ep_var' : ep_dyn_var,
+                'dyn_ep_var_traj': ep_dyn_var_traj,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,
@@ -266,6 +270,21 @@ class FakeEnv:
         self.dyn_target_var_rm = np.var(train_outputs_dyn)
 
         return model_metrics
+
+    def validate_dyn_model(self, samples, discount=1):
+        priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
+
+        train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
+                                                                    priors=priors,
+                                                                    noise=1e-4,
+                                                                    discount=discount
+                                                                    )
+        
+        result = self._model.validate(train_inputs_dyn, 
+                                            train_outputs_dyn, 
+                                            )
+
+        return result
 
     def train_cost_model(self, samples, discount=1, **kwargs):        
         # check priors

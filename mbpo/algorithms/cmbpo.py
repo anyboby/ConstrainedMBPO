@@ -16,7 +16,7 @@ import warnings
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.training import training_util
-
+import matplotlib.pyplot as plt
 
 from softlearning.algorithms.rl_algorithm import RLAlgorithm
 from softlearning.replay_pools.simple_replay_pool import SimpleReplayPool
@@ -363,6 +363,15 @@ class CMBPO(RLAlgorithm):
                     ### diagnostics for rollout ###
                     rollout_diagnostics = self.model_sampler.finish_all_paths()
 
+                    dyn_err, traj_err = self.model_sampler.get_error_visualization()
+
+                    with open (f"dynerr_{self.sampler._total_samples-self._epoch*2}", "wb") as f:
+                        pickle.dump(dyn_err, f)
+                    with open (f"trajerr_{self.sampler._total_samples-self._epoch*2}", "wb") as f:
+                        pickle.dump(traj_err, f)
+
+                    #self._visualize_errors(np.arange(self.model_sampler._max_path_length), [dyn_err, traj_err], )
+
                     ######################################################################
                     ### get model_samples, get() invokes the inverse variance rollouts ###
                     model_samples_new, buffer_diagnostics_new = self.model_pool.get()
@@ -370,7 +379,7 @@ class CMBPO(RLAlgorithm):
 
                     #model_metrics.update(buffer_diagnostics)
                     new_n_samples = len(model_samples_new[0])
-                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+samples_added))
+                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+samples_added+EPS))
 
                     ######################################################################
 
@@ -378,17 +387,18 @@ class CMBPO(RLAlgorithm):
                     if buffer_diagnostics_new['poolm_batch_size']>0:
                         model_data_diag = self._policy.run_diagnostics(model_samples_new)
                         model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
-                        #model_metrics.update(model_data_diag)
-                    model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+samples_added))
-                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+samples_added))
+                        model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+samples_added+EPS))
+                    
+                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+samples_added+EPS))
                     
                     samples_added += new_n_samples
                     model_metrics.update({'samples_added':samples_added})
 
                     td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
             
-                    self.approx_model_batch = min(self.max_tddyn_err*self.batch_size_policy / td_dyn_err, self.batch_size_policy-self.min_real_samples_per_epoch)
+                    self.approx_model_batch = min(self.max_tddyn_err*self.batch_size_policy / (EPS+td_dyn_err), self.batch_size_policy-self.min_real_samples_per_epoch)
                     keep_rolling = not(samples_added > .95*self.approx_model_batch)
+                    keep_rolling = False
                     
                 gt.stamp('epoch_rollout_model')
                 model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
@@ -398,6 +408,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             
             n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
+            n_real_samples = 5000
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
             ### train for epoch_length ###
@@ -427,7 +438,7 @@ class CMBPO(RLAlgorithm):
             #  Train model                                                        #
             #=====================================================================#
             if self.new_real_samples>1024 and self._real_ratio<1.0:
-                model_diag = self.train_model(min_epochs=15, max_epochs=150)
+                model_diag = self.train_model(min_epochs=15, max_epochs=50000)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)
 
@@ -448,13 +459,13 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
 
-            self._policy.update_policy(train_samples)
-            self._policy.update_critic(train_samples)
+            # self._policy.update_policy(train_samples)
+            # self._policy.update_critic(train_samples)
             
             self.policy_epoch += 1
             self.max_tddyn_err *= self.max_tddyn_err_decay
             #### log policy diagnostics
-            self._policy.log()
+            # self._policy.log()
 
             gt.stamp('train')
             #=====================================================================#
@@ -559,31 +570,31 @@ class CMBPO(RLAlgorithm):
         
         ### train model
         if self._real_ratio<1.0:
-            self.train_model(min_epochs=150, max_epochs=500)
+            self.train_model(min_epochs=150, max_epochs=50000)
 
         ### train critic
-        critic_samples = self._pool.get_archive([     #### include initial expl. hook samples
-                'observations',
-                'actions',
-                'advantages',
-                'return_vars',
-                'cadvantages',
-                'creturn_vars',
-                'returns',
-                'creturns',
-                'log_policies',
-                'values',
-                'value_vars',
-                'cvalues',
-                'cvalue_vars',
-                'costs',
-                'pi_infos',
-            ])
-        critic_samples = list(critic_samples.values())       ### samples from initial exploration hook
+        # critic_samples = self._pool.get_archive([     #### include initial expl. hook samples
+        #         'observations',
+        #         'actions',
+        #         'advantages',
+        #         'return_vars',
+        #         'cadvantages',
+        #         'creturn_vars',
+        #         'returns',
+        #         'creturns',
+        #         'log_policies',
+        #         'values',
+        #         'value_vars',
+        #         'cvalues',
+        #         'cvalue_vars',
+        #         'costs',
+        #         'pi_infos',
+        #     ])
+        # critic_samples = list(critic_samples.values())       ### samples from initial exploration hook
         
-        self._policy.update_critic(critic_samples, 
-                                    min_epoch_before_break = 10, 
-                                    max_epochs=350)
+        # self._policy.update_critic(critic_samples, 
+        #                             min_epoch_before_break = 10, 
+        #                             max_epochs=350)
 
     def train_model(self, min_epochs=50, max_epochs=500, batch_size=2048):
         self._dyn_model_train_freq = self._set_model_train_freq(
@@ -672,6 +683,27 @@ class CMBPO(RLAlgorithm):
             self._epoch, min_epoch, max_epoch, var, min_freq, max_freq
         ))
         return var
+
+    def _visualize_errors(self, x, errors, xlabels=None, ylabels=None, title='plot'):
+        plt.figure(figsize=(20,10))
+        colors = ['orange', 'red', 'blue', 'green', 'black', 'violet']
+        plt.title(title)
+        for i in range(len(errors)):
+            if xlabels:
+                xlabel = xlabels[i]
+            else: 
+                xlabel = None
+            if ylabels:
+                ylabel = ylabels[i]
+            else: 
+                ylabel = None
+            
+            plt.xlabel(xlabel)
+            plt.xlabel(ylabel)
+            plt.yscale('log')
+            plt.plot(x, errors[i], color=colors[i%5])
+        plt.show()
+        print('t')
 
     def _visualize_model(self, env, timestep):
         ## save env state

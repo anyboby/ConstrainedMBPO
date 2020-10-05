@@ -12,7 +12,7 @@ params = {
 
     'kwargs': {
         'n_epochs': 10000,
-        'epoch_length': 2048, #1000,    # samples per epoch, also determines train frequency 
+        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
@@ -31,24 +31,32 @@ params = {
                                           # 3. try finding a balance between the size of new samples per number of
                                           #  updates of the model network (with model_train_freq)
 
-        'hidden_dims':(512, 512),               # hidden layer size of model bnn
+        'hidden_dims':(512,512), #(512, 512, 512, 512),               # hidden layer size of model bnn
         'model_train_freq': 4000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 2e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 1e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
-        'real_ratio': .05,#0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 0.05, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
-        'rollout_schedule': [15, 250, 35, 40], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
-                                                    # increases rollout length from min_length to max_length over 
-                                                    # range of (min_epoch, max_epoch)
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
+        'cares_about_cost': False,
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' : 1000,
-        'max_uncertainty_rew' : 1000,
+        'max_uncertainty_c' :40000,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
+        'max_uncertainty_rew' : 40000,
+        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [150, 4000, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+                                                    # increases rollout length from min_length to max_length over 
+                                                    # range of (min_epoch, max_epoch)
+                                                    ### Only applies if rollout_mode=='schedule'
+        'maxroll': 45,      ### only really relevant for iv gae
+        'max_tddyn_err' : 0.003,
+        'max_tddyn_err_decay' : .9999,
+        'batch_size_policy': 8096,              ### how many samples 
+        'min_real_samples_per_epoch': 96,
     }
 }

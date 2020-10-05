@@ -204,7 +204,10 @@ class ModelSampler(CpoSampler):
         self._path_return_var = np.zeros(self.batch_size)
         self._path_cost_var = np.zeros(self.batch_size)
         self._path_dyn_var = np.zeros(self.batch_size)
-        
+
+        self._path_dyn_var_perstep = np.zeros(self._max_path_length)
+        self._path_dyn_var_traj_perstep = np.zeros(self._max_path_length)
+
         self.model_inds = np.random.randint(self.ensemble_size)
 
         self._total_samples = 0
@@ -261,7 +264,7 @@ class ModelSampler(CpoSampler):
         terminal = np.squeeze(terminal, axis=-1)
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_ep_var = info.get('dyn_ep_var', np.zeros(shape=reward.shape[1:]))
-
+        dyn_ep_var_traj = info.get('dyn_ep_var_traj', np.zeros(shape=reward.shape[1:]))
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
@@ -340,6 +343,10 @@ class ModelSampler(CpoSampler):
         self._path_length[alive_paths] += 1
         self._path_dyn_var[alive_paths] += np.mean(dyn_ep_var, axis=-1)
         self._total_dyn_var += dyn_ep_var.sum()
+
+
+        self._path_dyn_var_perstep[self._n_episodes] = np.mean(dyn_ep_var)
+        self._path_dyn_var_traj_perstep[self._n_episodes] = np.mean(dyn_ep_var_traj)
 
         if self.rollout_mode=='iv_gae':
             self._total_Vs += v_t[self.model_inds].sum()
@@ -476,6 +483,9 @@ class ModelSampler(CpoSampler):
 
     def set_max_uncertainty(self, max_uncertainty):
         self.max_uncertainty = max_uncertainty
+    
+    def get_error_visualization(self):
+        return self._path_dyn_var_perstep, self._path_dyn_var_traj_perstep
 
     def log(self):
         """

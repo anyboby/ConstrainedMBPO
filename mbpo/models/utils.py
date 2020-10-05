@@ -131,7 +131,6 @@ class TensorStandardScaler:
         batch_mu = np.mean(data, axis=0, keepdims=True)
         batch_var = np.var(data, axis=0, keepdims=True)
         new_mean, new_var, new_count = self.running_mean_var_from_batch(batch_mu, batch_var, batch_count)
-        #sigma[sigma < 1e-8] = 1.0
         self.mu.load(new_mean)
         self.var.load(new_var)
         self.count.load(new_count)
@@ -158,7 +157,7 @@ class TensorStandardScaler:
         # scaling = 1+self.sc_factor*(self.sigma-1)
         # scaling = tf.clip_by_value(scaling, 1.0e-8, 1.0e8)
 
-        scaled_transform = (data-self.mu)/(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-2))
+        scaled_transform = (data-self.mu)/(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-3))
         return scaled_transform
 
     def inverse_transform(self, data):
@@ -212,6 +211,7 @@ class TensorStandardScaler:
         m_b = batch_var * batch_count
         M2 = m_a + m_b + np.square(delta) * self.cached_count * batch_count / tot_count
         new_var = M2 / tot_count
+        new_var[new_var<1e-8] = 1
         new_count = tot_count
 
         return new_mean, new_var, new_count
