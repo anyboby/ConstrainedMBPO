@@ -11,8 +11,8 @@ params = {
     'use_mjc_state_model': False,      
 
     'kwargs': {
-        'n_epochs': 10000,
-        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
+        'n_epochs': 45,
+        'epoch_length': 120000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
@@ -34,7 +34,7 @@ params = {
         'hidden_dims':(512,512), #(512, 512, 512, 512),               # hidden layer size of model bnn
         'model_train_freq': 4000,        # model is only trained every (self._timestep % self._model_train_freq==0) steps (terminates when stops improving)
         'model_retain_epochs': 1,       # how many rollouts over the last epochs should be retained in the model_pool (therefore directly affects model_pool size)
-        'rollout_batch_size': 1e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
+        'rollout_batch_size': 10.0e3,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
@@ -46,9 +46,9 @@ params = {
         'cares_about_cost': False,
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
-        'max_uncertainty_c' :40000,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 40000,
-        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
+        'max_uncertainty_rew' : 4.0,
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
         'rollout_schedule': [150, 4000, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)

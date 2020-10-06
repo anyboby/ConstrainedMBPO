@@ -58,6 +58,28 @@ class FakeEnv:
         output_dim_dyn = self.active_obs_dim + self.rew_dim
         self.dyn_loss = 'MSE'
 
+        self._valid_models = []
+        for i in range(20):
+            model = construct_model(in_dim=input_dim_dyn, 
+                                        out_dim=output_dim_dyn,
+                                        name=f'ValidModel_{i}',
+                                        loss=self.dyn_loss,
+                                        hidden_dims=hidden_dims,
+                                        lr=3e-4, 
+                                        # lr_decay=0.96,
+                                        # decay_steps=10000,  
+                                        num_networks=num_networks, 
+                                        num_elites=num_elites,
+                                        weighted=dyn_discount<1,    
+                                        use_scaler_in = True,
+                                        use_scaler_out = True,
+                                        decay=1e-5,
+                                        #sc_factor=1-1e-5,
+                                        max_logvar=.5,
+                                        min_logvar=-10,
+                                        session=self._session)
+            self._valid_models.append(model)
+
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
                                         name='BNN',
@@ -267,24 +289,60 @@ class FakeEnv:
                                                 train_outputs_dyn, 
                                                 **kwargs,
                                                 )
+                    
         self.dyn_target_var_rm = np.var(train_outputs_dyn)
 
+        inputs = []
+        targets = []
+        self.target_vars = []
+        for i in range(20):
+            inputs1 = train_inputs_dyn[:(i+1)*len(train_inputs_dyn)//20]
+            target = train_outputs_dyn[:(i+1)*len(train_outputs_dyn)//20]
+            self.target_vars.append(np.var(target))
+            inputs.append(inputs1)
+            targets.append(target)
+        for i in range(20):
+            self._valid_models[i].train(inputs[i], 
+                                            targets[i], 
+                                            **kwargs,
+                                            )
         return model_metrics
 
     def validate_dyn_model(self, samples, discount=1):
         priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
-        train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
+        inputs, targets = format_samples_for_dyn(samples, 
                                                                     priors=priors,
                                                                     noise=1e-4,
                                                                     discount=discount
                                                                     )
         
-        result = self._model.validate(train_inputs_dyn, 
-                                            train_outputs_dyn, 
-                                            )
+        results = np.zeros(20)
+        for i in range(20):
+            results[i] = self._valid_models[i].validate(inputs, 
+                                                        targets, 
+                                                        )
+            results[i] /= self.target_vars[i]                                                    
 
-        return result
+        return results
+
+    def validate_uncertainty_pred(self, samples, discount=1):
+        priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
+        
+        inputs, targets = format_samples_for_dyn(samples, 
+                                                                    priors=priors,
+                                                                    noise=1e-4,
+                                                                    discount=discount
+                                                                    )
+        
+        results = np.zeros(20)
+        for i in range(20):
+            means = self._valid_models[i].predict(inputs, factored=True, inc_var=False)
+            uncertainty_pred = np.mean(np.var(means, axis=0))
+            results[i] = uncertainty_pred
+            results[i] /= self.target_vars[i]
+        return results
+
 
     def train_cost_model(self, samples, discount=1, **kwargs):        
         # check priors

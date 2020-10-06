@@ -334,6 +334,8 @@ class BNN:
             #     self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights) ### use normal loss for displaying
             #     self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
+            self.valid_loss = self._mse_loss(self.sy_train_in, self.sy_train_targ)
+
             #### _________________________ ####  
             ####      Optimization Ops     ####
             #### _________________________ ####
@@ -458,7 +460,7 @@ class BNN:
         inputs = np.tile(inputs[None], [self.num_nets, 1, 1])
         targets = np.tile(targets[None], [self.num_nets, 1, 1])
         losses = self.sess.run(
-            self.loss,
+            self.valid_loss,
             feed_dict={
                 self.sy_train_in: inputs,
                 self.sy_train_targ: targets
@@ -997,6 +999,11 @@ class BNN:
 
         return total_losses
 
+    def _mse_loss(self, inputs, targets):
+        mean = self._compile_outputs(inputs, scale_output=True)
+        mse_loss = tf.reduce_mean(tf.reduce_mean(tf.square(mean-targets), axis=-1), axis=-1)
+
+        return mse_loss
 
     def _ce_loss(self, inputs, targets, tensor_loss=False, weights=None):
         """Helper method for compiling the NLL loss function.

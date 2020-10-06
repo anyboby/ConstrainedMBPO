@@ -285,6 +285,9 @@ class CMBPO(RLAlgorithm):
         self.sampler.initialize(training_environment, policy, pool)
         self.model_sampler.initialize(self.fake_env, policy, self.model_pool)
 
+        self.polerr_mse = np.zeros(shape=(self._n_epochs, 20))
+        self.polerr_uncert_pred = np.zeros(shape=(self._n_epochs, 20))
+
         #### reset gtimer (for coverage of project development)
         gt.reset_root()
         gt.rename_root('RLAlgorithm')
@@ -317,7 +320,7 @@ class CMBPO(RLAlgorithm):
             keep_rolling = True
             model_metrics = {}
             #### start model rollout
-            if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+            if False: #self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
                 if self.rollout_mode == 'schedule':
                     self._set_rollout_length()
 
@@ -364,11 +367,6 @@ class CMBPO(RLAlgorithm):
                     rollout_diagnostics = self.model_sampler.finish_all_paths()
 
                     dyn_err, traj_err = self.model_sampler.get_error_visualization()
-
-                    with open (f"dynerr_{self.sampler._total_samples-self._epoch*2}", "wb") as f:
-                        pickle.dump(dyn_err, f)
-                    with open (f"trajerr_{self.sampler._total_samples-self._epoch*2}", "wb") as f:
-                        pickle.dump(traj_err, f)
 
                     #self._visualize_errors(np.arange(self.model_sampler._max_path_length), [dyn_err, traj_err], )
 
@@ -437,14 +435,17 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>1024 and self._real_ratio<1.0:
-                model_diag = self.train_model(min_epochs=15, max_epochs=50000)
-                self.new_real_samples = 0
-                model_metrics.update(model_diag)
+            # if self.new_real_samples>1024 and self._real_ratio<1.0:
+            #     model_diag = self.train_model(min_epochs=15, max_epochs=50000)
+            #     self.new_real_samples = 0
+            #     model_metrics.update(model_diag)
 
             #=====================================================================#
             #  Get Buffer Data                                                    #
             #=====================================================================#
+            rew_buf = self._pool.rew_buf[:self._pool.ptr].copy()
+            term_buf = self._pool.term_buf[:self._pool.ptr].copy()
+
             real_samples, buf_diag = self._pool.get()
 
             ### run diagnostics on real data
@@ -458,9 +459,26 @@ class CMBPO(RLAlgorithm):
             #  Update Policy                                                      #
             #=====================================================================#
             train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
+            
 
-            # self._policy.update_policy(train_samples)
-            # self._policy.update_critic(train_samples)
+            validation_samples = {
+                'observations':real_samples[0][:-1],
+                'actions':real_samples[1][:-1],
+                'next_observations':real_samples[0][1:],
+                'rewards':rew_buf[:-1],
+                'costs':rew_buf[:-1],
+                'terminals':term_buf[:-1],
+            }
+
+            val_res = self.fake_env.validate_dyn_model(validation_samples)
+            uncertainty_pred_res = self.fake_env.validate_uncertainty_pred(validation_samples)
+
+            self.polerr_mse[self._epoch] = val_res
+            self.polerr_uncert_pred[self._epoch] = uncertainty_pred_res
+
+
+            self._policy.update_policy(real_samples)
+            self._policy.update_critic(real_samples)
             
             self.policy_epoch += 1
             self.max_tddyn_err *= self.max_tddyn_err_decay
@@ -546,6 +564,12 @@ class CMBPO(RLAlgorithm):
 
         self._training_progress.close()
 
+        with open (f"polerr_mse_{self._n_initial_exploration_steps}", "wb") as f:
+            pickle.dump(self.polerr_mse, f)
+        with open (f"polerr_uncert_pred{self._n_initial_exploration_steps}", "wb") as f:
+            pickle.dump(self.polerr_uncert_pred, f)
+
+
         ### this is where we yield the episode diagnostics to tune trial runner ###
         yield {'done': True, **diagnostics}
 
@@ -563,6 +587,10 @@ class CMBPO(RLAlgorithm):
         self.sampler.initialize(env, initial_exploration_policy, pool)
         while True:
             self.sampler.sample(timestep=0)
+            if self.ready_to_train:
+                self.sampler.finish_all_paths(append_val=True)
+                pool.get()
+            
             if self.sampler._total_samples >= self._n_initial_exploration_steps:
                 self.sampler.finish_all_paths(append_val=True)
                 pool.get()  # moves policy samples to archive

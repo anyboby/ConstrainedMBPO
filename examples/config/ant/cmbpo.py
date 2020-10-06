@@ -11,13 +11,12 @@ params = {
     'use_mjc_state_model': False,      
 
     'kwargs': {
-        'n_epochs': 100000,
-        'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
+        'n_epochs': 45,
+        'epoch_length': 120000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
-        'eval_n_episodes': 5,
-        'eval_every_n_steps': 10e3,
+        'eval_n_episodes': 1,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -48,8 +47,8 @@ params = {
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 4.0,
-        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'max_uncertainty_rew' : 1.5,
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
         'rollout_schedule': [150, 4000, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
