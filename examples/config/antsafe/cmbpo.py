@@ -16,7 +16,7 @@ params = {
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
-        'eval_n_episodes': 1,
+        'eval_n_episodes': 3,
         'eval_every_n_steps': 5e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
@@ -39,7 +39,7 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
-        'real_ratio': 1.00, #0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': .05, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
