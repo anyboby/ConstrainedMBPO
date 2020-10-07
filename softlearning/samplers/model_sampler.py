@@ -182,8 +182,7 @@ class ModelSampler(CpoSampler):
     def reset(self, observations):
         self.batch_size = observations.shape[0]
 
-        self._starting_uncertainty = np.var(self.policy.get_v(observations, factored=True, inc_var=False), axis=0)
-        self._starting_uncertainty_c = np.var(self.policy.get_vc(observations, factored=True, inc_var=False), axis=0)
+        self._starting_uncertainty = np.zeros(self.batch_size)
 
         if self.rollout_mode == 'iv_gae':
             self._current_observation = np.tile(observations[None], (self.ensemble_size, 1, 1))
@@ -262,6 +261,8 @@ class ModelSampler(CpoSampler):
         dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
         dyn_ep_var = info.get('dyn_ep_var', np.zeros(shape=reward.shape[1:]))
 
+        if self._n_episodes == 1:
+            self._starting_uncertainty = np.mean(dyn_ep_var, axis=-1)
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
@@ -271,7 +272,7 @@ class ModelSampler(CpoSampler):
         ### (so we don't take a "bad step" by appending values of next state)
         
         if self.rollout_mode=='uncertainty':
-            too_uncertain_paths = self._path_dyn_var[self.pool.alive_paths]/(self._n_episodes*self.env.dyn_target_var) > self.max_uncertainty
+            too_uncertain_paths = np.mean(dyn_ep_var, axis=-1) > self._max_uncertainty_rew * self._starting_uncertainty[self.pool.alive_paths]
         else:
             too_uncertain_paths = np.zeros(shape=self.pool.alive_paths.sum(), dtype=np.bool)
 
@@ -374,7 +375,10 @@ class ModelSampler(CpoSampler):
 
         path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]
         remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True)
-        
+        if not remaining_paths.any():
+            info['alive_ratio'] = 0
+            return next_obs, reward, terminal, info
+
         ## update remaining paths and obs
         if self.rollout_mode=='iv_gae':
             self._current_observation = self._current_observation[:,remaining_paths]
@@ -385,6 +389,9 @@ class ModelSampler(CpoSampler):
         
         #### terminate real termination due to env end
         remaining_paths = self._finish_paths(term_mask=prem_term_mask, append_vals=False)
+        if not remaining_paths.any():
+            info['alive_ratio'] = 0
+            return next_obs, reward, terminal, info
 
         ### update alive paths
         alive_paths = self.pool.alive_paths
@@ -476,39 +483,3 @@ class ModelSampler(CpoSampler):
 
     def set_max_uncertainty(self, max_uncertainty):
         self.max_uncertainty = max_uncertainty
-
-    def log(self):
-        """
-        logs several stats over the timesteps since the last 
-        flush (such as epCost, totalCost etc.)
-        """
-        logger = self.logger
-        cumulative_cost = mpi_sum(self._cum_cost)    
-        cost_rate = cumulative_cost / self._total_samples
-
-        # Performance stats
-        logger.log_tabular('RetEp', with_min_and_max=True)
-        logger.log_tabular('CostEp', with_min_and_max=True)
-        logger.log_tabular('EpLen', average_only=True)
-        logger.log_tabular('CostCumulative', cumulative_cost)
-        logger.log_tabular('CostRate', cost_rate)
-
-        # Value function values
-        logger.log_tabular('VVals', with_min_and_max=True)
-        logger.log_tabular('CostVVals', with_min_and_max=True)
-
-        # Pi loss and change
-        logger.log_tabular('LossPi', average_only=True)
-        logger.log_tabular('LossPiDelta', average_only=True)
-
-        # Surr cost and change
-        logger.log_tabular('SurrCost', average_only=True)
-        logger.log_tabular('SurrCostDelta', average_only=True)
-
-        # V loss and change
-        logger.log_tabular('LossV', average_only=True)
-        logger.log_tabular('LossVDelta', average_only=True)
-
-        # Time and steps elapsed
-        logger.log_tabular('TotalEnvInteracts', self._total_samples)
-        #

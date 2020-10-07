@@ -292,6 +292,8 @@ class CMBPO(RLAlgorithm):
         self.policy_epoch = 0       ### count policy updates
         self.new_real_samples = 0
         self.last_eval_step = 0
+        self.diag_counter = 0
+        running_diag = {}
         self.approx_model_batch = 0.5*self.batch_size_policy    ### some size to start off
 
         #### not implemented, could train policy before hook
@@ -370,7 +372,7 @@ class CMBPO(RLAlgorithm):
 
                     #model_metrics.update(buffer_diagnostics)
                     new_n_samples = len(model_samples_new[0])
-                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight=new_n_samples/(new_n_samples+samples_added))
+                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
 
                     ######################################################################
 
@@ -379,8 +381,8 @@ class CMBPO(RLAlgorithm):
                         model_data_diag = self._policy.run_diagnostics(model_samples_new)
                         model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
                         #model_metrics.update(model_data_diag)
-                    model_metrics = update_dict(model_metrics, model_data_diag, weight=new_n_samples/(new_n_samples+samples_added))
-                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight=new_n_samples/(new_n_samples+samples_added))
+                    model_metrics = update_dict(model_metrics, model_data_diag, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
+                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
                     
                     samples_added += new_n_samples
                     model_metrics.update({'samples_added':samples_added})
@@ -462,7 +464,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
 
             self.sampler.log()
-            self.logger.log_tabular('Epoch', self._epoch)
+            # self.logger.log_tabular('Epoch', self._epoch)
             # write results to file, ray prints for us, so no need to print from logger
             logger_diagnostics = self.logger.dump_tabular(output_dir=self._log_dir, print_out=False)
 
@@ -488,19 +490,16 @@ class CMBPO(RLAlgorithm):
 
             gt.stamp('epoch_after_hook')
 
-            sampler_diagnostics = self.sampler.get_diagnostics()
+            # sampler_diagnostics = self.sampler.get_diagnostics()
 
-            diagnostics = self.get_diagnostics(
-                iteration=self._total_timestep,
-                obs_batch=diag_obs_batch,
-                evaluation_paths=evaluation_paths)
+            new_diagnostics = {}
 
-            time_diagnostics = gt.get_times().stamps.itrs
+            time_diagnostics = gt.get_times().stamps.itrs  
 
             # add diagnostics from logger
-            diagnostics.update(logger_diagnostics)
+            new_diagnostics.update(logger_diagnostics) 
 
-            diagnostics.update(OrderedDict((
+            new_diagnostics.update(OrderedDict((
                 *(
                     (f'evaluation/{key}', evaluation_metrics[key])
                     for key in sorted(evaluation_metrics.keys())
@@ -510,24 +509,34 @@ class CMBPO(RLAlgorithm):
                     for key in sorted(time_diagnostics.keys())
                 ),
                 *(
-                    (f'sampler/{key}', sampler_diagnostics[key])
-                    for key in sorted(sampler_diagnostics.keys())
-                ),
-                *(
                     (f'model/{key}', model_metrics[key])
                     for key in sorted(model_metrics.keys())
                 ),
-                ('epoch', self._epoch),
-                ('timestep', self._timestep),
-                ('timesteps_total', self._total_timestep),
-                ('train-steps', self._num_train_steps),
             )))
 
             if self._eval_render_mode is not None and hasattr(
                     evaluation_environment, 'render_rollouts'):
                 training_environment.render_rollouts(evaluation_paths)
 
-            yield diagnostics
+            #### updateing and averaging
+            old_ts_diag = running_diag.get('timestep', 0)
+            new_ts_diag = self._total_timestep-self.diag_counter-old_ts_diag
+            w_olddiag = old_ts_diag/(new_ts_diag+old_ts_diag)
+            w_newdiag = new_ts_diag/(new_ts_diag+old_ts_diag)
+            running_diag = update_dict(running_diag, new_diagnostics, weight_a=w_olddiag, weight_b=w_newdiag)
+            running_diag.update({'timestep':new_ts_diag + old_ts_diag})
+            ####
+            
+            if new_ts_diag + old_ts_diag > self.eval_every_n_steps:
+                running_diag.update({
+                    'epoch':self._epoch,
+                    'timesteps_total':self._total_timestep,
+                    'train-steps':self._num_train_steps,
+                })
+                self.diag_counter = self._total_timestep
+                diag = running_diag.copy() 
+                running_diag = {}
+                yield diag
 
         self.sampler.terminate()
 
@@ -536,7 +545,7 @@ class CMBPO(RLAlgorithm):
         self._training_progress.close()
 
         ### this is where we yield the episode diagnostics to tune trial runner ###
-        yield {'done': True, **diagnostics}
+        yield {'done': True, **self.running_diag}
 
     def train(self, *args, **kwargs):
         return self._train(*args, **kwargs)

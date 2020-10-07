@@ -4,13 +4,17 @@ import pdb
 
 
 
-def update_dict(dict_a, dict_b, weight=.5):
-	dict_a_cp = dict_a.copy()
-	dict_a.update(dict_b)
+def update_dict(dict_a, dict_b, weight_a=.5, weight_b=.5):
+	"""
+	creates new updated dict and adds entries according to weights. 
+	for both weights = 1 the entries are added
+	"""
+	dict_a_cp = dict(dict_a)
+	dict_a_cp.update(dict_b)
 	for k,v in dict_b.items():
-		if k in dict_a_cp.keys():
-			dict_a[k] = weight*dict_b[k] + (1-weight)*dict_a_cp[k]
-	return dict_a
+		if k in dict_a.keys():
+			dict_a_cp[k] = weight_b*dict_b[k] + weight_a*dict_a[k]
+	return dict_a_cp
 
 class Progress:
 

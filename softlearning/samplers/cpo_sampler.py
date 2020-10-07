@@ -321,5 +321,5 @@ class CpoSampler():
         logger.log_tabular('CostVVals', with_min_and_max=True)
 
         # Time and steps elapsed
-        logger.log_tabular('TotalEnvInteracts', self._total_samples)
+        # logger.log_tabular('TotalEnvInteracts', self._total_samples)
         
