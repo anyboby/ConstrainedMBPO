@@ -64,6 +64,10 @@ class SimpleReplayPool(FlexibleReplayPool):
                     'shape': (1, ),
                     'dtype': 'bool'
                 },
+                'cost': {
+                    'shape': (1, ),
+                    'dtype': 'float32'
+                },
             }
         }
 

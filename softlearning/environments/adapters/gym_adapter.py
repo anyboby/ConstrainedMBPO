@@ -7,6 +7,14 @@ import safety_gym
 from safety_gym.envs.engine import Engine
 import json
 import os
+import softlearning.environments.gym.mujoco_safety_gym as mjsg
+import sys
+import softlearning.environments.gym as gym_dir
+# path = os.path.dirname(mjsg.__file__)
+# sys.path.append(path)
+path = os.path.dirname(gym_dir.__file__)
+sys.path.append(path)
+
 
 from .softlearning_env import SoftlearningEnv
 from softlearning.environments.gym import register_environments

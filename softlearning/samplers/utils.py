@@ -59,7 +59,7 @@ def rollout(env,
     cum_cost = 0
     images = []
     infos = []
-
+    
     t = 0
     for t in range(path_length):
         observation, reward, terminal, info = sampler.sample()
