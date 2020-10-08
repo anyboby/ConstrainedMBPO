@@ -1,6 +1,7 @@
 import numpy as np
 from mujoco_safety_gym.envs import mujoco_env
 from gym import utils
+import mujoco_py as mjp
 
 class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
@@ -10,13 +11,13 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def step(self, a):
         xposbefore = self.get_body_com("torso")[0]
         self.do_simulation(a, self.frame_skip)
+        mjp.functions.mj_rnePostConstraint(self.sim.model, self.sim.data) #### calc contacts, this is a mujoco py version mismatch issue with mujoco200
         xposafter = self.get_body_com("torso")[0]
         forward_reward = (xposafter - xposbefore)/self.dt
         ctrl_cost = .5 * np.square(a).sum()
         contact_cost = 0.5 * 1e-3 * np.sum(
             np.square(np.clip(self.sim.data.cfrc_ext, -1, 1)))
         survive_reward = 1.0
-        
         ### safety stuff
         body_pos = self.get_body_com("torso")[:2]
         obj_pos = self.data.geom_xpos[1:13][:,:2]
