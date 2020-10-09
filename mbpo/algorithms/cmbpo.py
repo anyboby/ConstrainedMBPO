@@ -421,7 +421,7 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('timestep_after_hook')
 
                 if self.ready_to_train or self._timestep>n_real_samples:
-                    self.sampler.finish_all_paths(append_val=True)
+                    self.sampler.finish_all_paths(append_val=True, reset_path=False)
                     self.new_real_samples += self._timestep
                     break
 
@@ -562,37 +562,13 @@ class CMBPO(RLAlgorithm):
         while True:
             self.sampler.sample(timestep=0)
             if self.sampler._total_samples >= self._n_initial_exploration_steps:
-                self.sampler.finish_all_paths(append_val=True)
+                self.sampler.finish_all_paths(append_val=True, reset_path=False)
                 pool.get()  # moves policy samples to archive
                 break
         
         ### train model
         if self._real_ratio<1.0:
             self.train_model(min_epochs=150, max_epochs=500)
-
-        ### train critic
-        critic_samples = self._pool.get_archive([     #### include initial expl. hook samples
-                'observations',
-                'actions',
-                'advantages',
-                'return_vars',
-                'cadvantages',
-                'creturn_vars',
-                'returns',
-                'creturns',
-                'log_policies',
-                'values',
-                'value_vars',
-                'cvalues',
-                'cvalue_vars',
-                'costs',
-                'pi_infos',
-            ])
-        critic_samples = list(critic_samples.values())       ### samples from initial exploration hook
-        
-        self._policy.update_critic(critic_samples, 
-                                    min_epoch_before_break = 10, 
-                                    max_epochs=350)
 
     def train_model(self, min_epochs=50, max_epochs=500, batch_size=2048):
         self._dyn_model_train_freq = self._set_model_train_freq(

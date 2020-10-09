@@ -40,7 +40,6 @@ class CpoSampler():
         self._max_path_return = -np.inf
         self._n_episodes = 0
         self._current_observation = None
-        self._done = True
         self._total_samples = 0
         self._last_action = None
         
@@ -155,13 +154,16 @@ class CpoSampler():
         return processed_observation
 
     def sample(self, timestep):
-        if self._done:
+        if self._current_observation is None:
             # Reset environment
             self._current_observation, reward, terminal, c = np.squeeze(self.env.reset()), 0, False, 0
             self._last_action = np.zeros(shape=self.env.action_space.shape)
 
         # Get outputs from policy
+        # test_obs = [self._current_observation[np.newaxis] for i in range(100)]
+        # test_obs = np.concatenate(test_obs, axis=0)
         get_action_outs = self.policy.get_action_outs(self._current_observation, factored=True, inc_var=True)
+        #get_action_outs = self.policy.get_action_outs(self._current_observation)
 
         a = get_action_outs['pi']
         v_t = get_action_outs['v'][:,0]
@@ -176,7 +178,6 @@ class CpoSampler():
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)
-        self._done = terminal
         # info = info[0]      ## @anyboby not very clean, only works for 1 env in parallel
         
         c = info.get('cost', 0)
@@ -211,6 +212,7 @@ class CpoSampler():
         for key, value in processed_sample.items():
             self._current_path[key].append(value)
 
+
         #### update current obs before finishing
         self._current_observation = next_observation
         self._last_action = a
@@ -228,10 +230,13 @@ class CpoSampler():
         return next_observation, reward, terminal, info
 
 
-    def finish_all_paths(self, append_val=False):
+    def finish_all_paths(self, append_val=False, reset_path = True):
             if self._current_observation is None:   #return if already finished
                 return
 
+            ####--------------------####
+            ####  finish pool traj  ####
+            ####--------------------####
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if not append_val:
                 # Note: we do not count env time out as true terminal state
@@ -246,27 +251,34 @@ class CpoSampler():
                 else:
                     last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
                     last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
-            self.pool.finish_path(last_val, last_val_var, last_cval, last_cval_var)            
+            self.pool.finish_path(last_val, last_val_var, last_cval, last_cval_var)
 
-            #if not append_val:
-            self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
 
-            self.last_path = {
-                field_name: np.array(values)
-                for field_name, values in self._current_path.items()
-            }
-            self._last_n_paths.appendleft(self.last_path)
+            ####--------------------####
+            ####  finish path       ####
+            ####--------------------####
 
-            self._max_path_return = max(self._max_path_return,
-                                        self._path_return)
-            self._last_path_return = self._path_return
+            if reset_path:
+                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
 
-            self.policy.reset() #does nothing for cpo policy atm
-            self._path_length = 0
-            self._path_return = 0
-            self._path_cost = 0
-            self._current_path = defaultdict(list)
-            self._n_episodes += 1
+                self.last_path = {
+                    field_name: np.array(values)
+                    for field_name, values in self._current_path.items()
+                }
+                self._last_n_paths.appendleft(self.last_path)
+
+                self._max_path_return = max(self._max_path_return,
+                                            self._path_return)
+                self._last_path_return = self._path_return
+
+                self.policy.reset() #does nohing for cpo policy atm
+                self._current_observation = None
+                self._last_action = np.zeros(shape=self.env.action_space.shape)
+                self._path_length = 0
+                self._path_return = 0
+                self._path_cost = 0
+                self._current_path = defaultdict(list)
+                self._n_episodes += 1
 
             #### adjust penalty if needed
             if self.learn_penalty and self.batch_ready():
