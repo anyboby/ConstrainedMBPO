@@ -342,7 +342,7 @@ class CMBPO(RLAlgorithm):
                         self.model_sampler.set_max_uncertainty(self.max_tddyn_err)
 
                     for i in count():
-                        print(f'Model Sampling step Nr. {i+1}')
+                        # print(f'Model Sampling step Nr. {i+1}')
 
                         _,_,_,info = self.model_sampler.sample()
                         alive_ratio = info.get('alive_ratio', 1)
@@ -354,12 +354,12 @@ class CMBPO(RLAlgorithm):
                                 break
                         elif self.rollout_mode=='iv_gae':
                             if alive_ratio<0.2:
-                                print(f'Stopping Rollout at step {i+1}')
+                                # print(f'Stopping Rollout at step {i+1}')
                                 break
                         else:
                             if alive_ratio<0.2 or \
                                     self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
-                                print(f'Stopping Rollout at step {i+1}')
+                                # print(f'Stopping Rollout at step {i+1}')
                                 break
                     
                     ### diagnostics for rollout ###
