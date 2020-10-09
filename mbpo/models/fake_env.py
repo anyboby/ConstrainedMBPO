@@ -236,6 +236,13 @@ class FakeEnv:
                 }
         return next_obs, rewards, terminals, info
 
+    def train(self, samples, **kwargs):
+        """
+        mbpo compat function
+        """
+        return self.train_dyn_model(samples, discount=1, **kwargs)
+        
+
     def train_dyn_model(self, samples, discount=1, **kwargs):
         # check priors
         priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
@@ -311,7 +318,8 @@ class FakeEnv:
 
     def reset_model(self):
         self._model.reset()
-        self._cost_model.reset()
+        if self._cost_model:
+            self._cost_model.reset()
         
     def filter_elite_inds(self, data, n_elites, apply_too = None):
         '''

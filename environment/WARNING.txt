@@ -6,15 +6,35 @@ building conda env from this repo doesn't work properly, currently you have to:
 
 1. create mbpo conda env from original mbpo repo (ad described in their installation)
 2. pip install egg viskit from original mbpo repo
-3. pip install setup.py of constrained mbpo
-4. install safety-gym seperately
-5. install stable baselines seperately
-6. I also recently had trouble with serializable (softlearning uses hartikainen's version, not PyPi which seemed to be missing in the req.txt)
+3. pip install setup.py of constrained mbpo: 
+	cd ConstrainedMBPO
+	pip install -e .
+4. not sure why, but inside examples.utils.py isnert following (and replace old part):
+    if allow_policy_list:
+        parser.add_argument(
+            '--policy',
+            type=str,
+            nargs='+',
+            choices=('gaussian', ),
+            default='gaussian')
+    else:
+        parser.add_argument(
+            '--policy',
+            type=str,
+            choices=('gaussian', 'cpopolicy'),
+            default='gaussian')
+5. install safety-gym seperately
+6. install stable baselines seperately
+7. check tf install, try other version, e.g. pip install tensorflow==1.14
+	possibly install tf probability 0.7.0 for gaussian policy compatibility:
+	pip install tensorflow-probability==0.7.0
+8. same as above for mujoco-py
+9. I also recently had trouble with serializable (softlearning uses hartikainen's version, not PyPi which seemed to be missing in the req.txt)
 	git clone https://github.com/hartikainen/serializable
 	cd serializable
 	pip install -e .
-7. Numpy also raised an error, that was easy to fix: unisntall numpy until not existing and pip isntall numpy
-8. GLFW error when rendering mujoco-py:
+10. Numpy also raised an error, that was easy to fix: unisntall numpy until not existing and pip isntall numpy
+11. GLFW error when rendering mujoco-py:
 	add 
 		export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
 	to bashrc (in ssh this still doesn't work)

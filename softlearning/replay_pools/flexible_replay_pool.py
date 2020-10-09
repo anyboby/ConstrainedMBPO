@@ -61,6 +61,8 @@ class FlexibleReplayPool(ReplayPool):
         for field_name in self.field_names:
             default_value = (
                 self.fields_attrs[field_name].get('default_value', 0.0))
+            default_value = np.ones(shape=(num_samples,) + self.fields_attrs[field_name]['shape']) \
+                * default_value
             values = samples.get(field_name, default_value)
             assert values.shape[0] == num_samples
             self.fields[field_name][index] = values
