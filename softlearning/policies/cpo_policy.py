@@ -202,9 +202,10 @@ class CPOAgent(TrustRegionAgent):
         old_params = self.sess.run(get_pi_params)
 
         # calc the cost lim if it were discounted, 
-        # need rescale since cost_lim refers to one episode
-        #rescale = self.logger.get_stats('EpLen')[0]
-        rescale = self.max_path_length*(1-self.c_gamma)
+        # need rescale since cost_lim refers to max path length
+        # rescale = self.max_path_length*(1-self.c_gamma)
+        rescale = 1/self.max_path_length
+
         cost_lim_disc = (cost_lim/rescale)/(1-self.c_gamma)
 
         # compare
@@ -539,7 +540,8 @@ class CPOPolicy(BasePolicy):
                 self.adv_ph,
                 self.cadv_ph, 
                 self.logp_old_ph,
-                self.cret_ph
+                self.cret_ph,
+                self.cur_cost_ph,
                 ] + values_as_sorted_list(self.pi_info_phs)
             
             self.critic_phs = [
@@ -594,7 +596,10 @@ class CPOPolicy(BasePolicy):
             self.surr_cost = tf.reduce_mean(ratio * self.cadv_ph)# * 1/(self.cadv_var_ph)) / (tf.reduce_sum(1/self.cadv_var_ph))
             
             # Current Cret
-            self.cur_cret_avg = tf.reduce_mean(self.cret_ph)
+            ### either cost-based or based on td returns
+            # self.cur_cret_avg = tf.reduce_mean(self.cret_ph)*self.max_path_length*(1-self.c_gamma)
+            self.cur_cret_avg = tf.reduce_mean(self.cur_cost_ph)*self.max_path_length
+
 
             # cost_lim if it were discounted
             # self.disc_cost_lim = (self.cost_lim/self.ep_len)
@@ -685,7 +690,9 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         #  update cost_limit (@mo creation)                               #
         #=====================================================================#
-        cur_cost = self.logger.get_stats('CostEp')[0]
+        # cur_cost = self.logger.get_stats('CostEp')[0]
+        cur_cost = np.mean(inputs[self.cur_cost_ph])*self.max_path_length
+        
         #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
         cur_cost_lim = self.cost_lim
         c = cur_cost - cur_cost_lim
@@ -795,38 +802,6 @@ class CPOPolicy(BasePolicy):
             vc_targets,
             **vc_kwargs,
             )                        
-
-        # elif self.vf_loss == 'NLL_varcorr':
-        #     ret_var = inputs['ret_var'][..., None]
-        #     cret_var = inputs['cret_var'][..., None]
-        #     v_kwargs = kwargs.copy()
-        #     v_kwargs['var_corr'] = ret_var
-        #     vc_kwargs = kwargs.copy()
-        #     vc_kwargs['var_corr'] = cret_var
-
-        #     v_metrics = self.v.train(
-        #         obs_in,
-        #         v_targets,
-        #         **v_kwargs,
-        #         )                                      
-
-        #     vc_metrics = self.vc.train(
-        #         obs_in,
-        #         vc_targets,
-        #         **vc_kwargs,
-        #         )                        
-        # else:
-        #     v_metrics = self.v.train(
-        #         obs_in,
-        #         v_targets,
-        #         **kwargs,
-        #         )                                      
-
-        #     vc_metrics = self.vc.train(
-        #         obs_in,
-        #         vc_targets,
-        #         **kwargs,
-        #         )                       
 
         v_metrics.update(vc_metrics)
         return v_metrics
