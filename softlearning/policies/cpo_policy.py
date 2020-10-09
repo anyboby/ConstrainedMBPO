@@ -209,8 +209,8 @@ class CPOAgent(TrustRegionAgent):
         cost_lim_disc = (cost_lim/rescale)/(1-self.c_gamma)
 
         # compare
-        c_debug = self.logger.get_stats('CostEp')[0] - cost_lim
-        c_debug /= (rescale + EPS)
+        # c_debug = self.logger.get_stats('CostEp')[0] - cost_lim
+        # c_debug /= (rescale + EPS)
 
         # undiscount (@anyboby TODO not really understand why we undiscount here, despite
         # the theory in CPO suggests the discounted Return)
@@ -297,7 +297,7 @@ class CPOAgent(TrustRegionAgent):
 
         # save intermediates for diagnostic purposes
         self.logger.store(Optim_A=A, Optim_B=B, Optim_c=c,
-                          Optim_c_debug=c_debug, ###@anyboby TODO remove
+                        #   Optim_c_debug=c_debug, ###@anyboby TODO remove
                           Optim_q=q, Optim_r=r, Optim_s=s,
                           Optim_Lam=lam, Optim_Nu=nu, 
                           Penalty=nu, PenaltyDelta=0,
@@ -335,7 +335,7 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('Optim_A', average_only=True)
         self.logger.log_tabular('Optim_B', average_only=True)
         self.logger.log_tabular('Optim_c', average_only=True)
-        self.logger.log_tabular('Optim_c_debug', average_only=True) ### @anyboby TODO remove
+        # self.logger.log_tabular('Optim_c_debug', average_only=True) ### @anyboby TODO remove
         self.logger.log_tabular('Optim_q', average_only=True)
         self.logger.log_tabular('Optim_r', average_only=True)
         self.logger.log_tabular('Optim_s', average_only=True)
@@ -692,7 +692,7 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         # cur_cost = self.logger.get_stats('CostEp')[0]
         cur_cost = np.mean(inputs[self.cur_cost_ph])*self.max_path_length
-        
+
         #cur_cost_lim = self.cost_lim-self._epoch*(self.cost_lim-self.cost_lim_end)/self._n_epochs + random.randint(0, rand_cost)
         cur_cost_lim = self.cost_lim
         c = cur_cost - cur_cost_lim

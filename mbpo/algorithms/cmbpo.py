@@ -327,9 +327,9 @@ class CMBPO(RLAlgorithm):
                     #=====================================================================#
                     #  Rollout Model                                                      #
                     #=====================================================================#
-                    print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
-                        self._epoch, self._rollout_batch_size 
-                    ))                
+                    # print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
+                    #     self._epoch, self._rollout_batch_size 
+                    # ))                
 
                     #=====================================================================#
                     #                           Model Rollouts                            #
@@ -391,7 +391,8 @@ class CMBPO(RLAlgorithm):
             
                     self.approx_model_batch = min(self.max_tddyn_err*self.batch_size_policy / td_dyn_err, self.batch_size_policy-self.min_real_samples_per_epoch)
                     keep_rolling = not(samples_added > .95*self.approx_model_batch)
-                    
+                
+                print(f'Stopping finished')
                 gt.stamp('epoch_rollout_model')
                 model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
 

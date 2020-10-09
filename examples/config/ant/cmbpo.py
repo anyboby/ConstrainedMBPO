@@ -55,7 +55,7 @@ params = {
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
         'maxroll': 10,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.005,
+        'max_tddyn_err' : 0.1,
         'max_tddyn_err_decay' : .9999,
         'batch_size_policy': 8092,              ### how many samples 
         'min_real_samples_per_epoch': 256,
