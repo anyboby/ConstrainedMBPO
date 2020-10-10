@@ -217,7 +217,7 @@ class ModelSampler(CpoSampler):
         self._total_dyn_var = 0
         self._total_dkl_med_dyn = 0
 
-    def sample(self):
+    def sample(self, max_samples=None):
         assert self.pool.has_room           #pool full! empty before sampling.
         assert self._current_observation is not None # reset before sampling !
         assert self.pool.alive_paths.any()  # reset before sampling !
@@ -275,8 +275,16 @@ class ModelSampler(CpoSampler):
             too_uncertain_paths = np.mean(dyn_ep_var, axis=-1) > self._max_uncertainty_rew * self._starting_uncertainty[self.pool.alive_paths]
         else:
             too_uncertain_paths = np.zeros(shape=self.pool.alive_paths.sum(), dtype=np.bool)
+        
+        ### early terminate paths if max_samples is given
+        if max_samples and not self.rollout_mode=='iv_gae':
+            n = self._total_samples + alive_paths.sum() - too_uncertain_paths.sum()
+            n = max(n-max_samples, 0)
+            early_term = np.zeros_like(too_uncertain_paths[~too_uncertain_paths], dtype=np.bool)
+            early_term[:n] = True
+            too_uncertain_paths[~too_uncertain_paths] = early_term
 
-        ### finish too uncertain paths before storing info of the taken step
+        ### finish too uncertain paths before storing info of the taken step into buffer
         # remaining_paths refers to the paths we have finished and has the same shape 
         # as our terminal mask (too_uncertain_mask)
         # alive_paths refers to all original paths and therefore has shape batch_size
@@ -373,7 +381,7 @@ class ModelSampler(CpoSampler):
         ## update obs before finishing paths (_finish_paths() uses current obs)
         self._current_observation = next_obs
 
-        path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]
+        path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]            
         remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True)
         if not remaining_paths.any():
             info['alive_ratio'] = 0

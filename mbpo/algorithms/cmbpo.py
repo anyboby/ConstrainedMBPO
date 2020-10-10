@@ -334,8 +334,6 @@ class CMBPO(RLAlgorithm):
                     #=====================================================================#
                     #                           Model Rollouts                            #
                     #=====================================================================#
-                    # rand_inds = np.random.randint(0, len(real_samples[0]), self._rollout_batch_size)
-                    # start_states = real_samples[0][rand_inds]
                     start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
                     self.model_sampler.reset(start_states)
                     if self.rollout_mode=='uncertainty':
@@ -344,53 +342,51 @@ class CMBPO(RLAlgorithm):
                     for i in count():
                         # print(f'Model Sampling step Nr. {i+1}')
 
-                        _,_,_,info = self.model_sampler.sample()
-                        alive_ratio = info.get('alive_ratio', 1)
+                        _,_,_,info = self.model_sampler.sample(max_samples=int(self.approx_model_batch-samples_added))
 
                         ### stop rollout depending on rollout_mode
                         if self.rollout_mode=='schedule':
                             if i+1>self._rollout_length or \
-                                    self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
+                                    self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
+                                if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
+                                    keep_rolling=False
                                 break
-                        elif self.rollout_mode=='iv_gae':
-                            if alive_ratio<0.2:
-                                # print(f'Stopping Rollout at step {i+1}')
+                        elif self.rollout_mode=='uncertainty':      ### rollout stop performed in sampler
+                            if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
+                                keep_rolling = False
                                 break
-                        else:
-                            if alive_ratio<0.2 or \
-                                    self.model_sampler._total_samples + samples_added >= self.approx_model_batch:
-                                # print(f'Stopping Rollout at step {i+1}')
-                                break
-                    
+                        
+                        if info['alive_ratio']<= 0.1: break
+
                     ### diagnostics for rollout ###
                     rollout_diagnostics = self.model_sampler.finish_all_paths()
+                    if self.rollout_mode == 'iv_gae':
+                        keep_rolling = self.model_pool.size + samples_added <= .99*self.approx_model_batch
 
                     ######################################################################
                     ### get model_samples, get() invokes the inverse variance rollouts ###
                     model_samples_new, buffer_diagnostics_new = self.model_pool.get()
                     model_samples = [np.concatenate((o,n), axis=0) for o,n in zip(model_samples, model_samples_new)] if model_samples else model_samples_new
 
-                    #model_metrics.update(buffer_diagnostics)
-                    new_n_samples = len(model_samples_new[0])
-                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
-
                     ######################################################################
-
+                    ### diagnostics
+                    new_n_samples = len(model_samples_new[0])
+                    diag_weight_old = samples_added/(new_n_samples+samples_added)
+                    diag_weight_new = new_n_samples/(new_n_samples+samples_added)
+                    model_metrics = update_dict(model_metrics, rollout_diagnostics, weight_a= diag_weight_old,weight_b=diag_weight_new)
+                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new,  weight_a= diag_weight_old,weight_b=diag_weight_new)
                     ### run diagnostics on model data
                     if buffer_diagnostics_new['poolm_batch_size']>0:
                         model_data_diag = self._policy.run_diagnostics(model_samples_new)
                         model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
-                        #model_metrics.update(model_data_diag)
-                    model_metrics = update_dict(model_metrics, model_data_diag, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
-                    model_metrics = update_dict(model_metrics, buffer_diagnostics_new, weight_a= samples_added/(new_n_samples+samples_added),weight_b=new_n_samples/(new_n_samples+samples_added))
+                        model_metrics = update_dict(model_metrics, model_data_diag, weight_a= diag_weight_old,weight_b=diag_weight_new)
                     
                     samples_added += new_n_samples
                     model_metrics.update({'samples_added':samples_added})
-
+                    ######################################################################
+                    ### recalculate model batch sizes
                     td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
-            
-                    self.approx_model_batch = min(self.max_tddyn_err*self.batch_size_policy / td_dyn_err, self.batch_size_policy-self.min_real_samples_per_epoch)
-                    keep_rolling = not(samples_added > .95*self.approx_model_batch)
+                    self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
                 
                 print(f'Stopping finished')
                 gt.stamp('epoch_rollout_model')

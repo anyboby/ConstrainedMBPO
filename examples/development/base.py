@@ -48,7 +48,7 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              1e-4,
-        'target_kl':            0.08,
+        'target_kl':            0.04,
         'cost_lim_end':         25e3,
         'cost_lim':             25e3,
         'cost_lam':             .98,
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(100), #5000
+            'n_initial_exploration_steps': int(5000), #5000
         }
     },
     'SQL': {

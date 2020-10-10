@@ -388,8 +388,9 @@ class ModelBuffer(CPOBuffer):
             tdr_mean = np.var(deltas_r, axis=0)
             tdr_n = np.var(deltas_r, axis=0)/(np.mean(np.var(deltas_r, axis=1), axis=0)+EPS)
 
-            td_dyn_m = np.mean(self.dyn_error_buf[self.populated_mask])
-            td_dyn_n =  td_dyn_m/self.dyn_normalization
+            td_dyn_var_m = np.mean(self.dyn_error_buf[self.populated_mask])
+            td_dyn_var_n = td_dyn_var_m/self.dyn_normalization
+            td_dyn_std_n =  np.sqrt(td_dyn_var_n)
 
             if self.rollout_mode == 'iv_gae':
                 tdc_mean = np.var(deltas_c, axis=0)
@@ -418,8 +419,9 @@ class ModelBuffer(CPOBuffer):
             avg_horizon_c = 0
             tdc_overall =0 
             tdr_overall =0 
-            td_dyn_m = 0
-            td_dyn_n = 0
+            td_dyn_var_m = 0
+            td_dyn_var_n = 0
+            td_dyn_std_n = 0
                 
 
         if self.rollout_mode=='iv_gae':
@@ -450,10 +452,9 @@ class ModelBuffer(CPOBuffer):
                             poolm_avg_Horizon_c = avg_horizon_c,
                             poolm_tdc_overall = tdc_overall,
                             poolm_tdr_overall = tdr_overall,
-                            poolm_td_dyn_m = td_dyn_m,
-                            poolm_td_dyn_n = td_dyn_n,
-                            poolm_td_dynxr_m = tdr_overall*td_dyn_m,
-                            poolm_td_dynxc_m = tdc_overall*td_dyn_m,
+                            poolm_td_dyn_var_m = td_dyn_var_m,
+                            poolm_td_dyn_var_n = td_dyn_var_n,
+                            poolm_td_dyn_n = td_dyn_std_n,
                             )
         # reset
         self.reset()

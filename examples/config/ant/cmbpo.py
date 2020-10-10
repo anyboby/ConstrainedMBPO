@@ -17,7 +17,7 @@ params = {
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 5e3,
+        'eval_every_n_steps': 10e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -49,15 +49,15 @@ params = {
         'cost_m_discount' : 1,
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 1.5,
-        'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 4000, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [150, 4000, 3, 7], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
         'maxroll': 10,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.1,
+        'max_tddyn_err' : 0.065,
         'max_tddyn_err_decay' : .9999,
         'batch_size_policy': 8092,              ### how many samples 
-        'min_real_samples_per_epoch': 256,
+        'min_real_samples_per_epoch': 128,
     }
 }
