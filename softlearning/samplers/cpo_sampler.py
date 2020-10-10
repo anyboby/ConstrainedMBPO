@@ -116,6 +116,9 @@ class CpoSampler():
     def clear_last_n_paths(self):
         self._last_n_paths.clear()
 
+    @property
+    def max_path_length(self):
+        return self._max_path_length
 
     def get_last_n_paths(self, n=None):
         if n is None:
@@ -259,8 +262,7 @@ class CpoSampler():
             ####--------------------####
 
             if reset_path:
-                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost)
-
+                self.logger.store(RetEp=self._path_return, EpLen=self._path_length, CostEp=self._path_cost, CostFullEp=self._path_cost/self._path_length * self._max_path_length)
                 self.last_path = {
                     field_name: np.array(values)
                     for field_name, values in self._current_path.items()
@@ -309,6 +311,7 @@ class CpoSampler():
         # Performance stats
         logger.log_tabular('RetEp', with_min_and_max=True)
         logger.log_tabular('CostEp', with_min_and_max=True)
+        logger.log_tabular('CostFullEp', average_only=True)
         logger.log_tabular('EpLen', average_only=True)
         logger.log_tabular('CostCumulative', cumulative_cost)
         logger.log_tabular('CostRate', cost_rate)

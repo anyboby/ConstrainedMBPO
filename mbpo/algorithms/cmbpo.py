@@ -655,6 +655,34 @@ class CMBPO(RLAlgorithm):
         ))
         return var
 
+    def _evaluate_rollouts(self, paths, env):
+        """Compute evaluation metrics for the given rollouts."""
+
+        total_returns = [path['rewards'].sum() for path in paths]
+        episode_lengths = [len(p['rewards']) for p in paths]
+        total_cost = [path['cost'].sum() for path in paths]
+        diagnostics = OrderedDict((
+            ('return-average', np.mean(total_returns)),
+            ('return-min', np.min(total_returns)),
+            ('return-max', np.max(total_returns)),
+            ('return-std', np.std(total_returns)),
+            ('episode-length-avg', np.mean(episode_lengths)),
+            ('episode-length-min', np.min(episode_lengths)),
+            ('episode-length-max', np.max(episode_lengths)),
+            ('episode-length-std', np.std(episode_lengths)),
+            ('creturn-average', np.mean(total_cost)),
+            ('creturn-fullep-average', np.mean(total_cost)/np.mean(episode_lengths)*self.sampler.max_path_length),
+            ('creturn-min', np.min(total_cost)),
+            ('creturn-max', np.max(total_cost)),
+            ('creturn-std', np.std(total_cost)),
+        ))
+
+        env_infos = env.get_path_infos(paths)
+        for key, value in env_infos.items():
+            diagnostics[f'env_infos/{key}'] = value
+
+        return diagnostics
+
     def _visualize_model(self, env, timestep):
         ## save env state
         state = env.unwrapped.state_vector()

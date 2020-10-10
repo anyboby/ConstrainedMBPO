@@ -28,11 +28,6 @@ class ModelSampler(CpoSampler):
                  logger = None):
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
-        self._path_return = np.zeros(batch_size)
-        self._path_cost = np.zeros(batch_size)
-        self._path_return_var = np.zeros(batch_size)
-        self._path_cost_var = np.zeros(batch_size)
-        self._path_dyn_var = np.zeros(batch_size)
 
         self.cares_about_cost = cares_about_cost
         self.rollout_mode = rollout_mode
@@ -103,8 +98,18 @@ class ModelSampler(CpoSampler):
         ensemble_cost_var_perstep = self._total_cost_var/(self._total_samples+EPS)
         ensemble_dyn_var_perstep = self._total_dyn_var/(self._total_samples+EPS)
 
-        ensemble_cost_rate = np.sum(np.mean(self._path_cost, axis=0))/(self._total_samples+EPS)
-        ensemble_rew_rate = np.sum(np.mean(self._path_return, axis=0))/(self._total_samples+EPS)
+        if len(self._path_cost.shape)>1:
+            cost_sum = np.sum(np.mean(self._path_cost, axis=0))
+        else:
+            cost_sum = np.sum(self._path_cost)
+            
+        if len(self._path_return.shape)>1:
+            ret_sum = np.sum(np.mean(self._path_return, axis=0))
+        else:
+            ret_sum = np.sum(self._path_return)
+
+        ensemble_cost_rate = cost_sum/(self._total_samples+EPS)
+        ensemble_rew_rate = ret_sum/(self._total_samples+EPS)
 
         vals_mean = self._total_Vs / (self._total_samples+EPS)
 
@@ -113,17 +118,17 @@ class ModelSampler(CpoSampler):
         dyn_Dkl_med = self._total_dkl_med_dyn / (self._total_samples+EPS)
 
         diagnostics.update({
-            'samples_added': self._total_samples,
-            'rollout_length_max': self._n_episodes,
-            'rollout_length_mean': mean_rollout_length,
-            'ensemble_ep_rew_var_perstep': ensemble_rew_var_perstep,
-            'ensemble_ep_cost_var_perstep' : ensemble_cost_var_perstep,
-            'ensemble_ep_dyn_var_perstep' : ensemble_dyn_var_perstep,
-            'ensemble_cost_rate' : ensemble_cost_rate,
-            'ensemble_rew_rate' : ensemble_rew_rate,
-            'ensemble_v_mean':vals_mean,
-            'ensemble_cv_mean':cval_mean,
-            'ensemble_dyn_DKL_med': dyn_Dkl_med,
+            'msampler/samples_added': self._total_samples,
+            'msampler/rollout_H_max': self._n_episodes,
+            'msampler/rollout_H_mean': mean_rollout_length,
+            'msampler/rew_var_perstep': ensemble_rew_var_perstep,
+            'msampler/cost_var_perstep' : ensemble_cost_var_perstep,
+            'msampler/dyn_var_perstep' : ensemble_dyn_var_perstep,
+            'msampler/cost_rate' : ensemble_cost_rate,
+            'msampler/rew_rate' : ensemble_rew_rate,
+            'msampler/v_mean':vals_mean,
+            'msampler/cv_mean':cval_mean,
+            'msampler/dyn_DKL_med': dyn_Dkl_med,
         })
 
         return diagnostics

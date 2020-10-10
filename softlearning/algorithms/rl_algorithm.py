@@ -297,10 +297,6 @@ class RLAlgorithm(tf.contrib.checkpoint.Checkpointable):
             ('episode-length-min', np.min(episode_lengths)),
             ('episode-length-max', np.max(episode_lengths)),
             ('episode-length-std', np.std(episode_lengths)),
-            ('creturn-average', np.mean(total_cost)),
-            ('creturn-min', np.min(total_cost)),
-            ('creturn-max', np.max(total_cost)),
-            ('creturn-std', np.std(total_cost)),
         ))
 
         env_infos = env.get_path_infos(paths)

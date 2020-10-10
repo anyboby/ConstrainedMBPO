@@ -1,7 +1,6 @@
 import numpy as np
 from mujoco_safety_gym.envs import mujoco_env
 from gym import utils
-import mujoco_py as mjp
 
 class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
@@ -11,29 +10,30 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def step(self, a):
         xposbefore = self.get_body_com("torso")[0]
         self.do_simulation(a, self.frame_skip)
-        mjp.functions.mj_rnePostConstraint(self.sim.model, self.sim.data) #### calc contacts, this is a mujoco py version mismatch issue with mujoco200
         xposafter = self.get_body_com("torso")[0]
         forward_reward = (xposafter - xposbefore)/self.dt
         ctrl_cost = .5 * np.square(a).sum()
         contact_cost = 0.5 * 1e-3 * np.sum(
             np.square(np.clip(self.sim.data.cfrc_ext, -1, 1)))
         survive_reward = 1.0
+        
         ### safety stuff
-        body_pos = self.get_body_com("torso")[:2]
-        obj_pos = self.data.geom_xpos[1:13][:,:2]
-        delta_objs = obj_pos-body_pos
-        obj_dists = np.sqrt(np.sum(delta_objs**2, axis=-1))
+        body_pos = self.get_body_com("torso")[1]
+        wall_pos = self.data.geom_xpos[1:3][...,1]
+        delta = wall_pos - body_pos
 
-        obj_cost = (obj_dists<2.0).any()*1.0
+        obj_cost = (abs(delta)<1.8).any()*1.0
         reward = forward_reward - ctrl_cost - contact_cost + survive_reward
-
-        cost = obj_cost + contact_cost
-
+        
+        body_quat = self.data.get_body_xquat('torso')
+        z_rot = 1-2*(body_quat[1]**2+body_quat[2]**2)  ### normally xx-rotation, not sure what axes mujoco uses
         state = self.state_vector()
         notdone = np.isfinite(state).all() \
             and state[2] >= 0.2 and state[2] <= 1.0 \
-                and obj_cost==0
+            and z_rot >= -0.7
         done = not notdone
+        done_cost = done*1.0
+        cost = np.clip(obj_cost+done_cost, 0, 1)
         ob = self._get_obs()
         return ob, reward, done, dict(
             reward_forward=forward_reward,
@@ -41,6 +41,7 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
             reward_contact=-contact_cost,
             reward_survive=survive_reward,
             cost_obj = obj_cost,
+            cost_done = done_cost,
             cost = cost,
             )
 
@@ -48,7 +49,7 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         return np.concatenate([
             self.sim.data.qpos.flat[2:],
             self.sim.data.qvel.flat,
-            (1/(self.data.geom_xpos[1:13][:,:2]-self.get_body_com("torso")[:2])).flat
+            (self.data.geom_xpos[1:3][...,1]-self.get_body_com("torso")[1]).flat,
             # np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
         ])
 
