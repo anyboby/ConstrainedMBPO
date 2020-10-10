@@ -28,6 +28,15 @@ building conda env from this repo doesn't work properly, currently you have to:
 7. check tf install, try other version, e.g. pip install tensorflow==1.14
 	possibly install tf probability 0.7.0 for gaussian policy compatibility:
 	pip install tensorflow-probability==0.7.0
+
+       you may want to prefer a conda tf install (had less cuda compatibility problems):
+       conda install -c anaconda tensorflow-gpu=1.14.0 
+       
+       test gpu compat with:
+       python
+               import tensorflow as tf
+               tf.test.is_gpu_available()
+
 8. same as above for mujoco-py
 9. I also recently had trouble with serializable (softlearning uses hartikainen's version, not PyPi which seemed to be missing in the req.txt)
 	git clone https://github.com/hartikainen/serializable
