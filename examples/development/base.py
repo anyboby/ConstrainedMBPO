@@ -51,7 +51,7 @@ CPO_POLICY_PARAMS_BASE = {
         'target_kl':            0.04,
         'cost_lim_end':         10,
         'cost_lim':             10,
-        'cost_lam':             .98,
+        'cost_lam':             .95,
         'cost_gamma':           0.97,
         'lam':                  .95,
         'gamma':                0.99,

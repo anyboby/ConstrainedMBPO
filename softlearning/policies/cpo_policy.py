@@ -206,16 +206,11 @@ class CPOAgent(TrustRegionAgent):
         # rescale = self.max_path_length*(1-self.c_gamma)
         rescale = 1/self.max_path_length
 
-        cost_lim_disc = (cost_lim/rescale)/(1-self.c_gamma)
-
-        # compare
-        # c_debug = self.logger.get_stats('CostEp')[0] - cost_lim
-        # c_debug /= (rescale + EPS)
-
         # undiscount (@anyboby TODO not really understand why we undiscount here, despite
         # the theory in CPO suggests the discounted Return)
+
         #c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
-        c = cur_cret_avg*rescale-cost_lim
+        c = (cur_cret_avg-cost_lim)*rescale
 
         if self.d_control:
             c += self.delta * self.decayed_surr_cost
@@ -234,7 +229,7 @@ class CPOAgent(TrustRegionAgent):
         c += self.margin
 
         # c + rescale * b^T (theta - theta_k) <= 0, equiv c/rescale + b^T(...)
-        c /= (self.max_path_length + EPS)
+        # c /= (self.max_path_length + EPS)
 
         # Core calculations for CPO
         v = tro.cg(Hx, g)
@@ -516,12 +511,7 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['session']        = self.sess
 
 
-            # self.v = construct_model(name='VEnsemble', cliprange=self.vf_cliprange, **vf_kwargs)
-	
-            # self.vc = construct_model(name='VCEnsemble', cliprange=self.cvf_cliprange, **vf_kwargs)
-
-            self.v = construct_model(name='VEnsemble', max_logvar=-2, min_logvar=-10, logit_bias_std=self.v_logit_bias, **vf_kwargs)
-	
+            self.v = construct_model(name='VEnsemble', max_logvar=-2, min_logvar=-10, logit_bias_std=self.v_logit_bias, **vf_kwargs)	
             self.vc = construct_model(name='VCEnsemble', max_logvar=5, min_logvar=-10, logit_bias_std=self.vc_logit_bias, **vf_kwargs)
 
 
