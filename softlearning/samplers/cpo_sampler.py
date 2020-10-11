@@ -225,15 +225,18 @@ class CpoSampler():
 
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if terminal and not(self._path_length >= self._max_path_length):
-                # Note: we do not count env time out as true terminal state
-                self.finish_all_paths(append_val=False)
+                # Note: we do not count env time out as true terminal state,
+                ## But costs are calculated for the maximum episode length, 
+                ## even for early termination
+                
+                self.finish_all_paths(append_val=False, append_cval=True)
             else:
-                self.finish_all_paths(append_val=True)
+                self.finish_all_paths(append_val=True, append_cval=True)
             
         return next_observation, reward, terminal, info
 
 
-    def finish_all_paths(self, append_val=False, reset_path = True):
+    def finish_all_paths(self, append_val=False, append_cval=False, reset_path = True):
             if self._current_observation is None:   #return if already finished
                 return
 
@@ -243,17 +246,18 @@ class CpoSampler():
             # If trajectory didn't reach terminal state, bootstrap value target(s)
             if not append_val:
                 # Note: we do not count env time out as true terminal state
-                last_val, last_val_var, last_cval, last_cval_var = np.zeros((self.vf_ensemble_size,1)), \
-                                                                    np.zeros((self.vf_ensemble_size,1)), \
-                                                                    np.zeros((self.vf_ensemble_size,1)), \
-                                                                    np.zeros((self.vf_ensemble_size,1))
+                last_val, last_val_var = np.zeros((self.vf_ensemble_size,1)), \
+                                            np.zeros((self.vf_ensemble_size,1))
+                                                                    
             else:
-                if self.policy.agent.reward_penalized:          ##### not maintained
-                    last_val = self.policy.get_v(self._current_observation, factored=True, inc_var=False)
-                    last_cval = np.zeros((self.vf_ensemble_size,1))
-                else:
-                    last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
-                    last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
+                last_val, last_val_var = self.policy.get_v(self._current_observation, factored=True, inc_var=True)
+            
+            if not append_cval:
+                last_cval, last_cval_var = np.zeros((self.vf_ensemble_size,1)), \
+                                                np.zeros((self.vf_ensemble_size,1))
+            else:
+                last_cval, last_cval_var = self.policy.get_vc(self._current_observation, factored=True, inc_var=True)
+            
             self.pool.finish_path(last_val, last_val_var, last_cval, last_cval_var)
 
 

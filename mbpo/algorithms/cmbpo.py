@@ -418,7 +418,7 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('timestep_after_hook')
 
                 if self.ready_to_train or self._timestep>n_real_samples:
-                    self.sampler.finish_all_paths(append_val=True, reset_path=False)
+                    self.sampler.finish_all_paths(append_val=True, append_cval=True, reset_path=False)
                     self.new_real_samples += self._timestep
                     break
 
@@ -559,7 +559,7 @@ class CMBPO(RLAlgorithm):
         while True:
             self.sampler.sample(timestep=0)
             if self.sampler._total_samples >= self._n_initial_exploration_steps:
-                self.sampler.finish_all_paths(append_val=True, reset_path=False)
+                self.sampler.finish_all_paths(append_val=True, append_cval=True, reset_path=False)
                 pool.get()  # moves policy samples to archive
                 break
         

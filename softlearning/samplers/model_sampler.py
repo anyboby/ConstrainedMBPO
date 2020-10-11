@@ -293,7 +293,7 @@ class ModelSampler(CpoSampler):
         # remaining_paths refers to the paths we have finished and has the same shape 
         # as our terminal mask (too_uncertain_mask)
         # alive_paths refers to all original paths and therefore has shape batch_size
-        remaining_paths = self._finish_paths(too_uncertain_paths, append_vals=True)
+        remaining_paths = self._finish_paths(too_uncertain_paths, append_vals=True, append_cvals=True)
         alive_paths = self.pool.alive_paths
         if not alive_paths.any():
             info['alive_ratio'] = 0
@@ -387,7 +387,7 @@ class ModelSampler(CpoSampler):
         self._current_observation = next_obs
 
         path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]            
-        remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True)
+        remaining_paths = self._finish_paths(term_mask=path_end_mask, append_vals=True, append_cvals=True)
         if not remaining_paths.any():
             info['alive_ratio'] = 0
             return next_obs, reward, terminal, info
@@ -401,7 +401,7 @@ class ModelSampler(CpoSampler):
             prem_term_mask = terminal
         
         #### terminate real termination due to env end
-        remaining_paths = self._finish_paths(term_mask=prem_term_mask, append_vals=False)
+        remaining_paths = self._finish_paths(term_mask=prem_term_mask, append_vals=False, append_cvals=True)
         if not remaining_paths.any():
             info['alive_ratio'] = 0
             return next_obs, reward, terminal, info
@@ -419,7 +419,7 @@ class ModelSampler(CpoSampler):
         return next_obs, reward, terminal, info
 
 
-    def _finish_paths(self, term_mask, append_vals=False):
+    def _finish_paths(self, term_mask, append_vals=False, append_cvals=False):
         """
         terminates paths that are indicated in term_mask. Append_vals should be set to 
         True/False to indicate, whether values of the current states of those paths should 
@@ -446,23 +446,27 @@ class ModelSampler(CpoSampler):
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.rollout_mode=='iv_gae':
-                if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(self._current_observation[:,term_mask], factored=False)
-                else:
-                    last_val = self.policy.get_v(self._current_observation[:,term_mask], factored=False)
-                    last_cval = self.policy.get_vc(self._current_observation[:,term_mask], factored=False)
+                last_val = self.policy.get_v(self._current_observation[:,term_mask], factored=False)
             else:
-                if self.policy.agent.reward_penalized:
-                    last_val = self.policy.get_v(self._current_observation[term_mask], factored=False)
-                else:
-                    last_val = self.policy.get_v(self._current_observation[term_mask], factored=False)
-                    last_cval = self.policy.get_vc(self._current_observation[term_mask], factored=False)
+                last_val = self.policy.get_v(self._current_observation[term_mask], factored=False)
         else:
             # init final values
             if self.rollout_mode=='iv_gae':
-                last_val, last_cval = np.zeros(shape=(self.ensemble_size, term_mask.sum())), np.zeros(shape=(self.ensemble_size, term_mask.sum()))
+                last_val = np.zeros(shape=(self.ensemble_size, term_mask.sum()))
             else:
-                last_val, last_cval = np.zeros(shape=(term_mask.sum())), np.zeros(shape=(term_mask.sum()))
+                last_val = np.zeros(shape=(term_mask.sum()))
+
+        if append_cvals:
+            if self.rollout_mode=='iv_gae':
+                last_cval = self.policy.get_vc(self._current_observation[:,term_mask], factored=False)
+            else:
+                last_cval = self.policy.get_vc(self._current_observation[term_mask], factored=False)
+        else:
+            # init final values
+            if self.rollout_mode=='iv_gae':
+                last_cval = np.zeros(shape=(self.ensemble_size, term_mask.sum()))
+            else:
+                last_cval = np.zeros(shape=(term_mask.sum()))
 
         self.pool.finish_path_multiple(term_mask, last_val, last_cval)
 
