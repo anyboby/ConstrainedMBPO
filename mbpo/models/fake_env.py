@@ -243,38 +243,26 @@ class FakeEnv:
         return self.train_dyn_model(samples, discount=1, **kwargs)
         
 
-    def train_dyn_model(self, samples, discount=1, **kwargs):
+    def train_dyn_model(self, samples, **kwargs):
         # check priors
         priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
 
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
-        if discount<1:
-            train_inputs_dyn, train_outputs_dyn, weights = format_samples_for_dyn(samples, 
-                                                                        priors=priors,
-                                                                        discount=discount,
-                                                                        noise=1e-4
-                                                                        )
-            kwargs['weights'] = weights
-            model_metrics = self._model.train(train_inputs_dyn, 
-                                                train_outputs_dyn, 
-                                                **kwargs,
-                                                )
         
-        else:
-            train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
-                                                                        priors=priors,
-                                                                        noise=1e-4
-                                                                        )
-            
-            model_metrics = self._model.train(train_inputs_dyn, 
-                                                train_outputs_dyn, 
-                                                **kwargs,
-                                                )
+        train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
+                                                                    priors=priors,
+                                                                    noise=1e-4
+                                                                    )
+        
+        model_metrics = self._model.train(train_inputs_dyn, 
+                                            train_outputs_dyn, 
+                                            **kwargs,
+                                            )
         self.dyn_target_var_rm = np.var(train_outputs_dyn)
 
         return model_metrics
 
-    def train_cost_model(self, samples, discount=1, **kwargs):        
+    def train_cost_model(self, samples, **kwargs):        
         # check priors
         priors = self.static_fns.prior_f(samples['observations'], samples['actions']) if self.prior_f else None
         #### format samples to fit: inputs: concatenate(obs,act), outputs: concatenate(rew, delta_obs)
@@ -282,30 +270,17 @@ class FakeEnv:
         if self.static_c:
             return {}
         else:
-            if discount<1:
-                inputs, targets, weights = format_samples_for_cost(samples, 
-                                                            one_hot=self.cost_m_loss=='CE',
-                                                            priors=priors,
-                                                            discount=discount,
-                                                            noise=1e-4
-                                                            )
-                kwargs['weights'] = weights
-                cost_model_metrics = self._cost_model.train(inputs,
-                                            targets,
-                                            **kwargs,
-                                            )                                            
-            else:
-                inputs, targets = format_samples_for_cost(samples, 
-                                                            one_hot=self.cost_m_loss=='CE',
-                                                            priors=priors,
-                                                            noise=1e-4
-                                                            )
-                #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
+            inputs, targets = format_samples_for_cost(samples, 
+                                                        one_hot=self.cost_m_loss=='CE',
+                                                        priors=priors,
+                                                        noise=1e-4
+                                                        )
+            #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
-                cost_model_metrics = self._cost_model.train(inputs,
-                                            targets,
-                                            **kwargs,
-                                            )                                            
+            cost_model_metrics = self._cost_model.train(inputs,
+                                        targets,
+                                        **kwargs,
+                                        )                                            
                 
             return cost_model_metrics
 

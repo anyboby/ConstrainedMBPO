@@ -83,8 +83,7 @@ class CMBPO(RLAlgorithm):
             dyn_model_train_schedule=[20, 100, 1, 5],
             cost_model_train_schedule=[20, 100, 1, 30],
             cares_about_cost = False,
-            dyn_m_discount = 1,
-            cost_m_discount = 1,                     
+            m_sampling_discount = 1,
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
             rollout_mode = 'schedule',
@@ -136,8 +135,7 @@ class CMBPO(RLAlgorithm):
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
 
-        self._dyn_m_discount = dyn_m_discount
-        self._cost_m_discount = cost_m_discount
+        self._m_sampling_disc = m_sampling_discount
         self.cares_about_cost = cares_about_cost
 
         ## create fake environment for model
@@ -145,8 +143,6 @@ class CMBPO(RLAlgorithm):
                                     static_fns, num_networks=7, 
                                     num_elites=5, 
                                     hidden_dims=hidden_dims, 
-                                    dyn_discount = self._dyn_m_discount,
-                                    cost_m_discount = self._cost_m_discount,
                                     cares_about_cost=cares_about_cost,
                                     session = self._session)
 
@@ -334,7 +330,9 @@ class CMBPO(RLAlgorithm):
                     #=====================================================================#
                     #                           Model Rollouts                            #
                     #=====================================================================#
-                    start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                    # start_states = self._pool.rand_batch_from_archive(self._rollout_batch_size, fields=['observations'])['observations']
+                    start_states = self._pool.disc_batch_from_archive(self._rollout_batch_size, fields=['observations'], disc=self._m_sampling_disc)['observations']
+
                     self.model_sampler.reset(start_states)
                     if self.rollout_mode=='uncertainty':
                         self.model_sampler.set_max_uncertainty(self.max_tddyn_err)
@@ -594,7 +592,6 @@ class CMBPO(RLAlgorithm):
         if self._epoch%self._dyn_model_train_freq==0:
             diag_dyn = self.fake_env.train_dyn_model(
                 model_samples, 
-                discount = self._dyn_m_discount,
                 batch_size=batch_size, #512
                 max_epochs=max_epochs, # max_epochs 
                 min_epoch_before_break=min_epochs, # min_epochs, 
@@ -605,7 +602,6 @@ class CMBPO(RLAlgorithm):
         if self._epoch%self._cost_model_train_freq==0 and self.fake_env.cares_about_cost:
             diag_c = self.fake_env.train_cost_model(
                 model_samples, 
-                discount = self._cost_m_discount,
                 batch_size= batch_size, #batch_size, #512, 
                 min_epoch_before_break= min_epochs,#min_epochs,
                 max_epochs=max_epochs, # max_epochs, 

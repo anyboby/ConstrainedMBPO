@@ -79,7 +79,7 @@ def construct_model(in_dim,
 
 	return model
 
-def format_samples_for_dyn(samples, priors = None, noise=None, discount = 1):
+def format_samples_for_dyn(samples, priors = None, noise=None):
 	"""
 	formats samples to fit training, specifically returns: 
 
@@ -113,14 +113,9 @@ def format_samples_for_dyn(samples, priors = None, noise=None, discount = 1):
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
 
-	if discount<1:
-			epochs = np.squeeze(samples['epochs'])
-			weights = discount ** (np.max(epochs)- epochs)
-			return inputs, outputs, weights
-
 	return inputs, outputs
 
-def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, priors = None, noise=None, discount=1):
+def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, priors = None, noise=None):
 	"""
 	formats samples to fit training for cost, specifically returns: 
 
@@ -171,11 +166,6 @@ def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_cla
 	if noise:
 		inputs = _add_noise(inputs, noise)		### noise helps 
 	
-	if discount<1:
-			epochs = np.squeeze(samples['epochs'])
-			weights = discount ** (np.max(epochs)- epochs)
-			return inputs, outputs, weights
-
 	return inputs, outputs
 
 def _add_noise(data_inp, noiseToSignal):

@@ -119,7 +119,7 @@ class CPOBuffer:
         self.cval_var_buf = np.zeros((self.value_ensemble_size, size), dtype=np.float32)    # cost value
         self.logp_buf = np.zeros(size, dtype=np.float32)
         self.term_buf = np.zeros(size, dtype=np.bool_)
-        self.epoch_buf = np.zeros(size, dtype=np.float32)
+        self.epoch_buf = np.ones(size, dtype=np.float32)*-1
         self.ptr, self.path_start_idx, self.path_finished = 0,0, False
 
     def reset_arch(self):
@@ -145,7 +145,7 @@ class CPOBuffer:
         self.cval_var_archive = np.zeros(archive_size, dtype=np.float32)    # cost value
         self.logp_archive = np.zeros(archive_size, dtype=np.float32)
         self.term_archive = np.zeros(archive_size, dtype=np.bool_)
-        self.epoch_archive = np.zeros(archive_size, dtype=np.float32)
+        self.epoch_archive = np.ones(archive_size, dtype=np.float32)*-1
         self.archive_ptr = 0
 
     @property
@@ -547,6 +547,55 @@ class CPOBuffer:
         samples = {archive: self.arch_dict[archive][rand_indc] for archive in archives}
         
         return samples
+
+    def disc_batch_from_archive(self, batch_size, fields=None, disc=0.9):
+        """
+        returns random batch from the archive. if data_type is None a 
+        default dictionary containing:
+        obs, action, next_obs, r, term
+        is returned. 
+        Remember, that old values / advantages etc. might come from
+        old policies.
+        choose from these data types:
+            'observations'
+            'actions'
+            'next_observations'
+            'advantages'
+            'rewards'
+            'returns'
+            'values'
+            'cadvantages'
+            'costs'
+            'creturns'
+            'cvalues'
+            'log_policies'
+            'terminals'
+
+        Args:
+            fields: a list containing the key words for the desired 
+            data types. e.g.: ['observations', 'actions', 'values']
+        Returns:
+            samples: A dict containining random archive values for default / specified fields 
+            as np arrays of batch_size
+        """
+        max_ep = np.max(self.epoch_archive)
+
+        disc_dist = self.epoch_archive.copy()
+        disc_dist[self.epoch_archive>=0]+=1
+        disc_dist[:] = disc**(max_ep-disc_dist[:])
+        disc_dist[self.epoch_archive<0]=0
+        disc_dist/=np.sum(disc_dist)
+
+        if fields is None:
+            archives = ['observations', 'actions', 'next_observations', 'rewards', 'terminals']
+        else:
+            archives = fields
+
+        rand_indc = np.random.choice(np.arange(self.archive_size), size=batch_size, p=disc_dist)
+        samples = {archive: self.arch_dict[archive][rand_indc] for archive in archives}
+        
+        return samples
+
 
     def _random_indices(self, batch_size):
         """
