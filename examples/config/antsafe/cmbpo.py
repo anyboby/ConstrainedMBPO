@@ -39,7 +39,7 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks
-        'real_ratio': .05, #0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 0.05, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
@@ -48,16 +48,16 @@ params = {
         'dyn_m_discount': 1,
         'cost_m_discount' : 1,
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 1.5,
-        'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 4000, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'max_uncertainty_rew' : 1.6,
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [100, 2500, 3, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 10,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.05,
+        'maxroll': 20,      ### only really relevant for iv gae
+        'max_tddyn_err' : 0.065,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 16000,              ### how many samples 
-        'min_real_samples_per_epoch': 96,
+        'batch_size_policy': 20000,              ### how many samples 
+        'min_real_samples_per_epoch': 256,
     }
 }

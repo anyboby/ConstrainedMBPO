@@ -29,9 +29,9 @@ class StaticFns:
         z = next_obs[..., 0]
         body_quat = next_obs[...,1:5]
         z_rot = 1-2*(body_quat[...,1]**2+body_quat[...,2]**2)
-        y_walldist = next_obs[..., -2:]
+        y_dist = next_obs[..., -1:]
         
-        obj_cost = (abs(y_walldist)<1.6).any()*1.0
+        obj_cost = np.any(abs(y_dist)>4.4, axis=-1)[...,None]*1.0
 
         notdone = np.isfinite(next_obs).all(axis=-1) \
             * (z >= 0.2) \
