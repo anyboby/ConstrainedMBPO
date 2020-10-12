@@ -23,15 +23,15 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         yposafter = self.get_body_com("torso")[1]
         ywall = np.array([-6,6])
         if xposafter<20:
-            y_walldist = yposafter - xposafter*np.tan(15/360*2*np.pi)+ywall
+            y_walldist = yposafter - xposafter*np.tan(30/360*2*np.pi)+ywall
         elif xposafter>20 and xposafter<60:
-            y_walldist = yposafter + (xposafter-40)*np.tan(15/360*2*np.pi) - ywall
+            y_walldist = yposafter + (xposafter-40)*np.tan(30/360*2*np.pi) - ywall
         elif xposafter>60 and xposafter<100:
-            y_walldist = yposafter - (xposafter-80)*np.tan(15/360*2*np.pi) + ywall
+            y_walldist = yposafter - (xposafter-80)*np.tan(30/360*2*np.pi) + ywall
         else:
-            y_walldist = yposafter - 20*np.tan(15/360*2*np.pi) + ywall
+            y_walldist = yposafter - 20*np.tan(30/360*2*np.pi) + ywall
 
-        obj_cost = (abs(y_walldist)<1.6).any()*1.0
+        obj_cost = (abs(y_walldist)<2.0).any()*1.0
         reward = forward_reward - ctrl_cost - contact_cost + survive_reward
         
         body_quat = self.data.get_body_xquat('torso')
@@ -58,17 +58,17 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         x = self.sim.data.qpos.flat[0]
         y = self.sim.data.qpos.flat[1]
         if x<20:
-            y_walldist = y - x*np.tan(15/360*2*np.pi)
+            y_walldist = y - x*np.tan(30/360*2*np.pi)
         elif x>20 and x<60:
-            y_walldist = y + (x-40)*np.tan(15/360*2*np.pi)
+            y_walldist = y + (x-40)*np.tan(30/360*2*np.pi)
         elif x>60 and x<100:
-            y_walldist = y - (x-80)*np.tan(15/360*2*np.pi)
+            y_walldist = y - (x-80)*np.tan(30/360*2*np.pi)
         else:
-            y_walldist = y - 20*np.tan(15/360*2*np.pi)
+            y_walldist = y - 20*np.tan(30/360*2*np.pi)
 
         return np.concatenate([
-            self.sim.data.qpos.flat[2:],
-            self.sim.data.qvel.flat,
+            self.sim.data.qpos.flat[2:-42],
+            self.sim.data.qvel.flat[:-36],
             [x/5],
             [y_walldist],
             # np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
@@ -76,7 +76,9 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
 
     def reset_model(self):
         qpos = self.init_qpos + self.np_random.uniform(size=self.model.nq, low=-.1, high=.1)
+        qpos[-42:] = self.init_qpos[-42:]
         qvel = self.init_qvel + self.np_random.randn(self.model.nv) * .1
+        qvel[-36:] = self.init_qvel[-36:]
         self.set_state(qpos, qvel)
         return self._get_obs()
 

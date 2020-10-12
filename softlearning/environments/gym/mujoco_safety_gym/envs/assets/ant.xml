@@ -36,12 +36,11 @@
     <geom conaffinity="1" condim="3" name="wall1" type="box" material="BoxMat" size="0.1 14 1.0" pos="-14  0 1"    rgba="#ff66ff"/>
     <geom conaffinity="1" condim="3" name="wall2" type="box" material="BoxMat" size="14 .1 1.0" pos="0  14 1"    rgba="#ff66ff"/>
     <geom conaffinity="1" condim="3" name="wall3" type="box" material="BoxMat" size="14 0.1 1.0" pos="0  -14 1.0"    rgba="#ff66ff"/> -->
-    <geom conaffinity="1" condim="3" name="wall1" type="box" size="20 0.1 1.0" pos="0  -6 1.0"  euler='0 0 15'  rgba="1 0.5 0.5 1"/>
-    <geom conaffinity="1" condim="3" name="wall2" type="box" size="20 0.1 1.0" pos="0   6 1.0"   euler='0 0 15'  rgba="1 0.5 0.5 1"/>
-    <geom conaffinity="1" condim="3" name="wall3" type="box" size="20 0.1 1.0" pos="40 -6 1.0"  euler='0 0 -15'  rgba="1 0.5 0.5 1"/>
-    <geom conaffinity="1" condim="3" name="wall4" type="box" size="20 0.1 1.0" pos="40  6 1.0"   euler='0 0 -15'  rgba="1 0.5 0.5 1"/>
-    <geom conaffinity="1" condim="3" name="wall5" type="box" size="20 0.1 1.0" pos="80 -6 1.0"  euler='0 0 15'  rgba="1 0.5 0.5 1"/>
-    <geom conaffinity="1" condim="3" name="wall6" type="box" size="20 0.1 1.0" pos="80  6 1.0"   euler='0 0 15'  rgba="1 0.5 0.5 1"/>
+    <!-- <geom conaffinity="1" condim="3" name="wall2" type="box" density=".01" size="20 0.1 1.0" pos="0   6 1.0"   euler='0 0 30'  rgba="1 0.5 0.5 1"/>
+    <geom conaffinity="1" condim="3" name="wall3" type="box" density=".01" size="20 0.1 1.0" pos="40 -6 1.0"  euler='0 0 -30'  rgba="1 0.5 0.5 1"/>
+    <geom conaffinity="1" condim="3" name="wall4" type="box" density=".01" size="20 0.1 1.0" pos="40  6 1.0"  euler='0 0 -30'  rgba="1 0.5 0.5 1"/>
+    <geom conaffinity="1" condim="3" name="wall5" type="box" density=".01" size="20 0.1 1.0" pos="80 -6 1.0"   euler='0 0 30'  rgba="1 0.5 0.5 1"/>
+    <geom conaffinity="1" condim="3" name="wall6" type="box" density=".01" size="20 0.1 1.0" pos="80  6 1.0"   euler='0 0 30'  rgba="1 0.5 0.5 1"/> -->
     <body name="torso" pos="0 0 0.75">
       <camera name="track" mode="trackcom" pos="0 -3 0.3" xyaxes="1 0 0 0 0 1"/>
       <geom name="torso_geom" pos="0 0 0" size="0.25" type="sphere"/>
@@ -90,6 +89,30 @@
           </body>
         </body>
       </body>
+    </body>
+    <body name='b1' pos="0 5 1" euler='0 0 30'>
+      <freejoint name="b1_fj"/>
+      <geom conaffinity="1" condim="3" name="wall1" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
+    </body>
+    <body name='b2' pos="0 -5 1" euler='0 0 30'>
+      <freejoint name="b2_fj"/>
+      <geom conaffinity="1" condim="3" name="wall2" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
+    </body>
+    <body name='b3' pos="40 5 1" euler='0 0 -30'>
+      <freejoint name="b3_fj"/>
+      <geom conaffinity="1" condim="3" name="wall3" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
+    </body>
+    <body name='b4' pos="40 -5 1" euler='0 0 -30'>
+      <freejoint name="b4_fj"/>
+      <geom conaffinity="1" condim="3" name="wall4" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
+    </body>
+    <body name='b5' pos="80 5 1" euler='0 0 30'>
+      <freejoint name="b5_fj"/>
+      <geom conaffinity="1" condim="3" name="wall5" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
+    </body>
+    <body name='b6' pos="80 -5 1" euler='0 0 30'>
+      <freejoint name="b6_fj"/>
+      <geom conaffinity="1" condim="3" name="wall6" type="box" density=".000001" size="20 0.01 .7"    rgba="1 0.5 0.5 1"/>
     </body>
   </worldbody>
   <actuator>

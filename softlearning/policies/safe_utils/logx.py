@@ -14,6 +14,7 @@ import os.path as osp, time, atexit, os
 from softlearning.policies.safe_utils.mpi_tools import proc_id, mpi_statistics_scalar
 from softlearning.policies.safe_utils.serialization_utils import convert_json
 from softlearning.environments.utils import get_environment_from_params
+from softlearning.environments.gym import mujoco_safety_gym
 
 from tensorflow.python.lib.io import file_io        ###@anyboby not good!
 import traceback
@@ -85,8 +86,8 @@ def load_policy(fpath, itr='last', deterministic=False):
     except:
         environment_params = {}
         environment_params['universe'] = 'gym'
-        environment_params['task'] = 'v0'
-        environment_params['domain'] = 'Safexp-PointGoal2'
+        environment_params['task'] = 'v2'
+        environment_params['domain'] = 'AntSafe'
         environment_params['kwargs'] = {}
         env = get_environment_from_params(environment_params)
 

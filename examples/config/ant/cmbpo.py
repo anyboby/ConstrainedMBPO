@@ -45,11 +45,11 @@ params = {
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
         'cares_about_cost': False,
-        'm_sampling_discount': 0.95,           
+        'm_sampling_discount': 0.99,           
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 1.5,
         'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 4000, 3, 7], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_schedule': [150, 4000, 3, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'

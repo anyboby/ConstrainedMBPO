@@ -22,12 +22,12 @@ def run_policy(env, get_action, fpath, max_ep_len=None, num_episodes=100, render
             time.sleep(1e-3)
         # @TODO anyboby
         ### bad hardcoding
-        o = o[0,3:58]
+        #o = o[0,3:58]
         a = get_action(o)
         a = np.clip(a, env.action_space.low, env.action_space.high)
         o, r, d, info = env.step(a)
-        ep_ret += r[0]
-        ep_cost += info[0].get('cost', 0)
+        ep_ret += r #r[0]
+        ep_cost +=  info.get('cost',0) #info[0].get('cost', 0)
         ep_len += 1
 
         if d or (ep_len == max_ep_len):
