@@ -15,7 +15,7 @@ params = {
         'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
-        'eval_render_mode': None,    # 
+        'eval_render_mode': 'human',    # 
         'eval_n_episodes': 3,
         'eval_every_n_steps': 10e3,
         'eval_deterministic': False,    # not implemented in cmbpo
@@ -57,6 +57,6 @@ params = {
         'max_tddyn_err' : 0.06,
         'max_tddyn_err_decay' : .9999,
         'batch_size_policy': 20000,              ### how many samples 
-        'min_real_samples_per_epoch': 512,
+        'min_real_samples_per_epoch': 256,
     }
 }

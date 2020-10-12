@@ -21,7 +21,7 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         
         ### safety stuff
         yposafter = self.get_body_com("torso")[1]
-        ywall = np.array([-6,6])
+        ywall = np.array([-5,5])
         if xposafter<20:
             y_walldist = yposafter - xposafter*np.tan(30/360*2*np.pi)+ywall
         elif xposafter>20 and xposafter<60:
@@ -31,7 +31,7 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         else:
             y_walldist = yposafter - 20*np.tan(30/360*2*np.pi) + ywall
 
-        obj_cost = (abs(y_walldist)<2.0).any()*1.0
+        obj_cost = (abs(y_walldist)<1.8).any()*1.0
         reward = forward_reward - ctrl_cost - contact_cost + survive_reward
         
         body_quat = self.data.get_body_xquat('torso')
@@ -58,19 +58,19 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         x = self.sim.data.qpos.flat[0]
         y = self.sim.data.qpos.flat[1]
         if x<20:
-            y_walldist = y - x*np.tan(30/360*2*np.pi)
+            y_off = y - x*np.tan(30/360*2*np.pi)
         elif x>20 and x<60:
-            y_walldist = y + (x-40)*np.tan(30/360*2*np.pi)
+            y_off = y + (x-40)*np.tan(30/360*2*np.pi)
         elif x>60 and x<100:
-            y_walldist = y - (x-80)*np.tan(30/360*2*np.pi)
+            y_off = y - (x-80)*np.tan(30/360*2*np.pi)
         else:
-            y_walldist = y - 20*np.tan(30/360*2*np.pi)
+            y_off = y - 20*np.tan(30/360*2*np.pi)
 
         return np.concatenate([
             self.sim.data.qpos.flat[2:-42],
             self.sim.data.qvel.flat[:-36],
             [x/5],
-            [y_walldist],
+            [y_off],
             # np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
         ])
 
