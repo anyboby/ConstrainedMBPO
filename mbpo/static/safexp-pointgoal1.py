@@ -3,12 +3,14 @@ import sys, os
 import json
 
 class StaticFns:
-    task = 'Safexp-PointGoal2-v1'
+    task = 'Safexp-PointGoal1-v1'
 
         # goal_size = config.goal_size
         # reward_distance = config.reward_distance
         # reward_clip = config.reward_clip
         # reward_goal = config.reward_goal
+
+    PRIOR_DIM = 2
 
     @staticmethod
     def termination_fn(obs, act, next_obs, env):
@@ -31,26 +33,9 @@ class StaticFns:
             done = done[...,None]
         return done
     
-    #@anyboby  TODO @anyboby :/
-    @staticmethod
-    def cost_fn(costs, env):
-        """
-        interprets model ensemble regression output as probability and converts to binary cost between 1 and 0
-        Args:
-            costs: expects samples along axis 0
-        """
-
-        #clip to 0 and 1
-        cost_clipped = np.clip(costs, 0, 1)
-        cost_rounded = np.around(cost_clipped)
-        #cost_rounded = cost_clipped
-    
-        return cost_rounded
-        #
-
     
     @staticmethod
-    def rebuild_goal(obs, act, next_obs, new_obs_pool, env):
+    def post_f(obs, act, next_obs, new_obs_pool, env):
         '''
         rebuild goal, if the goal was met in the starting obs, pool of new goal_obs should be provided
         please provide unstacked observations and next_observations
@@ -137,6 +122,20 @@ class StaticFns:
             reward[goal_dist <= goal_size] += reward_goal
         
         return reward
+    @staticmethod
+    def cost_f(obs, act, next_obs, env):
+        obs_space_dict = env.unwrapped.obs_space_dict
+        config = env.unwrapped.config
+        vl_slice = StaticFns.obs_indices('vases_lidar', obs_space_dict)
+        hl_slice = StaticFns.obs_indices('hazards_lidar', obs_space_dict)
+
+
+        cost = np.zeros(shape=act.shape[:-1])[...,None]
+        max_lidars = np.max(np.concatenate((next_obs[..., vl_slice], next_obs[..., hl_slice]), axis=-1), axis=-1)[...,None]
+
+        cost[max_lidars>.925] += 1
+        
+        return cost
 
     @staticmethod
     def prior_f(obs, acts):
@@ -155,22 +154,8 @@ class StaticFns:
         acc_spikes[sign_mask] = (acts[sign_mask]-last_acts[sign_mask])/(abs((acts[sign_mask]-last_acts[sign_mask]))+1e-8)
         
         return acc_spikes
-    
-    @staticmethod
-    def post_f(obs, acts):
-        assert len(obs.shape) == len(acts.shape)
-        if len(obs.shape)==1:
-            obs = obs[None]
-            acts = acts[None]
-            return_single = True
-        else: return_single = False
+        
 
-        obs[...,:2] = acts[...,:2]
-        if return_single:
-            return obs[0] 
-        else: 
-            return obs
-    
     @staticmethod
     def obs_indices(key, obs_space_dict):
         ind = 0

@@ -215,7 +215,7 @@ def run_example_local(example_module_name, example_argv, local_mode=False):
         local_mode=local_mode,
         include_webui=example_args.include_webui,
         temp_dir=example_args.temp_dir,
-        object_store_memory=200 * 1024 * 1024,  #@anyboby TODO: test the memory config 
+        object_store_memory=100 * 1024 * 1024,  #@anyboby TODO: test the memory config 
         )
 
     tune.run_experiments(

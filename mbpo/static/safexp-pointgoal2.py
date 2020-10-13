@@ -13,7 +13,7 @@ class StaticFns:
     PRIOR_DIM = 2
 
     @staticmethod
-    def term_f(obs, act, next_obs, env):
+    def termination_fn(obs, act, next_obs, env):
         '''
         safeexp-pointgoal (like the other default safety-gym envs) doesn't terminate
         prematurely other than due to sampling errors etc., therefore just return Falses

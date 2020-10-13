@@ -222,20 +222,20 @@ class ExperimentRunner(tune.Trainable):
         return os.path.join(checkpoint_dir, '')
 
     def save_cmbpo(self, checkpoint_dir):
-        self.picklables = {
-                'variant': self._variant,
-                'training_environment': self.training_environment,
-                'evaluation_environment': self.evaluation_environment,
-                'mjc_model_environment': self.mjc_model_environment,
-                'sampler': self.sampler,    # logger in sampler is not pickable atm!
-                'algorithm': self.algorithm,
-                #'Qs': self.Qs,
-                #'policy_weights': self.policy.get_weights(),
-                }
+        # self.picklables = {
+        #         'variant': self._variant,
+        #         'training_environment': self.training_environment,
+        #         'evaluation_environment': self.evaluation_environment,
+        #         'mjc_model_environment': self.mjc_model_environment,
+        #         'sampler': self.sampler,    # logger in sampler is not pickable atm!
+        #         'algorithm': self.algorithm,
+        #         #'Qs': self.Qs,
+        #         #'policy_weights': self.policy.get_weights(),
+        #         }
         
-        pickle_path = self._pickle_path(checkpoint_dir)
-        with open(pickle_path, 'wb') as f:
-            pickle.dump(self.picklables, f)
+        # pickle_path = self._pickle_path(checkpoint_dir)
+        # with open(pickle_path, 'wb') as f:
+        #     pickle.dump(self.picklables, f)
 
         if self._variant['run_params'].get('checkpoint_replay_pool', False):
             self._save_replay_pool(checkpoint_dir)
