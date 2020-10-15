@@ -38,22 +38,22 @@ params = {
         'rollout_batch_size': 3.0e2,    # rollout_batch_size is the size of randomly chosen states to start from when rolling out model
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
-        'num_elites': 5,                # best networks to select from num_networks
+        'num_elites': 5,                # best networks to select from num_networks 
         'real_ratio': 0.05, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
         'cares_about_cost': False,
-        'm_sampling_discount': 0.99,           
+        'm_sampling_discount': 0.995,           
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 1.5,
+        'max_uncertainty_rew' : 2.5,
         'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [150, 4000, 3, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_schedule': [150, 4000, 3, 12], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 10,      ### only really relevant for iv gae
+        'maxroll': 12,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.065,
         'max_tddyn_err_decay' : .9999,
         'batch_size_policy': 8092,              ### how many samples 

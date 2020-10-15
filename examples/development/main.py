@@ -248,7 +248,6 @@ class ExperimentRunner(tune.Trainable):
         #     session=self._session)
         return os.path.join(checkpoint_dir, '')
 
-        pass
     def restore_mbpo(self, checkpoint_dir):
         checkpoint_dir = checkpoint_dir.rstrip('/')
 

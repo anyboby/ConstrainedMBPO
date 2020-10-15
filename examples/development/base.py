@@ -48,7 +48,7 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              1e-4,
-        'target_kl':            0.01,
+        'target_kl':            0.02,
         'cost_lim_end':         25,
         'cost_lim':             25,
         'cost_lam':             .95,
