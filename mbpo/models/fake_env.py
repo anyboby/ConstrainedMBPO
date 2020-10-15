@@ -155,7 +155,8 @@ class FakeEnv:
         if obs_depth==3:
             inputs, shuffle_indxs = self.forward_shuffle(inputs)
 
-        ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True, inc_var=True)       #### outputs whole ensembles outputs
+        ensemble_dyn_means, ensemble_dyn_vars = self._model.predict(inputs, factored=True, inc_var=True)       #### dyn_vars gives ep. vars for 
+                                                                                                                # deterministic ensembles and al. var for probabilistic
 
         if obs_depth==3:
             ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
@@ -169,7 +170,10 @@ class FakeEnv:
         
         ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
         ensemble_model_stds = np.sqrt(ep_dyn_var)
-        
+
+        if self.dyn_loss=='NLL':
+            ensemble_dyn_means += np.random.normal(size=ensemble_dyn_means.shape) * ensemble_model_stds
+
         median_dkl_per_output = median_dkl(ensemble_dyn_means, ensemble_model_stds)
         ensemble_dkl_med = np.mean(median_dkl_per_output, axis=tuple(np.arange(1, len(median_dkl_per_output.shape))))
         ensemble_dkl_med = np.mean(ensemble_dkl_med)

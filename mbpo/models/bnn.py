@@ -280,7 +280,7 @@ class BNN:
                                                             oldpred_var = self.old_pred_var_ph)
                                                             )
                 train_loss += tf.add_n(self.decays)
-                train_loss += 0.02 * tf.reduce_sum(self.max_logvar) - 0.02 * tf.reduce_sum(self.min_logvar)
+                train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
             
@@ -892,11 +892,11 @@ class BNN:
         if self.is_probabilistic:
             logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
             logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
-
-            # if self.logit_bias_std is not 0:
-            #     logvar += tf.log(tf.constant(self.logit_bias_std**2, dtype=tf.float32))
+            
             if self.use_scaler_out and scale_output:
-                logvar *= tf.log(self.scaler_out.get_var())
+                var = tf.exp(logvar)
+                var = self.scaler_out.inverse_transform_var(var)
+                logvar = tf.log(var)
                 self.logvar_deb = logvar
                 
             if ret_log_var: 
