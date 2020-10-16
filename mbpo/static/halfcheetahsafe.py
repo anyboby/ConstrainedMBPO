@@ -15,6 +15,6 @@ class StaticFns:
     def cost_f(obs, act, next_obs, env):
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape)
 
-        xdist = next_obs[...,-1]
+        xdist = next_obs[...,-1]*10
         obj_cost = np.array((np.abs(xdist)<2.0), dtype=np.float32)[..., None]
         return obj_cost

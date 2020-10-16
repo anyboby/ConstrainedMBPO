@@ -13,19 +13,21 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         xposbefore = self.sim.data.qpos[1]
         
         t = self.data.time
-        wall_act = .02*np.sin(t)**2 - .004
+        wall_act = .02*np.sin(t/3)**2 - .004
         mjp.functions.mj_rnePostConstraint(self.sim.model, self.sim.data) #### calc contacts, this is a mujoco py version mismatch issue with mujoco200
-        action = np.concatenate((np.squeeze(action), [wall_act]))
+        action_p_wall = np.concatenate((np.squeeze(action), [wall_act]))
 
-        self.do_simulation(action, self.frame_skip)
+        self.do_simulation(action_p_wall, self.frame_skip)
         xposafter = self.sim.data.qpos[1]
 
         wallpos = self.data.get_geom_xpos("obj_geom")[0]
         wallvel = self.data.get_body_xvelp("obj1")[0]
-
         xdist = wallpos-xposafter
         obj_cost = int(np.abs(xdist)<2)
-
+        if obj_cost>0:
+            self.model.geom_rgba[9] = [1.0, 0, 0, 1.0]
+        else:
+            self.model.geom_rgba[9] = [1.0, 0.5, 0.5, .8]
         ob = self._get_obs()
         reward_ctrl = - 0.1 * np.square(action).sum()
         reward_run = (xposafter - xposbefore)/self.dt
@@ -35,15 +37,15 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
 
     def _get_obs(self):
         wallvel = self.data.get_body_xvelp("obj1")[0]
-        wall_f = .02*np.sin(self.data.time)**2 - .004
-        xdist = self.data.get_geom_xpos("obj_geom")[0]-self.sim.data.qpos[1]
+        wall_f = .02*np.sin(self.data.time/3)**2 - .004
+        xdist = (self.data.get_geom_xpos("obj_geom")[0]-self.sim.data.qpos[1])/10
         
         return np.concatenate([
-            self.sim.data.qpos.flat[1:],
+            self.sim.data.qpos.flat[2:],
             self.sim.data.qvel.flat[1:],
             [wallvel],
             [wall_f],
-            [xdist],
+            np.clip([xdist], -5, 5),
         ])
 
     def reset_model(self):

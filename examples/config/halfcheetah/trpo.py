@@ -56,7 +56,7 @@ params = {
         'maxroll': 15,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.02,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 6000,              ### how many samples 
+        'batch_size_policy': 10000,              ### how many samples 
         'min_real_samples_per_epoch': 100,
     }
 }
