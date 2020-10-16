@@ -383,8 +383,8 @@ class CMBPO(RLAlgorithm):
                     model_metrics.update({'samples_added':samples_added})
                     ######################################################################
                     ### recalculate model batch sizes
-                    td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
-                    self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
+                    td_dyn_err = model_metrics.get('poolm_td_dyn_n', 0)
+                    self.approx_model_batch = min(self.max_tddyn_err/(EPS+td_dyn_err) * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
                 
                 print(f'Stopping finished')
                 gt.stamp('epoch_rollout_model')
