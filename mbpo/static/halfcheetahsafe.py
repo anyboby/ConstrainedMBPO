@@ -16,5 +16,5 @@ class StaticFns:
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape)
 
         xdist = next_obs[...,-1]
-        obj_cost = np.array((np.abs(xdist)<1.5), dtype=np.float32)[..., None]
+        obj_cost = np.array((np.abs(xdist)<2.0), dtype=np.float32)[..., None]
         return obj_cost
