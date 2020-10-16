@@ -15,7 +15,7 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         t = self.data.time
         wall_act = .02*np.sin(t)**2 - .004
         mjp.functions.mj_rnePostConstraint(self.sim.model, self.sim.data) #### calc contacts, this is a mujoco py version mismatch issue with mujoco200
-        action = np.concatenate((action, [wall_act]))
+        action = np.concatenate((np.squeeze(action), [wall_act]))
 
         self.do_simulation(action, self.frame_skip)
         xposafter = self.sim.data.qpos[1]
