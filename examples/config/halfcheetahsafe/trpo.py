@@ -1,7 +1,7 @@
 params = {
     'type': 'CMBPO',
     'universe': 'gym',
-    'domain': 'HalfCheetah',
+    'domain': 'HalfCheetahSafe',
     'task': 'v2',
 
     'policy':'CPOPolicy',
@@ -15,9 +15,9 @@ params = {
         'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
         'train_every_n_steps': 1,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
-        'eval_render_mode': None,    # 
+        'eval_render_mode': 'human',    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 5e3,
+        'eval_every_n_steps': 20e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -56,7 +56,7 @@ params = {
         'maxroll': 15,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.02,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 10000,              ### how many samples 
+        'batch_size_policy': 6000,              ### how many samples 
         'min_real_samples_per_epoch': 100,
     }
 }

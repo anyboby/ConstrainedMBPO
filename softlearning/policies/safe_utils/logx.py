@@ -87,7 +87,7 @@ def load_policy(fpath, itr='last', deterministic=False):
         environment_params = {}
         environment_params['universe'] = 'gym'
         environment_params['task'] = 'v2'
-        environment_params['domain'] = 'AntSafe'
+        environment_params['domain'] = 'HalfCheetahSafe'
         environment_params['kwargs'] = {}
         env = get_environment_from_params(environment_params)
 

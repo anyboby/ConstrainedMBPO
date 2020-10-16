@@ -51,7 +51,7 @@ class FakeEnv:
         self.post_f = self.static_fns.post_f if "post_f" in dir(self.static_fns) else False
         self.prior_f = self.static_fns.prior_f if "prior_f" in dir(self.static_fns) else False
         self.prior_dim = self.static_fns.PRIOR_DIM if "PRIOR_DIM" in dir(self.static_fns) else 0
-        #### create fake env from model 
+        #### create fake env from model
 
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
         input_dim_c = 2 * self.obs_dim + self.act_dim + self.prior_dim
