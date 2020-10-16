@@ -368,7 +368,7 @@ class CMBPO(RLAlgorithm):
 
                     ######################################################################
                     ### diagnostics
-                    new_n_samples = len(model_samples_new[0])
+                    new_n_samples = len(model_samples_new[0])+EPS
                     diag_weight_old = samples_added/(new_n_samples+samples_added)
                     diag_weight_new = new_n_samples/(new_n_samples+samples_added)
                     model_metrics = update_dict(model_metrics, rollout_diagnostics, weight_a= diag_weight_old,weight_b=diag_weight_new)
@@ -383,7 +383,7 @@ class CMBPO(RLAlgorithm):
                     model_metrics.update({'samples_added':samples_added})
                     ######################################################################
                     ### recalculate model batch sizes
-                    td_dyn_err = model_metrics.get('poolm_td_dyn_n', EPS)
+                    td_dyn_err = model_metrics.get('poolm_td_dyn_n', 0) + EPS
                     self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
                 
                 print(f'Stopping finished')
