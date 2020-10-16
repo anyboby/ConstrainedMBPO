@@ -46,17 +46,17 @@ params = {
         'cost_model_train_schedule': [25, 80, 1, 1],
         'cares_about_cost': False,
         'm_sampling_discount': 0.997,           
-        'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 3.5,
-        'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'max_uncertainty_c' :15,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
+        'max_uncertainty_rew' : 15,
+        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
         'rollout_schedule': [150, 4000, 3, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 15,      ### only really relevant for iv gae
+        'maxroll': 12,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.03,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 10000,              ### how many samples 
-        'min_real_samples_per_epoch': 100,
+        'batch_size_policy': 20000,              ### how many samples 
+        'min_real_samples_per_epoch': 512,
     }
 }

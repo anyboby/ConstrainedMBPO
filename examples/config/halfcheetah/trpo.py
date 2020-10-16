@@ -39,7 +39,7 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks 
-        'real_ratio': 0.05, #0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 1.0, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
@@ -54,9 +54,9 @@ params = {
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
         'maxroll': 15,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.03,
+        'max_tddyn_err' : 0.02,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 10000,              ### how many samples 
+        'batch_size_policy': 6000,              ### how many samples 
         'min_real_samples_per_epoch': 100,
     }
 }
