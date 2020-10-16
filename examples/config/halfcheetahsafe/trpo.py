@@ -17,7 +17,7 @@ params = {
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 5e3,
+        'eval_every_n_steps': 10e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,

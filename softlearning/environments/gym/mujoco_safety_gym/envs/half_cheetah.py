@@ -10,7 +10,7 @@ class HalfCheetahEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         utils.EzPickle.__init__(self)
         
     def step(self, action):
-        xposbefore = self.sim.data.qpos[3]
+        xposbefore = self.sim.data.qpos[1]
         
         t = self.data.time
         wall_act = .02*np.sin(t)**2 - .004
