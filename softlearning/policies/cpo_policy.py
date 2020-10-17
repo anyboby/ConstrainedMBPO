@@ -506,7 +506,7 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['var_corr']      = self.vf_var_corr
             vf_kwargs['num_elites']     = self.vf_elites
             vf_kwargs['use_scaler_in']  = False
-            vf_kwargs['use_scaler_out'] = True
+            vf_kwargs['use_scaler_out'] = False
             # vf_kwargs['sc_factor']      = 1e3
             vf_kwargs['session']        = self.sess
 
@@ -714,7 +714,7 @@ class CPOPolicy(BasePolicy):
                 deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
         self.logger.store(KL=post_update_measures['KL'], **deltas)
 
-    def update_critic(self, buf_inputs, **kwargs):
+    def update_critic(self, buf_inputs, train_vc = True, **kwargs):
         #=====================================================================#
         #  Prepare feed dict                                                  #
         #=====================================================================#
@@ -735,11 +735,15 @@ class CPOPolicy(BasePolicy):
         #=====================================================================#
         train_kwargs = self.vf_train_kwargs.copy()
         train_kwargs.update(kwargs)
-        self.train_critic(
+        self.train_vf(
             critic_inputs, 
             **train_kwargs
             )
-
+        if train_vc:
+            self.train_vc(
+                critic_inputs, 
+                **train_kwargs
+                )
         #=====================================================================#
         #  Make some measurements after updating                              #
         #=====================================================================#
@@ -751,35 +755,24 @@ class CPOPolicy(BasePolicy):
                 deltas[k+'Delta'] = post_update_measures[k] - pre_update_measures[k]
         self.logger.store(**deltas)
 
-    def train_critic(self, inputs, **kwargs):
+    def train_vf(self, inputs, **kwargs):
         obs_in = inputs[self.obs_ph]
-        vc_targets = inputs[self.cret_ph][:, np.newaxis]
         v_targets = inputs[self.ret_ph][:, np.newaxis]
         v_kwargs = kwargs.copy()
-        vc_kwargs = kwargs.copy()
 
         if self.vf_loss=='MSE' and self.vf_cliploss:    
             old_v = inputs[self.old_v_ph][..., None]            
-            old_vc = inputs[self.old_vc_ph][..., None]
-
             v_kwargs.update({'old_pred':old_v})
-            vc_kwargs.update({'old_pred':old_vc})
 
         elif self.vf_loss =='NLL' and self.vf_cliploss:    
             old_v = inputs[self.old_v_ph][..., None]            
-            old_vc = inputs[self.old_vc_ph][..., None]
             old_v_var = inputs[self.old_v_var_ph][..., None]            
-            old_vc_var = inputs[self.old_vc_var_ph][..., None]
             
             v_kwargs.update({'old_pred':old_v, 'old_pred_var':old_v_var})
-            vc_kwargs.update({'old_pred':old_vc, 'old_pred_var':old_vc_var})
 
         if self.vf_var_corr:
             ret_var = inputs['ret_var'][..., None]
-            cret_var = inputs['cret_var'][..., None]
-
             v_kwargs.update({'var_corr':ret_var})
-            vc_kwargs.update({'var_corr':cret_var})
             
         v_metrics = self.v.train(
             obs_in,
@@ -787,14 +780,34 @@ class CPOPolicy(BasePolicy):
             **v_kwargs,
             )                                      
 
+        return v_metrics
+
+    def train_vc(self, inputs, **kwargs):
+        obs_in = inputs[self.obs_ph]
+        vc_targets = inputs[self.cret_ph][:, np.newaxis]
+        vc_kwargs = kwargs.copy()
+
+        if self.vf_loss=='MSE' and self.vf_cliploss:    
+            old_vc = inputs[self.old_vc_ph][..., None]
+            vc_kwargs.update({'old_pred':old_vc})
+
+        elif self.vf_loss =='NLL' and self.vf_cliploss:    
+            old_vc = inputs[self.old_vc_ph][..., None]
+            old_vc_var = inputs[self.old_vc_var_ph][..., None]
+            
+            vc_kwargs.update({'old_pred':old_vc, 'old_pred_var':old_vc_var})
+
+        if self.vf_var_corr:
+            cret_var = inputs['cret_var'][..., None]
+            vc_kwargs.update({'var_corr':cret_var})
+            
         vc_metrics = self.vc.train(
             obs_in,
             vc_targets,
             **vc_kwargs,
             )                        
 
-        v_metrics.update(vc_metrics)
-        return v_metrics
+        return vc_metrics
 
     def run_diagnostics(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
