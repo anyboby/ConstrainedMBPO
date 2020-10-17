@@ -56,7 +56,7 @@ class FakeEnv:
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
         input_dim_c = 2 * self.obs_dim + self.act_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
-        self.dyn_loss = 'NLL'
+        self.dyn_loss = 'MSE'
 
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
@@ -70,7 +70,7 @@ class FakeEnv:
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
                                         use_scaler_in = True,
-                                        use_scaler_out = False,
+                                        use_scaler_out = True,
                                         decay=1e-5,
                                         #sc_factor=1-1e-5,
                                         max_logvar=.5,
