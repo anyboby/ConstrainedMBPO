@@ -1,7 +1,7 @@
 params = {
     'type': 'CMBPO',
     'universe': 'gym',
-    'domain': 'Ant',
+    'domain': 'AntSafe',
     'task': 'v2',
 
     'policy':'CPOPolicy',

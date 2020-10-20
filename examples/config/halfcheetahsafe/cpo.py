@@ -17,7 +17,7 @@ params = {
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 5e3,
+        'eval_every_n_steps': 20e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -39,24 +39,24 @@ params = {
         'deterministic': False,          
         'num_networks': 7,              # size of model network ensemble
         'num_elites': 5,                # best networks to select from num_networks 
-        'real_ratio': 0.05, #0.05,      # ratio to which the training batch for the rl_algo is composed
+        'real_ratio': 1.0, #0.05,      # ratio to which the training batch for the rl_algo is composed
         'target_entropy': -3, 
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
         'cares_about_cost': True,
         'm_sampling_discount': 0.997,           
-        'max_uncertainty_c' :15,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
-        'max_uncertainty_rew' : 15,
-        'rollout_mode' : 'iv_gae',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
+        'max_uncertainty_rew' : 3.5,
+        'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
         'rollout_schedule': [150, 4000, 3, 10], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 12,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.03,
+        'maxroll': 15,      ### only really relevant for iv gae
+        'max_tddyn_err' : 0.02,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 20000,              ### how many samples 
-        'min_real_samples_per_epoch': 512,
+        'batch_size_policy': 15000,              ### how many samples 
+        'min_real_samples_per_epoch': 100,
     }
 }
