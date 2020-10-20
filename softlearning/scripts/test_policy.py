@@ -46,7 +46,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('fpath', type=str)
-    parser.add_argument('--len', '-l', type=int, default=0)
+    parser.add_argument('--len', '-l', type=int, default=1000)
     parser.add_argument('--episodes', '-n', type=int, default=100)
     parser.add_argument('--norender', '-nr', action='store_true')
     parser.add_argument('--itr', '-i', type=int, default=-1)
