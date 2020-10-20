@@ -1,8 +1,8 @@
 params = {
     'type': 'CMBPO',
-    'universe': "gym",
-    'domain': "Safexp-PointGoal2",
-    'task': "v0",
+    'universe': 'gym',
+    'domain': 'AntSafe',
+    'task': 'v2',
 
     'policy':'CPOPolicy',
 
@@ -17,7 +17,7 @@ params = {
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 10e3,
+        'eval_every_n_steps': 5e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -45,18 +45,18 @@ params = {
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
         'cares_about_cost': True,
-        'm_sampling_discount': 0.95,
+        'm_sampling_discount': 0.995,           
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 3.5,
-        'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [50, 300, 5, 15], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_mode' : 'schedule',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
+        'rollout_schedule': [100, 2500, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 10,      ### only really relevant for iv gae
-        'max_tddyn_err' : 0.2,
-        'max_tddyn_err_decay' : .995,
-        'batch_size_policy': 50e3,              ### how many samples 
-        'min_real_samples_per_epoch': 2048,
+        'maxroll': 20,      ### only really relevant for iv gae
+        'max_tddyn_err' : 1e5,
+        'max_tddyn_err_decay' : .9999,
+        'batch_size_policy': 20000,              ### how many samples 
+        'min_real_samples_per_epoch': 128,
     }
 }
