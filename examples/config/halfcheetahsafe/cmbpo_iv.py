@@ -53,10 +53,10 @@ params = {
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
-        'maxroll': 12,      ### only really relevant for iv gae
+        'maxroll': 18,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.03,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 20000,              ### how many samples 
+        'batch_size_policy': 25000,              ### how many samples 
         'min_real_samples_per_epoch': 512,
     }
 }

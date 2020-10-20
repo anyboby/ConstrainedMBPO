@@ -1,7 +1,7 @@
 params = {
     'type': 'CMBPO',
     'universe': 'gym',
-    'domain': 'HalfCheetah',
+    'domain': 'HalfCheetahSafe',
     'task': 'v2',
 
     'policy':'CPOPolicy',
@@ -17,7 +17,7 @@ params = {
         'n_train_repeat': 1, #20 #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 3,
-        'eval_every_n_steps': 5e3,
+        'eval_every_n_steps': 20e3,
         'eval_deterministic': False,    # not implemented in cmbpo
 
         'discount': 0.99,
@@ -44,7 +44,7 @@ params = {
         'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
         'dyn_model_train_schedule': [50, 100, 1, 1],
         'cost_model_train_schedule': [25, 80, 1, 1],
-        'cares_about_cost': False,
+        'cares_about_cost': True,
         'm_sampling_discount': 0.997,           
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 3.5,
@@ -56,7 +56,7 @@ params = {
         'maxroll': 15,      ### only really relevant for iv gae
         'max_tddyn_err' : 0.02,
         'max_tddyn_err_decay' : .9999,
-        'batch_size_policy': 6000,              ### how many samples 
+        'batch_size_policy': 15000,              ### how many samples 
         'min_real_samples_per_epoch': 100,
     }
 }
