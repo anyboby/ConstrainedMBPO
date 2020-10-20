@@ -384,7 +384,14 @@ class CMBPO(RLAlgorithm):
                     ######################################################################
                     ### recalculate model batch sizes
                     td_dyn_err = model_metrics.get('poolm_td_dyn_n', 0) + EPS
-                    self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
+                    
+                    #### little debugging, not sure when this happens:
+                    if np.isnan(td_dyn_err):
+                        model_metrics['Error!'] = 'Error!'
+                        td_dyn_err = EPS
+                        keep_rolling = False
+                    else:
+                        self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
                 
                 print(f'Stopping finished')
                 gt.stamp('epoch_rollout_model')
@@ -446,7 +453,7 @@ class CMBPO(RLAlgorithm):
             train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
 
             self._policy.update_policy(train_samples)
-            self._policy.update_critic(train_samples)
+            self._policy.update_critic(train_samples, train_vc=(train_samples[-3]>0).any())    ### only train vc if there are any costs
             
             self.policy_epoch += 1
             self.max_tddyn_err *= self.max_tddyn_err_decay
