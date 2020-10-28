@@ -11,9 +11,9 @@ params = {
     #'max_pool_size':int(5e5),         # haven't seen oom in pointgoal so far
 
     'kwargs': {
-        'epoch_length': 3000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
-        'train_every_n_steps': 50,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
-        'n_train_repeat': 10, #40,      # -> refers to total timesteps
+        'epoch_length': 10000, #1000,    # refers to how many samples (one obs per sample usually) are collected in one epoch
+        'train_every_n_steps': 200,       # Repeat training of rl_algo n_train_repeat times every _train_every_n_steps 
+        'n_train_repeat': 20, #40,      # -> refers to total timesteps
         'eval_render_mode': None,    # 
         'eval_n_episodes': 1,
         'eval_deterministic': True,

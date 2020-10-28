@@ -35,7 +35,7 @@ CPO_POLICY_PARAMS_BASE = {
             )),
         'vf_lr':                3e-4,
         'vf_hidden_layer_sizes':(128,128), #(128, 128, 128, 128),
-        'vf_epochs':            6,                 
+        'vf_epochs':            10,                 
         'vf_batch_size':        2048,
         'vf_ensemble_size':     7,
         'vf_elites':            5,
@@ -48,7 +48,7 @@ CPO_POLICY_PARAMS_BASE = {
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
         'ent_reg':              5e-3,
-        'target_kl':            0.02,
+        'target_kl':            0.015,
         'cost_lim_end':         10,
         'cost_lim':             10,
         'cost_lam':             .95,
