@@ -18,6 +18,7 @@ from softlearning.environments.gym import mujoco_safety_gym
 
 from tensorflow.python.lib.io import file_io        ###@anyboby not good!
 import traceback
+from gym import wrappers
 
 DEFAULT_DATA_DIR = osp.join(osp.abspath(osp.dirname(osp.dirname(osp.dirname(__file__)))),'data')
 
@@ -90,6 +91,7 @@ def load_policy(fpath, itr='last', deterministic=False):
         environment_params['domain'] = 'HumanoidSafe'
         environment_params['kwargs'] = {}
         env = get_environment_from_params(environment_params)
+        # env = wrappers.Monitor(env, '/home/uvday/ray_mbpo/AntSafe/', force = True)
 
     return env, get_action, sess
 

@@ -47,8 +47,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_var_corr':          False,           # include variance correction terms acc. to paper, only use with NLL
         'v_logit_bias':         1.0,#1,         # logit bias to control initial values
         'vc_logit_bias':        1.0,# 10,
-        'ent_reg':              0, #5e-3,
-        'target_kl':            0.015,
+        'ent_reg':              0, # 5e-3
+        'target_kl':            0.01,
         'cost_lim_end':         10,
         'cost_lim':             10,
         'cost_lam':             .95,
