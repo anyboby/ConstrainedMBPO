@@ -24,7 +24,10 @@ class StaticFns:
         done_cost = done*1.0
         
         y_dist = next_obs[..., -1:]
-        obj_cost = np.any(abs(y_dist)>3.2, axis=-1)[...,None]*1.0
+        # obj_cost = y_dist/2-.75
+        # obj_cost = np.clip(obj_cost, 0, 1.1)
+
+        obj_cost = np.any(abs(y_dist)>3, axis=-1)[...,None]*1.0
 
         cost = np.clip(done_cost+obj_cost, 0, 1)
         return cost
