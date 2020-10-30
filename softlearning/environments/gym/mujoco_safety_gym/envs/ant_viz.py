@@ -3,9 +3,9 @@ from mujoco_safety_gym.envs import mujoco_env
 from gym import utils
 import mujoco_py as mjp
 
-class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
+class AntEnvVisualize(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
-        mujoco_env.MujocoEnv.__init__(self, 'ant.xml', 5)
+        mujoco_env.MujocoEnv.__init__(self, 'ant_viz.xml', 5)
         utils.EzPickle.__init__(self)
 
     def step(self, a):
@@ -57,6 +57,13 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def _get_obs(self):
         x = self.sim.data.qpos.flat[0]
         y = self.sim.data.qpos.flat[1]
+
+        x2 = self.sim.data.qpos.flat[15]
+        y2 = self.sim.data.qpos.flat[16]
+
+        x3 = self.sim.data.qpos.flat[30]
+        y3 = self.sim.data.qpos.flat[31]
+
         if x<20:
             y_off = y - x*np.tan(30/360*2*np.pi)
         elif x>20 and x<60:
@@ -66,19 +73,56 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         else:
             y_off = y - 20*np.tan(30/360*2*np.pi)
 
+        qpos1 = self.sim.data.qpos.flat[2:15]
+        qvel1 = self.sim.data.qvel.flat[:14]
+
+        if x2<20:
+            y_off2 = y2- x2*np.tan(30/360*2*np.pi)
+        elif x2>20 and x<60:
+            y_off2 = y2 + (x2-40)*np.tan(30/360*2*np.pi)
+        elif x2>60 and x<100:
+            y_off2 = y2 - (x2-80)*np.tan(30/360*2*np.pi)
+        else:
+            y_off2 = y2 - 20*np.tan(30/360*2*np.pi)
+
+        qpos2 = self.sim.data.qpos.flat[17:30]
+        qvel2 = self.sim.data.qvel.flat[14:28]
+
+        if x3<20:
+            y_off3 = y3 - x3*np.tan(30/360*2*np.pi)
+        elif x3>20 and x<60:
+            y_off3 = y3 + (x3-40)*np.tan(30/360*2*np.pi)
+        elif x3>60 and x<100:
+            y_off3 = y3 - (x3-80)*np.tan(30/360*2*np.pi)
+        else:
+            y_off3 = y3 - 20*np.tan(30/360*2*np.pi)
+
+        qpos3 = self.sim.data.qpos.flat[32:45]
+        qvel3 = self.sim.data.qvel.flat[28:42]
+
         return np.concatenate([
-            self.sim.data.qpos.flat[2:-42],
-            self.sim.data.qvel.flat[:-36],
+            qpos1,
+            qvel1,
             [x/5],
             [y_off],
+            qpos2,
+            qvel2,
+            [x2/5],
+            [y_off2],
+            qpos3,
+            qvel3,
+            [x3/5],
+            [y_off3],
             # np.clip(self.sim.data.cfrc_ext, -1, 1).flat,
         ])
 
     def reset_model(self):
-        qpos = self.init_qpos + self.np_random.uniform(size=self.model.nq, low=-.1, high=.1)
-        qpos[-42:] = self.init_qpos[-42:]
-        qvel = self.init_qvel + self.np_random.randn(self.model.nv) * .1
-        qvel[-36:] = self.init_qvel[-36:]
+        # qpos = self.init_qpos + self.np_random.uniform(size=self.model.nq, low=-.1, high=.1)
+        # qpos[-42:] = self.init_qpos[-42:]
+        # qvel = self.init_qvel + self.np_random.randn(self.model.nv) * .1
+        # qvel[-36:] = self.init_qvel[-36:]
+        qpos = self.init_qpos
+        qvel = self.init_qvel
         self.set_state(qpos, qvel)
         return self._get_obs()
         

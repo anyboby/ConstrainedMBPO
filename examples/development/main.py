@@ -236,11 +236,13 @@ class ExperimentRunner(tune.Trainable):
         # pickle_path = self._pickle_path(checkpoint_dir)
         # with open(pickle_path, 'wb') as f:
         #     pickle.dump(self.picklables, f)
+        ## only saves model atm
+        self.policy_path = self.policy.save(checkpoint_dir)     ### @anyboby: this saves all tf objects
+        self.algorithm.save(checkpoint_dir)
 
         if self._variant['run_params'].get('checkpoint_replay_pool', False):
             self._save_replay_pool(checkpoint_dir)
 
-        self.policy_path = self.policy.save(checkpoint_dir)     ### @anyboby: this saves all tf objects
         # tf_checkpoint = self._get_tf_checkpoint()
 
         # tf_checkpoint.save(

@@ -15,6 +15,12 @@ if 'AntSafe-v2' not in env_specs:
         entry_point='mujoco_safety_gym.envs:AntEnv',
         max_episode_steps=1000,
     )
+if 'AntSafeVisualize-v2' not in env_specs:
+    register(
+        id='AntSafeVisualize-v2',
+        entry_point='mujoco_safety_gym.envs:AntEnvVisualize',
+        max_episode_steps=1000,
+    )
 if 'HopperSafe-v2' not in env_specs:    
     register(
         id='HopperSafe-v2',

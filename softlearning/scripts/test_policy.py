@@ -23,7 +23,7 @@ def run_policy(env, get_action, fpath, max_ep_len=None, num_episodes=100, render
         # @TODO anyboby
         ### bad hardcoding
         #o = o[0,3:58]
-        a = get_action(o)
+        a = get_action(o[None])
         a = np.clip(a, env.action_space.low, env.action_space.high)
         o, r, d, info = env.step(a)
         ep_ret += r #r[0]

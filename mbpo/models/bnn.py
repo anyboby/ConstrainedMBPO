@@ -805,7 +805,7 @@ class BNN:
 
     def save(self, savedir, timestep):
         """Saves all information required to recreate this model in two files in savedir
-        (or self.model_dir if savedir is None), one containing the model structuure and the other
+        (or self.model_dir if savedir is None), one containing the model structure and the other
         containing all variables in the network.
 
         savedir (str): (Optional) Path to which files will be saved. If not provided, self.model_dir
@@ -821,7 +821,10 @@ class BNN:
                 f.write("%s\n" % repr(layer))
             last_layer_copy = self.layers[-1].copy()
             last_layer_copy.set_activation(self.end_act_name)
-            last_layer_copy.set_output_dim(last_layer_copy.get_output_dim() // 2)
+            if self.is_probabilistic:
+                last_layer_copy.set_output_dim(last_layer_copy.get_output_dim() // 2)
+            else:
+                last_layer_copy.set_output_dim(last_layer_copy.get_output_dim())
             f.write("%s\n" % repr(last_layer_copy))
 
         # Save network parameters (including scalers) in a .mat file

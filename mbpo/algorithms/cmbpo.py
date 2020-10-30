@@ -400,7 +400,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Sample                                                             #
             #=====================================================================#
-            
+
             n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
@@ -732,6 +732,9 @@ class CMBPO(RLAlgorithm):
         diagnostics = {}
 
         return diagnostics
+
+    def save(self, savedir):
+        self.fake_env._model.save(savedir, self._epoch)
 
     @property
     def tf_saveables(self):
