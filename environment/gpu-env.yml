@@ -1,6 +1,6 @@
 ## copy of https://github.com/rail-berkeley/softlearning/blob/master/environment.yml
 
-name: mbpo
+name: cmbpo_test
 channels:
 - defaults
 - conda-forge

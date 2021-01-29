@@ -1,75 +1,64 @@
-# Model-Based Policy Optimization
+# Constrained Model-Based Policy Optimization
 
-Code to reproduce the experiments in [When to Trust Your Model: Model-Based Policy Optimization](https://arxiv.org/abs/1906.08253).
+This repository contains a model-based version of Constrained Policy Optimization (Achiam et al.).
 
 <p align="center">
-	<!-- <img src="https://drive.google.com/uc?export=view&id=19KA7zIjo4HVEqrJNRRgNvkpUwZ6AWGMD" width="80%"> -->
+	<!-- <img src="https://drive.google.com/file/d/1DcXi5wY_anmtlNeIErl1ECgKGsGi4oR1/view?usp=sharing" width="80%"> -->
 	<img src="https://drive.google.com/uc?export=view&id=1siZA55atJi8Tgeefvv28WOqk7pFSynJP" width="80%">
 </p>
 
+## Prerequisites
+1. Mujoco 2.0 has to be installed and a workin license is required. 
+2. Instructions on installing mujoco can be found here [Mujoco-Py](https://github.com/openai/mujoco-py)
+3. We use conda environments for installs, please refer to [Anaconda](https://docs.anaconda.com/anaconda/install/) for instructions. 
+
 ## Installation
-1. Install [MuJoCo 1.50](https://www.roboti.us/index.html) at `~/.mujoco/mjpro150` and copy your license key to `~/.mujoco/mjkey.txt`
-2. Clone `mbpo`
+1. Clone this repository
 ```
-git clone --recursive https://github.com/jannerm/mbpo.git
+git clone https://github.com/anyboby/ConstrainedMBPO.git
 ```
-3. Create a conda environment and install mbpo
+2. Create a conda environtment and install cmbpo from egg
 ```
-cd mbpo
+cd ConstrainedMBPO
 conda env create -f environment/gpu-env.yml
-conda activate mbpo
-pip install -e viskit
+conda activate cmbpo
 pip install -e .
 ```
 
 ## Usage
-Configuration files can be found in `examples/config/`. 
-
+To start an experiment with cmbpo, run 
 ```
-mbpo run_local examples.development --config=examples.config.halfcheetah.0 --gpus=1 --trial-gpus=1
+cmbpo run_local examples.development --config=examples.config.antsafe.cmbpo_uc --policy=cpopolicy --gpus=1 --trial-gpus=1
 ```
 
-Currently only running locally is supported.
+-- config specifies the configuration for an environment (here: antsafe)
+-- policy specifies the policy to use, as of writing cmbpo only works on a cpo policy
+-- gpus specifies the number of gpus to use
 
-#### New environments
-To run on a different environment, you can modify the provided [template](examples/config/custom/0.py). You will also need to provide the termination function for the environment in [`mbpo/static`](mbpo/static). If you name the file the lowercase version of the environment name, it will be found automatically. See [`hopper.py`](mbpo/static/hopper.py) for an example.
+As of writing, only local running is supported. For further options, refer to the ray experiment specifications. 
+
+#### Testing on new environments
+Different environments can be tested by creating a config file in 'examples/config/...'. The algorithm does not learn termination functions and unless otherwise specified will not terminate. To create a manual terminal function, do so by creating a file with the lower-case name of the environment under 'mbpo/static'.
 
 #### Logging
-
-This codebase contains [viskit](https://github.com/vitchyr/viskit) as a submodule. You can view saved runs with:
+A wide range of data is logged automatically in tensorboard. The corresponding files and checkpoints are stored in ~/ray\_mbpo/. To view the tensorboard logs run
 ```
-viskit ~/ray_mbpo --port 6008
+tensorboard --logdir ~/ray\_mbpo/<env>/<seed_dir>
 ```
-assuming you used the default [`log_dir`](examples/config/halfcheetah/0.py#L7).
-
 #### Hyperparameters
-
-The rollout length schedule is defined by a length-4 list in a [config file](examples/config/halfcheetah/0.py#L31). The format is `[start_epoch, end_epoch, start_length, end_length]`, so the following:
+The hyperparameter list as of now is a bit messy. The hyperparameters for cmbpo are specified in the config file (e.g., [config_file](examples/config/antsafe/cmbpo.py)).
+The main parameters for cmbpo are
 ```
-'rollout_schedule': [20, 100, 1, 5] 
+'rollout_mode':'uncertainty',
+'max_uncertainty_c':4.0,
+'max_uncertainty_rew':3.5,
+'max_tddyn_err':.07,
 ```
-corresponds to a model rollout length linearly increasing from 1 to 5 over epochs 20 to 100. 
+The rollout mode specifies when to terminate rollouts. The 'uncertainty' rollout mode terminates rollouts based on how much the uncertainty of model-predictions grows compared to the first prediction. Other options are 'iv', an inverse-variance weighting of rollout lengths by the variance of rewards, and 'schedule', a fixed schedule of rollout-lengths specified by 'rollout_schedule'.
 
-If you want to speed up training in terms of wall clock time (but possibly make the runs less sample-efficient), you can set a timeout for model training ([`max_model_t`](examples/config/halfcheetah/0.py#L30), in seconds) or train the model less frequently (every [`model_train_freq`](examples/config/halfcheetah/0.py#L22) steps).
+The max_uncertainty only applies to rollout modes 'uncertainty' and 'iv' where this parameter limits the ratio of predictitive uncertainty to the initial predictions (for rew and cost seperately, but in our experiments similar values for both worked well). 
 
-**Note:** This repo contains ongoing research. Minor differences between this code and the paper will be updated in v2.
-
-## Comparing to MBPO
-If you would like to compare to MBPO but do not have the resources to re-run all experiments, the learning curves found in Figure 2 of the paper (plus on the Humanoid environment) are available in this [shared folder](https://drive.google.com/drive/folders/1matvC7hPi5al9-5S2uL4GuXfT5rzO9qU?usp=sharing). See `plot.py` for an example of how to read the pickle files with the results.
-
-## Reference
-If you find this code useful in an academic setting, please cite:
-
-```
-@article{janner2019mbpo,
-  author = {Michael Janner and Justin Fu and Marvin Zhang and Sergey Levine},
-  title = {When to Trust Your Model: Model-Based Policy Optimization},
-  journal = {arXiv preprint arXiv:1906.08253},
-  year = {2019}
-}
-```
+max_tddyn_err refers to the maximum temporal difference dynamics error and specifies how much we rely on the model. This variable is calculated as mean variance among ensemble predictions, normalized by the base variance of targets. Assuming we specifiy this maximum uncertainty to be 0.05 and we measure an average uncertainty of 0.1 among our ensemble predictions, the algorithm will train on a dataset consisting of half model-generated samples and half real samples (resulting in an average error of .05).
 
 ## Acknowledgments
-The underlying soft actor-critic implementation in MBPO comes from [Tuomas Haarnoja](https://scholar.google.com/citations?user=VT7peyEAAAAJ&hl=en) and [Kristian Hartikainen's](https://hartikainen.github.io/) [softlearning](https://github.com/rail-berkeley/softlearning) codebase. The modeling code is a slightly modified version of [Kurtland Chua's](https://kchua.github.io/) [PETS](https://github.com/kchua/handful-of-trials) implementation.
-
-
+This repository also contains several more algorithms including SAC from [Tuomas Haarnoja](https://scholar.google.com/citations?user=VT7peyEAAAAJ&hl=en), [Kristian Hartikainen's](https://hartikainen.github.io/) [softlearning](https://github.com/rail-berkeley/softlearning) codebase, [Kurtland Chua's](https://kchua.github.io/) dynamics ensemble in [PETS](https://github.com/kchua/handful-of-trials), and CPO from [Joshua Achiam](https://github.com/openai/safety-starter-agents). 

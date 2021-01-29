@@ -2,18 +2,17 @@ from distutils.core import setup
 from setuptools import find_packages
 
 setup(
-    name='mbpo',
+    name='cmbpo',
     packages=find_packages(),
     version='0.0.1',
-    description='Model-based policy optimization',
+    description='Constrained Model-based policy optimization',
     long_description=open('./README.md').read(),
-    author='Michael Janner',
-    author_email='janner@berkeley.edu',
-    url='https://people.eecs.berkeley.edu/~janner/mbpo/',
+    author='Moritz Zanger',
+    author_email='zanger.moritz@gmail.com',
+    url='https://github.com/anyboby/ConstrainedMBPO/tree/testing/InvVarRollouts',
     entry_points={
         'console_scripts': (
-            'mbpo=softlearning.scripts.console_scripts:main',
-            'viskit=mbpo.scripts.console_scripts:main'
+            'cmbpo=softlearning.scripts.console_scripts:main',
         )
     },
     requires=(),
