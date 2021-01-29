@@ -3,8 +3,8 @@
 This repository contains a model-based version of Constrained Policy Optimization (Achiam et al.).
 
 <p align="center">
-	<!-- <img src="https://drive.google.com/file/d/1DcXi5wY_anmtlNeIErl1ECgKGsGi4oR1/view?usp=sharing" width="80%"> -->
-	<img src="https://drive.google.com/file/d/1DcXi5wY_anmtlNeIErl1ECgKGsGi4oR1/view?usp=sharing" width="80%">
+	<!-- <img src="https://drive.google.com/uc?export=view&id=1DcXi5wY_anmtlNeIErl1ECgKGsGi4oR1" width="80%"> -->
+	<img src="https://drive.google.com/uc?export=view&id=1DcXi5wY_anmtlNeIErl1ECgKGsGi4oR1" width="80%">
 </p>
 
 ## Prerequisites
