@@ -23,7 +23,7 @@ cloudpickle==1.2.2
 cma==2.7.0
 colorama==0.3.9
 conda==4.9.2
-cryptography==2.3.1
+cryptography==3.2
 cycler==0.10.0
 Cython==0.29.1
 dask==1.0.0
