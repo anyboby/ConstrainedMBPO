@@ -3,19 +3,20 @@
 import numpy as np
 import gym
 from gym import spaces, wrappers
-import safety_gym
-from safety_gym.envs.engine import Engine
+from gym.spaces import Box, Discrete
+
 import json
 import os
-import softlearning.environments.gym.mujoco_safety_gym as mjsg
 import sys
-import softlearning.environments.gym as gym_dir
-# path = os.path.dirname(mjsg.__file__)
-# sys.path.append(path)
-path = os.path.dirname(gym_dir.__file__)
+import softlearning.environments.rllab as rllab_dir
+path = os.path.dirname(rllab_dir.__file__)
 sys.path.append(path)
 
+from rllab.spaces.box import Box as rllBox
+from rllab.spaces.discrete import Discrete as rllDiscrete
+from rllab.spaces.product import Product as rllProduct
 
+from softlearning.environments.rllab.rllab.envs.normalized_env import NormalizedEnv
 from .softlearning_env import SoftlearningEnv
 from softlearning.environments.gym import register_environments
 from softlearning.environments.gym.wrappers import NormalizeActionWrapper
@@ -25,6 +26,12 @@ from stable_baselines.common.vec_env import VecFrameStack
 from stable_baselines.common.vec_env import VecNormalize
 from stable_baselines.common.vec_env import DummyVecEnv
 
+from sandbox.cpo.envs.mujoco.gather.point_gather_env import PointGatherEnv
+from sandbox.cpo.envs.mujoco.gather.ant_gather_env import AntGatherEnv
+from sandbox.cpo.envs.mujoco_safe.ant_env_safe import SafeAntEnv
+from sandbox.cpo.envs.mujoco_safe.point_env_safe import SafePointEnv
+from sandbox.cpo.envs.mujoco_safe.half_cheetah_env_safe import SafeHalfCheetahEnv
+from sandbox.cpo.envs.mujoco_safe.simple_humanoid_env_safe import SafeSimpleHumanoidEnv
 
 def parse_domain_task(gym_id):
     domain_task_parts = gym_id.split('-')
@@ -32,34 +39,71 @@ def parse_domain_task(gym_id):
     task = '-'.join(domain_task_parts[1:])
 
     return domain, task
-
-
-CUSTOM_GYM_ENVIRONMENT_IDS = register_environments()
-CUSTOM_GYM_ENVIRONMENTS = defaultdict(list)
-
-for gym_id in CUSTOM_GYM_ENVIRONMENT_IDS:
-    domain, task = parse_domain_task(gym_id)
-    CUSTOM_GYM_ENVIRONMENTS[domain].append(task)
-
-CUSTOM_GYM_ENVIRONMENTS = dict(CUSTOM_GYM_ENVIRONMENTS)
-
-GYM_ENVIRONMENT_IDS = tuple(gym.envs.registry.env_specs.keys())
-GYM_ENVIRONMENTS = defaultdict(list)
-
-
-for gym_id in GYM_ENVIRONMENT_IDS:
-    domain, task = parse_domain_task(gym_id)
-    GYM_ENVIRONMENTS[domain].append(task)
-
-GYM_ENVIRONMENTS = dict(GYM_ENVIRONMENTS)
-
-SAFETY_WRAPPER_IDS = {
-    'Safexp-PointGoal2-v0':SafetyPreprocessedEnv,
-    'Safexp-PointGoal1-v0':SafetyPreprocessedEnv,
-    #'Safexp-PointGoal0-v0':SafetyPreprocessedEnv,
+RLLAB_ENVIRONMENTS = {
+    'PointGather':['v0'],
+    'AntGather':['v0'],
+    'AntCircle':['v0'],
+    'PointCircle':['v0'],
+    'HalfCheetahCircle':['v0'],
+    'SimpleHumanoidCircle':['v0'],
 }
 
-class GymAdapter(SoftlearningEnv):
+RLLAB_ENTRIES = {
+    'PointGather-v0':PointGatherEnv,
+    'AntGather-v0':AntGatherEnv,
+    'AntCircle-v0':SafeAntEnv,
+    'PointCircle-v0':SafePointEnv,
+    'HalfCheetahCircle-v0':SafeHalfCheetahEnv,
+    'SimpleHumanoidCircle-v0':SafeSimpleHumanoidEnv,
+}
+RLLAB_KWARGS = {
+    'PointGather-v0':{
+        'apple_reward':10,
+        'bomb_cost':1,
+        'n_apples':2,
+        'activity_range':6,
+        },
+    'AntGather-v0':{
+        'apple_reward':10,
+        'bomb_cost':1,
+        'n_apples':2,
+        'activity_range':6,
+        },
+    'AntCircle-v0':{                       
+        'xlim':3,
+        'circle_mode':True,
+        'target_dist':10,
+        'abs_lim':True,
+        },
+    'PointCircle-v0':{},
+    'HalfCheetahCircle-v0':{},
+    'SimpleHumanoidCircle-v0':{},
+}
+
+#### Cost params according to cpo paper
+RLLAB_COST_PARAMS = {
+    'AntCircle-v0': {
+        'cidx':-3,
+        'xlim': 3,
+        'target_dist': 10 },
+}
+
+def eval_cost_gather(obs, info, env_id):
+    return info['bombs']
+
+def eval_cost_mjc(obs, info, env_id):
+    return float(np.abs(obs[RLLAB_COST_PARAMS[env_id]['cidx']]) >= RLLAB_COST_PARAMS[env_id]['xlim'])
+
+RLLAB_COSTF = {
+    'PointGather-v0':eval_cost_gather,
+    'AntGather-v0':eval_cost_gather,
+    'AntCircle-v0':eval_cost_mjc,
+    'PointCircle-v0':eval_cost_mjc,
+    'HalfCheetahCircle-v0':eval_cost_mjc,
+    'SimpleHumanoidCircle-v0':eval_cost_mjc,
+}
+
+class RllabAdapter(SoftlearningEnv):
     """Adapter that implements the SoftlearningEnv for Gym envs."""
 
     def __init__(self,
@@ -81,15 +125,12 @@ class GymAdapter(SoftlearningEnv):
         self.stacking_axis = 0
 
         self._Serializable__initialize(locals())
-        super(GymAdapter, self).__init__(domain, task, *args, **kwargs)
+        super(RllabAdapter, self).__init__(domain, task, *args, **kwargs)
 
         if env is None:
             assert (domain is not None and task is not None), (domain, task)
-            env_id = f"{domain}-{task}"
-            env = gym.envs.make(env_id, **kwargs)
-
-            #env_id = f""
-            #env = gym.make("Safexp-PointGoal1-v0")
+            self.env_id = env_id = f"{domain}-{task}"
+            env = RLLAB_ENTRIES[env_id](**RLLAB_KWARGS[env_id])
             
         else:
             assert domain is None and task is None, (domain, task)
@@ -106,56 +147,15 @@ class GymAdapter(SoftlearningEnv):
             observation_keys = (
                 observation_keys or list(env.observation_space.spaces.keys()))
         if normalize:
-            env = NormalizeActionWrapper(env)
-
-
-        #### --- specifically for safety_gym wrappring --- ###
-        if env_id in SAFETY_WRAPPER_IDS:
-            dirname, _ = os.path.split(os.path.abspath(__file__))
-            #### load config file
-            with open(f'{dirname}/../gym/safety_gym/configs/{env_id}_config.json', 'r') as fp:
-                config = json.load(fp)
-            fp.close()
-            # with open(f'{dirname}/../gym/safety_gym/add_configs/{env_id}_add_config.json', 'r') as fp:
-            #     add_config = json.load(fp)
-            # fp.close()
-            
-
-
-            env = Engine(config)
-            env = SAFETY_WRAPPER_IDS[env_id](env)
-
-            #### additional config info like stacking etc.
-            # for k in add_config.keys():
-            #     self.safeconfig[k] = add_config[k]
-                    
-            #### dump config file to current data dir
-            with open(f'{env_id}_config.json', 'w') as fp:
-                json.dump(config, fp)
-            fp.close()
-            ####
-
-            ### adding unserializable additional info after dumping (lol)
-            # self.obs_indices = env.obs_indices
-            # self.safeconfig['obs_indices'] = self.obs_indices
-
-            ### stack env
-            self.stacks = config.get('stacks', 1) ### for convenience
-            self.stacking_axis = config.get('stacking_axis',0)
-            if self.stacks>1:
-                env = DummyVecEnv([lambda:env])
-                #env = VecNormalize(env)        doesn't work at all for some reason
-                env = VecFrameStack(env, self.stacks)
-
-        #### --- end specifically for safety_gym  --- ###
-
+            env = NormalizedEnv(env)
 
         self._env = env
 
     @property
     def observation_space(self):
         observation_space = self._env.observation_space
-        return observation_space
+        obs_space_gym = self.convert_to_gym_space(observation_space)
+        return obs_space_gym
 
     @property
     def active_observation_shape(self):
@@ -168,7 +168,7 @@ class GymAdapter(SoftlearningEnv):
             return active_size
 
         if not isinstance(self._env.observation_space, spaces.Dict):
-            return super(GymAdapter, self).active_observation_shape
+            return super(RllabAdapter, self).active_observation_shape
 
         observation_keys = (
             self.observation_keys
@@ -204,26 +204,20 @@ class GymAdapter(SoftlearningEnv):
     @property
     def action_space(self, *args, **kwargs):
         action_space = self._env.action_space
+        action_space_gym = self.convert_to_gym_space(action_space)
         if len(action_space.shape) > 1:
             raise NotImplementedError(
                 "Action space ({}) is not flat, make sure to check the"
                 " implemenation.".format(action_space))
-        return action_space
+        return action_space_gym
 
     def step(self, action, *args, **kwargs):
-        # TODO(hartikainen): refactor this to always return an OrderedDict,
-        # such that the observations for all the envs is consistent. Right now
-        # some of the gym envs return np.array whereas others return dict.
-        #
-        # Something like:
-        # observation = OrderedDict()
-        # observation['observation'] = env.step(action, *args, **kwargs)
-        # return observation
-
         if isinstance(self._env, VecFrameStack):       ### because VecEnv has additional dim for parallel envs
             action=np.array([action])
-            
-        return self._env.step(action, *args, **kwargs)
+        o, r, done, info = self._env.step(action, *args, **kwargs)
+        info['cost'] = RLLAB_COSTF[self.env_id](o, info, self.env_id)
+
+        return o, r, done, info
 
     def reset(self, *args, **kwargs):
         return self._env.reset(*args, **kwargs)
@@ -254,3 +248,11 @@ class GymAdapter(SoftlearningEnv):
 
     def set_param_values(self, *args, **kwargs):
         raise NotImplementedError
+
+    def convert_to_gym_space(self, space):
+        if isinstance(space, rllBox):
+            return Box(low=space.low, high=space.high)
+        elif isinstance(space, rllDiscrete):
+            return Discrete(n=space.n)
+        else:
+            raise NotImplementedError

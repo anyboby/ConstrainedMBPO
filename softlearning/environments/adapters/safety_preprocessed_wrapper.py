@@ -7,6 +7,9 @@ from math import log as log
 from math import exp as e
 import math
 
+XYZ_SENSORS = ['velocimeter', 'accelerometer']
+
+ANGLE_SENSORS = ['gyro', 'magnetometer']
 
 class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def __init__(self, env):
@@ -40,7 +43,9 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         # self.obs_flat_size = self.obs_flat_size-sum([np.prod(self.env.obs_space_dict[i].shape) for i in self.remove_obs])
         # self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)  #manually set size, add. dim for ctrl spike
 
-        self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])
+        self.obs_flat_size = 47
+        # self.obs_flat_size = sum([np.prod(i.shape) for i in self.env.obs_space_dict.values()])
+
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, ((self.obs_flat_size),), dtype=np.float32)
         self.obs_indices = {}
         k_size = 0
@@ -58,24 +63,31 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
     def reset(self, **kwargs):
         observation = self.env.reset(**kwargs)
         #self.obs_replay_vy = [observation[58]]
-        observation = self.preprocess_obs(observation, action=np.zeros(self.action_space.shape))
+        # observation = self.preprocess_obs(observation, action=np.zeros(self.action_space.shape))
         self.prev_obs = observation
         #stacked_obs = np.concatenate((observation, self.prev_obs))
         return self.observation(observation)
 
     def step(self, action):
         # a_transformed = action #self.transform_a_vec(action)
-        observation, reward, done, info = self.env.step(action)
-        self.prev_obs_unprocessed = observation
-        observation = self.preprocess_obs(observation, action)
-        #stacked_obs = np.concatenate((observation, self.prev_obs))
-        self.prev_obs = observation
+        o, r, d, i = self.env.step(action)
+        # if not d:
+        #     o2, r2, d2, i2 = self.env.step(action)
+        #     for k in i2.keys():
+        #         i2[k] += i.get(k,0)
+        #     r2 += r
+        #     d = d2
+
+        self.prev_obs_unprocessed = o
+        # observation = self.preprocess_obs(observation, action)
+        # stacked_obs = np.concatenate((observation, self.prev_obs))
+        self.prev_obs = o
         self.prev_act = action
-        return self.observation(observation), reward, done, info
+        return self.observation(o), r, d, i
 
     def observation(self, observation):
-
-        return observation
+        obs = self.get_obs()
+        return obs
 
 
     def preprocess_obs(self, obs, action):
@@ -111,7 +123,6 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
         ### --------- acc-y approx ----------### 
 
 
-
         flat_obs = np.zeros(self.obs_flat_size)
         for key, index in self.obs_indices.items():
             # if key not in self.remove_obs:
@@ -122,17 +133,57 @@ class SafetyPreprocessedEnv(gym.ObservationWrapper):
             flat_obs[index] = obs[key].flat
         obs = flat_obs
 
-        # pos = self.env.world.robot_pos()
-        # vel = self.env.world.robot_vel()
-
-        # obs[-3:] = self.env.world.robot_pos()
-        #obs[-1] = self._cum_cost/self.cost_lim
-
-        #self.obs_indices['pos']=slice(self.obs_flat_size-3,self.obs_flat_size)
-        
-        #additional obs
-        #flat_obs[-1]=spike_2(action[0], self.prev_act[0])
         return obs
+
+    def recenter(self, pos):
+        ''' Return the egocentric XY vector to a position from the robot '''
+        return self.env.ego_xy(pos)
+
+    def get_obs(self):
+        '''
+        Ignore the z-axis coordinates in every poses.
+        The returned obs coordinates are all in the robot coordinates.
+        '''
+        obs = {}
+        robot_pos = self.env.robot_pos
+        goal_pos = self.env.goal_pos
+        vases_pos_list = self.env.vases_pos # list of shape (3,) ndarray
+        hazards_pos_list = self.env.hazards_pos # list of shape (3,) ndarray
+        gremlins_pos_list = self.env.gremlins_obj_pos # list of shape (3,) ndarray
+        buttons_pos_list = self.env.buttons_pos # list of shape (3,) ndarray
+
+        ego_goal_pos = self.recenter(goal_pos[:2])
+        ego_vases_pos_list = [self.env.ego_xy(pos[:2]) for pos in vases_pos_list] # list of shape (2,) ndarray
+        ego_hazards_pos_list = [self.env.ego_xy(pos[:2]) for pos in hazards_pos_list] # list of shape (2,) ndarray
+        ego_gremlins_pos_list = [self.env.ego_xy(pos[:2]) for pos in gremlins_pos_list] # list of shape (2,) ndarray
+        ego_buttons_pos_list = [self.env.ego_xy(pos[:2]) for pos in buttons_pos_list] # list of shape (2,) ndarray
+        
+        # append obs to the dict
+        for sensor in self.env.sensors_obs:
+            if sensor in XYZ_SENSORS:
+                if sensor=='accelerometer':
+                    obs[sensor] = self.env.world.get_sensor(sensor)[:1] # only x axis matters
+                else:
+                    obs[sensor] = self.env.world.get_sensor(sensor)[:2] # only x,y axis matters
+            if sensor in ANGLE_SENSORS:
+                if sensor == 'gyro':
+                    obs[sensor] = self.env.world.get_sensor(sensor)[2:] #[2:] # only z axis matters
+                    #pass # gyro does not help
+                else:
+                    obs[sensor] = self.env.world.get_sensor(sensor)
+
+        obs["vases"] = np.array(ego_vases_pos_list) # (vase_num, 2)
+        obs["hazards"] = np.array(ego_hazards_pos_list) # (hazard_num, 2)
+        obs["goal"] = ego_goal_pos # (2,)
+        obs["gremlins"] = np.array(ego_gremlins_pos_list) # (vase_num, 2)
+        obs["buttons"] = np.array(ego_buttons_pos_list) # (hazard_num, 2)
+
+        flattened_obs = np.array([])
+        for key in obs.keys():
+            flattened_obs = np.concatenate((flattened_obs,obs[key].flatten()))
+        
+        return flattened_obs
+
 
 def transform_a(ax):
     e_x = 0.8             # edge_x
