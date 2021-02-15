@@ -56,7 +56,7 @@ class FakeEnv:
         input_dim_dyn = self.obs_dim + self.prior_dim + self.act_dim
         input_dim_c = 2 * self.obs_dim + self.act_dim + self.prior_dim
         output_dim_dyn = self.active_obs_dim + self.rew_dim
-        self.dyn_loss = 'MSE'
+        self.dyn_loss = 'MSPE'
 
         self._model = construct_model(in_dim=input_dim_dyn, 
                                         out_dim=output_dim_dyn,
@@ -161,23 +161,19 @@ class FakeEnv:
         if obs_depth==3:
             ensemble_dyn_means, ensemble_dyn_vars = self.inverse_shuffle(ensemble_dyn_means, shuffle_indxs), self.inverse_shuffle(ensemble_dyn_vars, shuffle_indxs)
         
-        ### maybe better estimates but less reliable uncertainty measures
-        #ensemble_dyn_means, ensemble_dyn_vars = self.filter_elite_inds(ensemble_dyn_means, self.num_elites, [ensemble_dyn_vars])
+        ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
+        ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
+        ensemble_dkl_path = np.mean(average_dkl(ensemble_dyn_means, ensemble_model_stds), axis=-1) 
+        ensemble_dkl_mean = np.mean(ensemble_dkl_path)
+
         if obs_depth==3:
             ep_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
         else:
             ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
         
-        ensemble_dyn_means[:,:,:-self.rew_dim] += obs           #### models output state change rather than state completely
-        ensemble_model_stds = np.sqrt(ep_dyn_var)
 
-        if self.dyn_loss=='NLL':
-            ensemble_dyn_means += np.random.normal(size=ensemble_dyn_means.shape) * ensemble_model_stds
-
-        median_dkl_per_output = median_dkl(ensemble_dyn_means, ensemble_model_stds)
-        ensemble_dkl_med = np.mean(median_dkl_per_output, axis=tuple(np.arange(1, len(median_dkl_per_output.shape))))
-        ensemble_dkl_med = np.mean(ensemble_dkl_med)
-        ###
+        # if self.dyn_loss=='NLL':
+        #     ensemble_dyn_means += np.random.normal(size=ensemble_dyn_means.shape) * ensemble_model_stds
 
         #### choose one model from ensemble randomly
         if obs_depth==3:
@@ -203,9 +199,6 @@ class FakeEnv:
         else:
             terminals = self.static_done(obs, act, next_obs)
 
-        if 'Safexp' in self.domain:
-            next_obs = self.post_f(obs, act, next_obs, obs, self.env)  ### rebuild goal if goal was met
-
         if self.cares_about_cost:
             if self.static_c:
                 costs = self.static_fns.cost_f(obs, act, next_obs, self.env) 
@@ -214,6 +207,7 @@ class FakeEnv:
                     inputs_cost = np.concatenate((obs, act, next_obs, priors), axis=-1)
                 else:
                     inputs_cost = np.concatenate((obs, act, next_obs), axis=-1)
+                
                 costs = self._cost_model.predict(inputs_cost, factored=False, inc_var=False)
 
                 if self.cost_m_loss=='CE':
@@ -231,8 +225,10 @@ class FakeEnv:
             costs = costs[0]
         
         info = {
-                'dyn_ensemble_dkl_med' : ensemble_dkl_med,
-                'dyn_ep_var' : ep_dyn_var,
+                'ensemble_dkl_mean' : ensemble_dkl_mean,
+                'ensemble_dkl_path' : ensemble_dkl_path,
+                'ensemble_mean_var' : ensemble_dyn_vars.mean(),
+                'ensemble_ep_var' : ep_dyn_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,
@@ -262,7 +258,7 @@ class FakeEnv:
                                             train_outputs_dyn, 
                                             **kwargs,
                                             )
-        self.dyn_target_var_rm = np.var(train_outputs_dyn)
+        # self.dyn_target_var_rm = np.var(train_outputs_dyn)
 
         return model_metrics
 
@@ -290,6 +286,9 @@ class FakeEnv:
 
     @property
     def dyn_target_var(self):
+        return self.dyn_target_var_rm
+
+    def set_dyn_tar_var(self, tar_var):
         return self.dyn_target_var_rm
 
     def random_inds(self, size):

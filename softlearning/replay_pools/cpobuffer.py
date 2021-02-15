@@ -92,6 +92,9 @@ class CPOBuffer:
         self.pi_info_archive = {k: np.zeros([self.archive_size] + list(v), dtype=np.float32) 
                             for k,v in pi_info_shapes.items()}
 
+        self.arch_dict.update({'pi_infos':self.pi_info_archive})
+        self.buf_dict.update({'pi_infos':self.pi_info_bufs})
+
         self.sorted_pi_info_keys = keys_as_sorted_list(self.pi_info_bufs)
         self.gamma, self.lam = gamma, lam
         self.cost_gamma, self.cost_lam = cost_gamma, cost_lam
@@ -145,12 +148,19 @@ class CPOBuffer:
         self.cval_var_archive = np.zeros(archive_size, dtype=np.float32)    # cost value
         self.logp_archive = np.zeros(archive_size, dtype=np.float32)
         self.term_archive = np.zeros(archive_size, dtype=np.bool_)
-        self.epoch_archive = np.ones(archive_size, dtype=np.float32)*-1
+        self.epoch_archive = np.ones(archive_size, dtype=np.int)*-1
         self.archive_ptr = 0
 
     @property
     def size(self):
         return self.ptr
+
+    @property
+    def max_ep(self):
+        return int(np.max(self.epoch_archive))
+    @property
+    def min_ep(self):
+        return int(np.min(self.epoch_archive[self.epoch_archive>-1]))
 
     @property
     def arch_size(self):
@@ -578,9 +588,10 @@ class CPOBuffer:
             samples: A dict containining random archive values for default / specified fields 
             as np arrays of batch_size
         """
-        max_ep = np.max(self.epoch_archive)
 
-        disc_dist = self.epoch_archive.copy()
+        max_ep = self.max_ep
+
+        disc_dist = self.epoch_archive.copy().astype(np.float32)
         disc_dist[self.epoch_archive>=0]+=1
         disc_dist[:] = disc**(max_ep-disc_dist[:])
         disc_dist[self.epoch_archive<0]=0
@@ -591,8 +602,161 @@ class CPOBuffer:
         else:
             archives = fields
 
+        if 'pi_infos' in fields:
+            pi_info_requested = True
+            fields.remove('pi_infos')
+        else:
+            pi_info_requested = False
+
         rand_indc = np.random.choice(np.arange(self.archive_size), size=batch_size, p=disc_dist)
         samples = {archive: self.arch_dict[archive][rand_indc] for archive in archives}
+        
+        if pi_info_requested:
+            pi_infos = {
+                k:self.pi_info_archive[k][rand_indc] for k in keys_as_sorted_list(self.pi_info_archive)
+                }
+            samples.update(pi_infos)
+
+        return samples
+
+    def boltz_dist(self, kls):
+        ep_probs = np.exp(np.negative(kls))
+        ep_probs /= np.sum(ep_probs)
+        sample_n = np.bincount(self.epoch_archive[self.epoch_archive>=0])
+        sample_prob = ep_probs/sample_n[sample_n>0]
+        btz = np.where(self.epoch_archive>=0, sample_prob[self.epoch_archive-self.min_ep], 0)
+        return btz
+
+    def disc_dist(self, disc):
+        epochs = np.arange(self.min_ep, self.max_ep+1)
+        ep_probs = disc**(self.max_ep-epochs)
+        ep_probs /= np.sum(ep_probs)
+        sample_n = np.bincount(self.epoch_archive[self.epoch_archive>=0])
+        sample_prob = ep_probs/sample_n[sample_n>0]
+        disc_dist = np.where(self.epoch_archive>=0, sample_prob[self.epoch_archive-self.min_ep], 0)
+        # disc_dist = self.epoch_archive.copy().astype(np.float32)
+        # disc_dist[self.epoch_archive>=0]+=1
+        # disc_dist[:] = disc**(max_ep-disc_dist[:])
+        # disc_dist[self.epoch_archive<0]=0
+        # disc_dist/=np.sum(disc_dist)
+        return disc_dist
+
+    def unif_dist(self):
+        unif = np.ones(shape=self.archive_size)
+        unif[self.epoch_archive<0] = 0
+        unif /= np.sum(unif)
+        return unif
+
+    def distributed_batch_from_archive(self, batch_size, dist, fields=None):
+        """
+        returns random batch from the archive. if data_type is None a 
+        default dictionary containing:
+        obs, action, next_obs, r, term
+        is returned. 
+        Remember, that old values / advantages etc. might come from
+        old policies.
+        choose from these data types:
+            'observations'
+            'actions'
+            'next_observations'
+            'advantages'
+            'rewards'
+            'returns'
+            'values'
+            'cadvantages'
+            'costs'
+            'creturns'
+            'cvalues'
+            'log_policies'
+            'terminals'
+
+        Args:
+            fields: a list containing the key words for the desired 
+            data types. e.g.: ['observations', 'actions', 'values']
+        Returns:
+            samples: A dict containining random archive values for default / specified fields 
+            as np arrays of batch_size
+        """
+        if fields is None:
+            archives = ['observations', 'actions', 'next_observations', 'rewards', 'terminals']
+        else:
+            archives = fields
+
+        if 'pi_infos' in fields:
+            pi_info_requested = True
+            fields.remove('pi_infos')
+        else:
+            pi_info_requested = False
+
+        rand_indc = np.random.choice(np.arange(self.archive_size), size=batch_size, p=dist)
+        samples = {archive: self.arch_dict[archive][rand_indc] for archive in archives}
+        
+        if pi_info_requested:
+            pi_infos = {
+                k:self.pi_info_archive[k][rand_indc] for k in keys_as_sorted_list(self.pi_info_archive)
+                }
+            samples.update(pi_infos)
+
+        return samples
+
+
+    def epoch_batch(self, batch_size, fields=None, epochs=[-1]):
+        """
+        returns batch collected under the latest policy from the archive. if fields is None a 
+        default dictionary containing:
+        obs, action, next_obs, r, term
+        is returned. 
+        choose from these data types:
+            'observations'
+            'actions'
+            'next_observations'
+            'advantages'
+            'rewards'
+            'returns'
+            'values'
+            'cadvantages'
+            'costs'
+            'creturns'
+            'cvalues'
+            'log_policies'
+            'pi_infos'
+            'terminals'
+
+        Args:
+            fields: a list containing the key words for the desired 
+            data types. e.g.: ['observations', 'actions', 'values']
+        Returns:
+            samples: A dict containining all archive values for default / specified fields 
+            as np arrays collected under the latest (available) policy
+        """
+        assert len(np.shape(epochs))==1
+        if fields is None:
+            archives = ['observations', 'actions', 'next_observations', 'rewards', 'terminals']
+        else:
+            archives = fields
+
+        if 'pi_infos' in fields:
+            pi_info_requested = True
+            fields.remove('pi_infos')
+        else:
+            pi_info_requested = False
+        max_epoch = self.max_ep
+        ep = np.array(epochs)
+
+        ### if epoch not contained
+        if np.any(ep>max_epoch) or np.any(ep<-max_epoch-1):
+            print(f'Warning: epoch not contained in buffer.')
+            return None
+        
+        ep[ep<0] = 1+max_epoch+ep[ep<0]
+        indc = np.array([np.random.choice(np.squeeze(np.where(self.epoch_archive==ep)), size=batch_size) for ep in epochs])
+        samples = {archive: self.arch_dict[archive][indc] for archive in archives}
+        
+        if pi_info_requested:
+            pi_infos = {
+                k:self.pi_info_archive[k][indc] for k in keys_as_sorted_list(self.pi_info_archive)
+                }
+            samples.update(pi_infos)
         
         return samples
 
@@ -605,32 +769,3 @@ class CPOBuffer:
         if self.arch_size == 0: return np.arange(0, 0)
         #return random.sample(range(0, self.arch_size), batch_size)
         return np.random.randint(0, self.arch_size, batch_size)
-
-
-    # def get_model_samples(self):
-    #     # buffer does not have to be full for model samples
-    #     # self.ptr, self.path_start_idx = 0, 0
-
-    #     # Advantage normalizing trick for policy gradient
-    #     adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
-    #     self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
-
-    #     # Center, but do NOT rescale advantages for cost gradient
-    #     cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
-    #     self.cadv_buf -= cadv_mean
-
-    #     obs = self.obs_buf[:self.ptr-1]
-    #     next_obs = self.obs_buf[1:self.ptr]
-    #     acts = self.act_buf[:self.ptr-1]
-    #     rews = self.rew_buf[:self.ptr-1, np.newaxis]
-    #     costs = self.cost_buf[:self.ptr-1, np.newaxis]
-    #     terms = self.term_buf[:self.ptr-1, np.newaxis]
-    #     samples = {
-    #         'observations':obs,
-    #         'next_observations':next_obs,
-    #         'actions':acts,
-    #         'rewards':rews,
-    #         'costs':costs,
-    #         'terminals':terms,
-    #     }
-    #     return samples

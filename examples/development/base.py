@@ -53,7 +53,7 @@ CPO_POLICY_PARAMS_BASE = {
         'cost_lim':             10,
         'cost_lam':             .95,
         'cost_gamma':           0.97,
-        'lam':                  .95,
+        'lam':                  .5,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(5000), #5000
+            'n_initial_exploration_steps': int(10000), #5000
         }
     },
     'SQL': {
@@ -279,7 +279,7 @@ REPLAY_POOL_PARAMS_PER_ALGO = {
                 {
                     'SimpleReplayPool': int(1e6),
                     'TrajectoryReplayPool': int(1e4),
-                    'CPOBuffer':int(15e4),
+                    'CPOBuffer':int(2e5),
                 }.get(
                     spec.get('config', spec)
                     ['replay_pool_params']['type'],

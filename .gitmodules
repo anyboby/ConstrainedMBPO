@@ -1,3 +1,6 @@
 [submodule "viskit"]
 	path = viskit
 	url = https://github.com/vitchyr/viskit.git
+[submodule "softlearning/environments/rllab"]
+	path = softlearning/environments/rllab
+	url = https://github.com/rll/rllab.git

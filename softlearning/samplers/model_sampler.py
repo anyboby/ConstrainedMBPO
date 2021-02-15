@@ -56,9 +56,12 @@ class ModelSampler(CpoSampler):
         self._total_rew_var = 0
         self._total_cost = 0
         self._total_cost_var = 0
-        self._total_dyn_var = 0
+        self._total_dyn_ep_var = 0
         self._path_dyn_var = 0
-        self._total_dkl_med_dyn = 0
+        self._total_dkl = 0
+        self._max_dkl = 0
+        self._dyn_dkl_path = 0
+        self._total_dyn_var = 0
 
         self.env = None
         self.policy = None
@@ -96,7 +99,7 @@ class ModelSampler(CpoSampler):
 
         ensemble_rew_var_perstep = self._total_rew_var/(self._total_samples+EPS)
         ensemble_cost_var_perstep = self._total_cost_var/(self._total_samples+EPS)
-        ensemble_dyn_var_perstep = self._total_dyn_var/(self._total_samples+EPS)
+        ensemble_dyn_var_perstep = self._total_dyn_ep_var/(self._total_samples+EPS)
 
         if len(self._path_cost.shape)>1:
             cost_sum = np.sum(np.mean(self._path_cost, axis=0))
@@ -115,8 +118,8 @@ class ModelSampler(CpoSampler):
 
         cval_mean = self._total_CVs / (self._total_samples+EPS)
 
-        dyn_Dkl_med = self._total_dkl_med_dyn / (self._total_samples+EPS)
-
+        dyn_Dkl = self._total_dkl / (self._total_samples+EPS)
+        dyn_var = self._total_dyn_var/ (self._total_samples+EPS)
         diagnostics.update({
             'msampler/samples_added': self._total_samples,
             'msampler/rollout_H_max': self._n_episodes,
@@ -128,7 +131,10 @@ class ModelSampler(CpoSampler):
             'msampler/rew_rate' : ensemble_rew_rate,
             'msampler/v_mean':vals_mean,
             'msampler/cv_mean':cval_mean,
-            'msampler/dyn_DKL_med': dyn_Dkl_med,
+            'msampler/dyn_DKL': dyn_Dkl,
+            'msampler/dyn_var': dyn_var,
+            'msampler/max_path_return': self._max_path_return,
+            'msampler/max_dkl': self._max_dkl,
         })
 
         return diagnostics
@@ -151,6 +157,27 @@ class ModelSampler(CpoSampler):
     def clear_last_n_paths(self):
         self._last_n_paths.clear()
 
+    def compute_dynamics_dkl(self, obs_batch, depth=1):
+        dkl_tot = 0
+        for i in range(depth):
+            get_action_outs = self.policy.get_action_outs(obs_batch, factored=True, inc_var=True)
+            a = get_action_outs['pi']
+            next_obs, reward, terminal, info = self.env.step(obs_batch, a)
+            dyn_dkl_mean = info.get('ensemble_dkl_mean', 0)
+            
+            n_paths = next_obs.shape[0]
+            self._total_dkl += dyn_dkl_mean*n_paths
+            self._total_samples += n_paths
+
+            obs_batch = next_obs[np.squeeze(~terminal)]
+
+        dkl_mean = self.dyn_dkl
+        dkl_path_mean = dkl_mean*depth
+
+        return dkl_path_mean
+        
+    def set_rollout_dkl(self, dkl):
+        self.dkl_lim = dkl
 
     def get_last_n_paths(self, n=None):
         if n is None:
@@ -159,6 +186,10 @@ class ModelSampler(CpoSampler):
         last_n_paths = tuple(islice(self._last_n_paths, None, n))
 
         return last_n_paths
+
+    @property
+    def dyn_dkl(self):
+        return self._total_dkl / (self._total_samples+EPS)
 
     def batch_ready(self):
         return self.pool.size >= self.pool.max_size
@@ -208,7 +239,8 @@ class ModelSampler(CpoSampler):
         self._path_return_var = np.zeros(self.batch_size)
         self._path_cost_var = np.zeros(self.batch_size)
         self._path_dyn_var = np.zeros(self.batch_size)
-        
+        self._dyn_dkl_path = np.zeros(self.batch_size)
+
         self.model_inds = np.random.randint(self.ensemble_size)
 
         self._total_samples = 0
@@ -219,8 +251,11 @@ class ModelSampler(CpoSampler):
         self._total_cost_var = 0
         self._total_rew = 0
         self._total_rew_var = 0
+        self._total_dyn_ep_var = 0
+        self._total_dkl = 0
+        self._max_dkl = 0
         self._total_dyn_var = 0
-        self._total_dkl_med_dyn = 0
+        self._max_path_return = 0
 
     def sample(self, max_samples=None):
         assert self.pool.has_room           #pool full! empty before sampling.
@@ -263,21 +298,27 @@ class ModelSampler(CpoSampler):
         reward = np.squeeze(reward, axis=-1)
         c = np.squeeze(info.get('cost', np.zeros(reward.shape)))
         terminal = np.squeeze(terminal, axis=-1)
-        dkl_med_dyn = info.get('dyn_ensemble_dkl_med', 0)
-        dyn_ep_var = info.get('dyn_ep_var', np.zeros(shape=reward.shape[1:]))
+        dyn_dkl_mean = info.get('ensemble_dkl_mean', 0)
+        dyn_dkl_path = info.get('ensemble_dkl_path', 0)
+        dyn_ep_var = info.get('ensemble_ep_var', np.zeros(shape=reward.shape[1:]))
+        dyn_var = info.get('ensemble_mean_var', 0)
 
         if self._n_episodes == 1:
             self._starting_uncertainty = np.mean(dyn_ep_var, axis=-1)
+            self._starting_uncertainty_dkl = dyn_dkl_path
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
-
 
         ### check if too uncertain before storing info of the taken step 
         ### (so we don't take a "bad step" by appending values of next state)
         
         if self.rollout_mode=='uncertainty':
-            too_uncertain_paths = np.mean(dyn_ep_var, axis=-1) > self._max_uncertainty_rew * self._starting_uncertainty[self.pool.alive_paths]
+            # too_uncertain_paths = np.mean(dyn_ep_var, axis=-1) > self._max_uncertainty_rew * self._starting_uncertainty[self.pool.alive_paths]
+            # too_uncertain_paths = dyn_dkl_path > self._max_uncertainty_rew * self._starting_uncertainty_dkl[self.pool.alive_paths]
+            # next_dkl = self._n_episodes*(self._total_dkl+dyn_dkl_mean*self.pool.alive_paths.sum())/(self._total_samples+self.pool.alive_paths.sum())
+            next_dkl = self._dyn_dkl_path[self.pool.alive_paths]+dyn_dkl_path
+            too_uncertain_paths = next_dkl>=self.dkl_lim
         else:
             too_uncertain_paths = np.zeros(shape=self.pool.alive_paths.sum(), dtype=np.bool)
         
@@ -323,6 +364,7 @@ class ModelSampler(CpoSampler):
             a               = a[remaining_paths]
             next_obs        = next_obs[remaining_paths]
             reward          = reward[remaining_paths]
+            
             v_t             = v_t[remaining_paths]
             v_var           = v_var[remaining_paths]
 
@@ -330,7 +372,7 @@ class ModelSampler(CpoSampler):
             vc_t            = vc_t[remaining_paths]
             vc_var          = vc_var[remaining_paths]
             terminal        = terminal[remaining_paths]
-
+            dyn_dkl_path    = dyn_dkl_path[remaining_paths]
             logp_t          = logp_t[remaining_paths]
             pi_info_t       = {k:v[remaining_paths] for k,v in pi_info_t.items()}
 
@@ -353,7 +395,7 @@ class ModelSampler(CpoSampler):
 
         self._path_length[alive_paths] += 1
         self._path_dyn_var[alive_paths] += np.mean(dyn_ep_var, axis=-1)
-        self._total_dyn_var += dyn_ep_var.sum()
+        self._total_dyn_ep_var += dyn_ep_var.sum()
 
         if self.rollout_mode=='iv_gae':
             self._total_Vs += v_t[self.model_inds].sum()
@@ -362,10 +404,12 @@ class ModelSampler(CpoSampler):
             self._total_Vs += v_t.sum()
             self._total_CVs += vc_t.sum()
 
-        self._total_dkl_med_dyn += dkl_med_dyn*alive_paths.sum()
+        self._total_dkl += dyn_dkl_mean*alive_paths.sum()
+        self._total_dyn_var =+ dyn_var*alive_paths.sum()
 
-        self._max_path_return = max(self._max_path_return,
-                            np.max(self._path_return))
+        self._max_dkl = max(self._max_dkl, np.max(dyn_dkl_path))
+        self._dyn_dkl_path[alive_paths] += dyn_dkl_path
+        self._max_path_return = max(self._max_path_return, np.max(self._path_return))
 
         #### only store one trajectory in buffer 
         self.pool.store_multiple(current_obs,
@@ -417,6 +461,26 @@ class ModelSampler(CpoSampler):
         info['alive_ratio'] = alive_ratio
 
         return next_obs, reward, terminal, info
+
+    def compute_td_losses(self, obs):
+        # Get outputs from policy
+        get_action_outs = self.policy.get_action_outs(obs, factored=True, inc_var=True)
+        a = get_action_outs['pi']
+        v = get_action_outs['v']
+        vc = get_action_outs.get('vc', 0)  # Agent may not use cost value func
+        next_obs, reward, terminal, info = self.env.step(obs, a)
+        reward = np.squeeze(reward)
+        c = np.squeeze(info.get('cost', 0))
+
+        nv = self.policy.get_v(next_obs, factored=True)
+        nvc = self.policy.get_vc(next_obs, factored=True)
+        
+        td = np.repeat(reward[None], v.shape[0], axis=0) + self.policy.gamma*nv - v
+        tdc = np.repeat(c[None], v.shape[0], axis=0) + self.policy.cost_gamma*nvc - vc
+        
+        ep_td = np.mean(np.var(td, axis=0))
+        ep_tdc = np.mean(np.var(tdc, axis=0))
+        return ep_td, ep_tdc
 
 
     def _finish_paths(self, term_mask, append_vals=False, append_cvals=False):

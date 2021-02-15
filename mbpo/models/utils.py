@@ -181,6 +181,15 @@ class TensorStandardScaler:
         """
         return tf.square(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-2)) * data
 
+    def inverse_transform_logvar(self, data):
+        """Undoes the transformation performed by this scaler for variances.
+
+        Arguments:
+        data (np.array): A numpy array containing the points to be transformed.
+
+        Returns: (np.array) The transformed dataset.
+        """
+        return 2*tf.log(tf.maximum(tf.sqrt(self.var)*self.sc_factor, 1e-2)) + data
 
     def get_vars(self):
         """Returns a list of variables managed by this object.

@@ -107,7 +107,7 @@ class BNN:
 
     @property
     def is_probabilistic(self):
-        return True if 'NLL' in self.loss_type else False
+        return True if 'NLL' in self.loss_type or 'MSPE' in self.loss_type else False
 
     @property
     def is_tf_model(self):
@@ -204,7 +204,7 @@ class BNN:
                     else:
                         self.scaler_out = TensorStandardScaler(self.layers[-1].get_output_dim(), sc_factor=self.sc_factor, name='scaler_out')
                         
-                if self.is_probabilistic:
+                if self.loss_type=='NLL':
                     self.max_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.max_logvar_param, dtype=tf.float32,
                                                 name="max_log_var")
                     self.min_logvar = tf.Variable(np.ones([1, self.layers[-1].get_output_dim() // 2])*self.min_logvar_param, dtype=tf.float32,
@@ -213,11 +213,11 @@ class BNN:
                     with tf.variable_scope("Layer%i" % i):
                         if i == len(self.layers)-1:             #### init biases of logits
                             layer.construct_vars(self.logit_bias_std)
-                        else: 
+                        else:
                             layer.construct_vars()
                         self.decays.extend(layer.get_decays())
                         self.optvars.extend(layer.get_vars())
-        if self.is_probabilistic:
+        if self.loss_type=='NLL':
             self.optvars.extend([self.max_logvar, self.min_logvar])
         if self.use_scaler_in:
             self.nonoptvars.extend(self.scaler_in.get_vars())
@@ -283,13 +283,14 @@ class BNN:
                 train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
                 self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
-            
-            # if self.loss_type == 'NLL_varcorr':
-            #     train_loss = tf.reduce_sum(self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=True, weights=self.weights, var_correction=self.var_corr_targ))
-            #     train_loss += tf.add_n(self.decays)
-            #     train_loss += 0.01 * tf.reduce_sum(self.max_logvar) - 0.01 * tf.reduce_sum(self.min_logvar)
-            #     self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
-            #     self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
+            elif self.loss_type == 'MSPE':
+                train_loss = tf.reduce_sum(self._mspe_loss(self.sy_train_in, 
+                                                            self.sy_train_targ, 
+                                                            inc_var_loss=True,)
+                                                            )
+                train_loss += tf.add_n(self.decays)
+                self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)
+                self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
             elif self.loss_type == 'MSE':
                 if self.clip_loss:
@@ -323,16 +324,6 @@ class BNN:
                 train_loss += tf.add_n(self.decays)
                 self.loss = self._ce_loss(self.sy_train_in, self.sy_train_targ, weights=self.weights)
                 self.tensor_loss, self.debug_mean = self._ce_loss(self.sy_train_in, self.sy_train_targ, tensor_loss=True, weights=self.weights)
-
-            # elif self.loss_type == 'ClippedMSE':
-            #     self.old_pred_ph = tf.placeholder(dtype=tf.float32,
-            #                                     shape=[self.num_nets, None, self.layers[-1].get_output_dim()],
-            #                                     name="old_predictions")
-            #     self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights)                                       
-            #     train_loss = tf.reduce_sum(self._clippedMSE_loss(self.sy_train_in, self.sy_train_targ, self.old_pred_ph))
-            #     train_loss += tf.add_n(self.decays)
-            #     self.loss = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, weights=self.weights) ### use normal loss for displaying
-            #     self.tensor_loss, self.debug_mean = self._nll_loss(self.sy_train_in, self.sy_train_targ, inc_var_loss=False, tensor_loss=True, weights=self.weights)            
 
             #### _________________________ ####  
             ####      Optimization Ops     ####
@@ -878,7 +869,6 @@ class BNN:
         if debug:
             self.layers_deb = []
         for layer in self.layers:
-
             cur_out = layer.compute_output_tensor(cur_out)
             if debug:
                 self.layers_deb.append(cur_out)
@@ -893,16 +883,14 @@ class BNN:
             self.mean_deb = mean
 
         if self.is_probabilistic:
-            logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
-            logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
+            # logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
+            # logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
             
+            logvar = cur_out[:, :, dim_output//2:]
             if self.use_scaler_out and scale_output:
-                var = tf.exp(logvar)
-                var = self.scaler_out.inverse_transform_var(var)
-                logvar = tf.log(var)
-                self.logvar_deb = logvar
-                
-            if ret_log_var: 
+                logvar = self.scaler_out.inverse_transform_logvar(logvar)
+
+            if ret_log_var:
                 var = logvar
             else:
                 var = tf.exp(logvar)
@@ -986,7 +974,7 @@ class BNN:
         if inc_var_loss:
             assert self.is_probabilistic
             var_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * log_var, axis=-1), axis=-1) 
-
+            
             #### debug
             self.deb_var_loss = var_losses
         else:            
@@ -994,10 +982,47 @@ class BNN:
             inv_var = 1.0
             
             #total_losses = 0.5 * tf.reduce_mean(tf.reduce_mean( tf.square(mean - targets), axis=-1), axis=-1)
-
         mse_losses = tf.reduce_mean(weights * tf.reduce_mean(0.5 * inv_var *  (tf.square(mean - targets) + var_correction), axis=-1), axis=-1)
+        
         total_losses = mse_losses + var_losses
+        return total_losses
 
+    def _mspe_loss(self, inputs, targets, inc_var_loss=True):
+        """Helper method for compiling the MSPE loss function.
+
+        Mean Squared Prediction error is essentially similar to MSE but aims to predict
+        the MSE conditional on x. Outputs are thus probabilistic with slight abuse of the 
+        maximum likelihood estimator on gaussians.
+        The mean loss aims to minimize the MSE : E[(y-x)**2]
+        The variance loss aims to minimize the MSE : E[(v-(y-x)**2)**2]
+    
+        Arguments:
+            inputs: (tf.Tensor) A tensor representing the input batch
+            targets: (tf.Tensor) The desired targets for each input vector in inputs.
+            inc_var_loss: (bool) If True, includes log variance loss.
+                            will throw an error if set to True in a model without variances included
+
+        Returns: (tf.Tensor) A tensor representing the loss on the input arguments.
+        """
+
+        if self.is_probabilistic:
+            mean, log_var = self._compile_outputs(inputs, ret_log_var=True)
+
+        #### rescale targets if set to true
+        if self.use_scaler_out:
+            targets = self.scaler_out.transform(targets)
+
+        var_pred = tf.exp(log_var)
+        inv_var = tf.stop_gradient(var_pred)
+
+        mse_losses_logit = tf.square(mean - targets)
+        var_losses_logit = tf.square(log_var - tf.stop_gradient(mse_losses_logit))
+        ratio = 0.01*tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
+
+        mse_losses = tf.reduce_mean(tf.reduce_mean(mse_losses_logit, axis=-1),axis=-1)
+        var_losses = tf.reduce_mean(tf.reduce_mean(var_losses_logit*ratio, axis=-1), axis=-1)
+        var_reg_loss = 0.1*tf.reduce_mean(tf.abs(log_var))
+        total_losses = mse_losses + var_losses + var_reg_loss
         return total_losses
 
 

@@ -505,8 +505,8 @@ class CPOPolicy(BasePolicy):
             vf_kwargs['clip_loss']      = self.vf_cliploss
             vf_kwargs['var_corr']      = self.vf_var_corr
             vf_kwargs['num_elites']     = self.vf_elites
-            vf_kwargs['use_scaler_in']  = False
-            vf_kwargs['use_scaler_out'] = False
+            vf_kwargs['use_scaler_in']  = True
+            vf_kwargs['use_scaler_out'] = True
             # vf_kwargs['sc_factor']      = 1e3
             vf_kwargs['session']        = self.sess
 
@@ -935,6 +935,16 @@ class CPOPolicy(BasePolicy):
         else:
             vc = self.vc.predict(feed_obs, factored=factored, inc_var=inc_var)
             return np.squeeze(vc, axis=-1)
+    
+    def compute_DKL(self, obs_batch, mu_batch, logstd_batch):
+        if len(obs_batch.shape)==3:
+            d_kl = np.zeros(shape=obs_batch.shape[0])
+            for o,m,l,i in zip(obs_batch, mu_batch, logstd_batch, range(len(obs_batch))):
+                d_kl[i] = self.sess.run(self.d_kl, feed_dict={self.obs_ph:o, self.pi_info_phs['mu']:m, self.pi_info_phs['log_std']:l})
+        else:
+            feed_dict = {self.obs_ph:obs_batch, self.pi_info_phs['mu']:mu_batch, self.pi_info_phs['log_std']:logstd_batch}
+            d_kl = self.sess.run(self.d_kl, feed_dict=feed_dict)
+        return d_kl
 
     @contextmanager
     def set_deterministic(self, deterministic=True):
