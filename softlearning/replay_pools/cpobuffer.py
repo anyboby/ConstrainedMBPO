@@ -150,6 +150,7 @@ class CPOBuffer:
         self.term_archive = np.zeros(archive_size, dtype=np.bool_)
         self.epoch_archive = np.ones(archive_size, dtype=np.int)*-1
         self.archive_ptr = 0
+        self.max_pointer = 0
 
     @property
     def size(self):
@@ -161,12 +162,16 @@ class CPOBuffer:
     @property
     def min_ep(self):
         return int(np.min(self.epoch_archive[self.epoch_archive>-1]))
+    @property
+    def epochs_list(self):
+        bins = np.bincount(self.epoch_archive[self.epoch_archive>=0])
+        eps = np.nonzero(bins)
 
+        return np.squeeze(eps, axis=0)
+    
     @property
     def arch_size(self):
-        if not self.archive_full:
-            return self.archive_ptr
-        else: return self.archive_size
+        return self.max_pointer
 
     def store(self, obs, act, next_obs, rew, val, val_var, cost, cval, cval_var, logp, pi_info, term, epoch):
         assert self.ptr < self.max_size     # buffer has to have room so you can store
@@ -351,7 +356,7 @@ class CPOBuffer:
         
         if self.archive_ptr >= self.archive_size-self.ptr:
             self.archive_full = True
-            self.archive_ptr=0
+            self.archive_ptr= 0
             warnings.warn('Archive is full, deleting old samples.')
 
         arch_slice = slice(self.archive_ptr, self.archive_ptr+self.ptr)
@@ -382,7 +387,7 @@ class CPOBuffer:
             self.pi_info_archive[k][arch_slice] = self.pi_info_bufs[k][buf_slice]
         
         self.archive_ptr+=self.ptr
-
+        self.max_pointer = max(self.archive_ptr, self.max_pointer)
     def get(self):
         """
         Returns a list of predetermined values in the buffer.
@@ -495,24 +500,18 @@ class CPOBuffer:
             archives = self.arch_dict.keys() 
         else:
             archives = fields
-
-        if self.archive_full:
-            arch_ptr = self.archive_size
-        else:
-            arch_ptr = self.archive_ptr
-        buf_ptr = self.ptr
-
         if 'pi_infos' in fields:
             pi_info_requested = True
             fields.remove('pi_infos')
         else:
             pi_info_requested = False
 
-        samples = {archive:self.arch_dict[archive][:arch_ptr] for archive in archives}
+        ptr = self.arch_size
+        samples = {archive:self.arch_dict[archive][:ptr] for archive in archives}
         
         if pi_info_requested:
             pi_infos = {
-                k:self.pi_info_archive[k][:arch_ptr] for k in keys_as_sorted_list(self.pi_info_archive)
+                k:self.pi_info_archive[k][:ptr] for k in keys_as_sorted_list(self.pi_info_archive)
                 }
             samples.update(pi_infos)
         # add current buffers
@@ -620,11 +619,16 @@ class CPOBuffer:
         return samples
 
     def boltz_dist(self, kls):
+        '''
+        args: kls should be a list of KL divergence means over the epochs contained in the archive. 
+        call epochs_list for such a list. 
+        '''
         ep_probs = np.exp(np.negative(kls))
         ep_probs /= np.sum(ep_probs)
-        sample_n = np.bincount(self.epoch_archive[self.epoch_archive>=0])
-        sample_prob = ep_probs/sample_n[sample_n>0]
-        btz = np.where(self.epoch_archive>=0, sample_prob[self.epoch_archive-self.min_ep], 0)
+        sample_p = np.bincount(self.epoch_archive[self.epoch_archive>=0]).astype(np.float32)
+        sample_p[sample_p>0] = ep_probs/sample_p[sample_p>0]
+
+        btz = np.where(self.epoch_archive>=0, sample_p[self.epoch_archive], 0)
         return btz
 
     def disc_dist(self, disc):
@@ -700,7 +704,7 @@ class CPOBuffer:
         return samples
 
 
-    def epoch_batch(self, batch_size, fields=None, epochs=[-1]):
+    def epoch_batch(self, batch_size, epochs, fields=None):
         """
         returns batch collected under the latest policy from the archive. if fields is None a 
         default dictionary containing:
@@ -744,7 +748,7 @@ class CPOBuffer:
         ep = np.array(epochs)
 
         ### if epoch not contained
-        if np.any(ep>max_epoch) or np.any(ep<-max_epoch-1):
+        if np.any(ep>max_epoch) or np.any(ep<self.min_ep):
             print(f'Warning: epoch not contained in buffer.')
             return None
         
