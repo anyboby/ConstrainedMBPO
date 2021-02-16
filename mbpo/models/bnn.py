@@ -1016,7 +1016,7 @@ class BNN:
         inv_var = tf.stop_gradient(var_pred)
 
         mse_losses_logit = tf.square(mean - targets)
-        var_losses_logit = tf.square(log_var - tf.stop_gradient(mse_losses_logit))
+        var_losses_logit = tf.square(var_pred - tf.stop_gradient(mse_losses_logit))
         ratio = 0.01*tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
 
         mse_losses = tf.reduce_mean(tf.reduce_mean(mse_losses_logit, axis=-1),axis=-1)

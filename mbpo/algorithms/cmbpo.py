@@ -334,7 +334,7 @@ class CMBPO(RLAlgorithm):
                     #=====================================================================#
                     # batch = self._pool.disc_batch_from_archive(self._rollout_batch_size, fields=['observations','pi_infos'], disc=self._m_sampling_disc)
                     # start_states, mus, logstds = batch['observations'], batch['mu'], batch['log_std']
-                    ep_b = self._pool.epoch_batch(batch_size=self._rollout_batch_size, fields=['observations','pi_infos'], epochs=list(range(self._pool.min_ep, self._pool.max_ep+1)))
+                    ep_b = self._pool.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._pool.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
                     btz_dist = self._pool.boltz_dist(kls)
                     btz_b = self._pool.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
