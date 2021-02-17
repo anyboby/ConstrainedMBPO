@@ -61,7 +61,7 @@ class ModelSampler(CpoSampler):
         self._total_dkl = 0
         self._max_dkl = 0
         self._dyn_dkl_path = 0
-        self._total_dyn_var = 0
+        self._total_mean_var = 0
 
         self.env = None
         self.policy = None
@@ -119,7 +119,7 @@ class ModelSampler(CpoSampler):
         cval_mean = self._total_CVs / (self._total_samples+EPS)
 
         dyn_Dkl = self._total_dkl / (self._total_samples+EPS)
-        dyn_var = self._total_dyn_var/ (self._total_samples+EPS)
+        mean_var = self._total_mean_var/ (self._total_samples+EPS)
         diagnostics.update({
             'msampler/samples_added': self._total_samples,
             'msampler/rollout_H_max': self._n_episodes,
@@ -131,8 +131,8 @@ class ModelSampler(CpoSampler):
             'msampler/rew_rate' : ensemble_rew_rate,
             'msampler/v_mean':vals_mean,
             'msampler/cv_mean':cval_mean,
-            'msampler/dyn_DKL': dyn_Dkl,
-            'msampler/dyn_var': dyn_var,
+            'msampler/ens_DKL': dyn_Dkl,
+            'msampler/ens_mean_var': mean_var,
             'msampler/max_path_return': self._max_path_return,
             'msampler/max_dkl': self._max_dkl,
         })
@@ -158,11 +158,10 @@ class ModelSampler(CpoSampler):
         self._last_n_paths.clear()
 
     def compute_dynamics_dkl(self, obs_batch, depth=1):
-        dkl_tot = 0
-        for i in range(depth):
+        for _ in range(depth):
             get_action_outs = self.policy.get_action_outs(obs_batch, factored=True, inc_var=True)
             a = get_action_outs['pi']
-            next_obs, reward, terminal, info = self.env.step(obs_batch, a)
+            next_obs, _, terminal, info = self.env.step(obs_batch, a)
             dyn_dkl_mean = info.get('ensemble_dkl_mean', 0)
             
             n_paths = next_obs.shape[0]
@@ -178,6 +177,9 @@ class ModelSampler(CpoSampler):
         
     def set_rollout_dkl(self, dkl):
         self.dkl_lim = dkl
+
+    def set_max_path_length(self, path_length):
+        self._max_path_length = path_length
 
     def get_last_n_paths(self, n=None):
         if n is None:
@@ -254,7 +256,7 @@ class ModelSampler(CpoSampler):
         self._total_dyn_ep_var = 0
         self._total_dkl = 0
         self._max_dkl = 0
-        self._total_dyn_var = 0
+        self._total_mean_var = 0
         self._max_path_return = 0
 
     def sample(self, max_samples=None):
@@ -301,7 +303,7 @@ class ModelSampler(CpoSampler):
         dyn_dkl_mean = info.get('ensemble_dkl_mean', 0)
         dyn_dkl_path = info.get('ensemble_dkl_path', 0)
         dyn_ep_var = info.get('ensemble_ep_var', np.zeros(shape=reward.shape[1:]))
-        dyn_var = info.get('ensemble_mean_var', 0)
+        ens_mean_var = info.get('ensemble_mean_var', 0)
 
         if self._n_episodes == 1:
             self._starting_uncertainty = np.mean(dyn_ep_var, axis=-1)
@@ -312,11 +314,7 @@ class ModelSampler(CpoSampler):
 
         ### check if too uncertain before storing info of the taken step 
         ### (so we don't take a "bad step" by appending values of next state)
-        
         if self.rollout_mode=='uncertainty':
-            # too_uncertain_paths = np.mean(dyn_ep_var, axis=-1) > self._max_uncertainty_rew * self._starting_uncertainty[self.pool.alive_paths]
-            # too_uncertain_paths = dyn_dkl_path > self._max_uncertainty_rew * self._starting_uncertainty_dkl[self.pool.alive_paths]
-            # next_dkl = self._n_episodes*(self._total_dkl+dyn_dkl_mean*self.pool.alive_paths.sum())/(self._total_samples+self.pool.alive_paths.sum())
             next_dkl = self._dyn_dkl_path[self.pool.alive_paths]+dyn_dkl_path
             too_uncertain_paths = next_dkl>=self.dkl_lim
         else:
@@ -405,7 +403,7 @@ class ModelSampler(CpoSampler):
             self._total_CVs += vc_t.sum()
 
         self._total_dkl += dyn_dkl_mean*alive_paths.sum()
-        self._total_dyn_var =+ dyn_var*alive_paths.sum()
+        self._total_mean_var =+ ens_mean_var*alive_paths.sum()
 
         self._max_dkl = max(self._max_dkl, np.max(dyn_dkl_path))
         self._dyn_dkl_path[alive_paths] += dyn_dkl_path

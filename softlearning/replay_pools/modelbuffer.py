@@ -371,58 +371,8 @@ class ModelBuffer(CPOBuffer):
             ret_mean = self.ret_buf[self.populated_mask].mean()
             cret_mean = self.cret_buf[self.populated_mask].mean()
 
-            ep_val_var = self.val_var_buf[..., self.populated_mask].mean()
-            ep_cval_var = self.cval_var_buf[..., self.populated_mask].mean()
-            
-            ep_ret_var_mean = np.mean(self.ret_var_buf[self.populated_mask])
-            ep_cret_var_mean = np.mean(self.cret_var_buf[self.populated_mask])
-            norm_adv_var_mean = np.mean(self.ret_var_buf[self.populated_mask])/adv_var
-            norm_cadv_var_mean = np.mean(self.cret_var_buf[self.populated_mask])/cadv_var
-            avg_horizon_r = np.mean(self.roll_lengths_buf[self.populated_mask])
-            avg_horizon_c = np.mean(self.croll_lengths_buf[self.populated_mask])
-
-            ### td errors at rollout step
-            deltas_r = self.rew_buf[...,:-1] + self.gamma * self.val_buf[...,1:] - self.val_buf[...,:-1]
-            deltas_c = self.cost_buf[...,:-1] + self.gamma * self.cval_buf[...,1:] - self.cval_buf[...,:-1]
-            
-            tdr_mean = np.var(deltas_r, axis=0)
-            tdr_n = np.var(deltas_r, axis=0)/(np.mean(np.var(deltas_r, axis=1), axis=0)+EPS)
-
-            td_dyn_var_m = np.mean(self.dyn_error_buf[self.populated_mask])
-            td_dyn_var_n = td_dyn_var_m/self.dyn_normalization
-            td_dyn_std_n =  np.sqrt(td_dyn_var_n)
-
-            if self.rollout_mode == 'iv_gae':
-                tdc_mean = np.var(deltas_c, axis=0)
-                tdc_n = np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0)+EPS)
-
-                tdc_overall = np.mean(np.var(deltas_c, axis=0)[self.populated_mask[...,:-1]])
-                tdr_overall = np.mean(np.var(deltas_r, axis=0)[self.populated_mask[...,:-1]])
-            else:
-                tdc_mean = 0
-                tdc_n = 0
-                tdc_overall =0
-                tdr_overall=0
-
-            cutoff_horizons_mean = self.populated_mask.sum()/self.batch_size
-        else:
-            ret_mean = 0
-            cret_mean = 0
-            ep_val_var = 0
-            ep_cval_var = 0
-            ep_ret_var_mean = 0
-            ep_cret_var_mean = 0
-            norm_adv_var_mean = 0
-            norm_cadv_var_mean = 0
-            cutoff_horizons_mean = 0
-            avg_horizon_r = 0
-            avg_horizon_c = 0
-            tdc_overall =0 
-            tdr_overall =0 
-            td_dyn_var_m = 0
-            td_dyn_var_n = 0
-            td_dyn_std_n = 0
-                
+            val_var_mean = self.val_var_buf[..., self.populated_mask].mean()
+            cval_var_mean = self.cval_var_buf[..., self.populated_mask].mean()
 
         if self.rollout_mode=='iv_gae':
             res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,
@@ -441,26 +391,11 @@ class ModelBuffer(CPOBuffer):
         diagnostics = dict( poolm_batch_size = self.populated_mask.sum(), 
                             poolm_ret_mean=ret_mean, 
                             poolm_cret_mean=cret_mean, 
-                            poolm_val_var_mean = ep_val_var,
-                            poolm_cval_var_mean = ep_cval_var,
-                            poolm_ep_ret_var_mean = ep_ret_var_mean,
-                            poolm_ep_cret_var_mean = ep_cret_var_mean,
-                            poolm_norm_adv_var = norm_adv_var_mean, 
-                            poolm_norm_cadv_var = norm_cadv_var_mean,
-                            poolm_cutoff_horizon_avg = cutoff_horizons_mean,
-                            poolm_avg_Horizon_rew = avg_horizon_r,
-                            poolm_avg_Horizon_c = avg_horizon_c,
-                            poolm_tdc_overall = tdc_overall,
-                            poolm_tdr_overall = tdr_overall,
-                            poolm_td_dyn_var_m = td_dyn_var_m,
-                            poolm_td_dyn_var_n = td_dyn_var_n,
-                            poolm_td_dyn_n = td_dyn_std_n,
+                            poolm_val_var_mean = val_var_mean,
+                            poolm_cval_var_mean = cval_var_mean,
                             )
         # reset
         self.reset()
-        # self.ptr, self.path_start_idx = 0, 0
-        # self.populated_mask = np.zeros(shape=self.populated_mask.shape, dtype=np.bool)
-        # self.terminated_paths_mask = np.zeros(shape=self.terminated_paths_mask.shape, dtype=np.bool)
-
+        
         return res, diagnostics
 

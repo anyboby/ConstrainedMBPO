@@ -165,15 +165,8 @@ class FakeEnv:
         ensemble_model_stds = np.sqrt(ensemble_dyn_vars)
         ensemble_dkl_path = np.mean(average_dkl(ensemble_dyn_means, ensemble_model_stds), axis=-1) 
         ensemble_dkl_mean = np.mean(ensemble_dkl_path)
-
-        if obs_depth==3:
-            ep_dyn_var = np.mean(ensemble_dyn_vars, axis=0)
-        else:
-            ep_dyn_var = np.var(ensemble_dyn_means, axis=0)
+        ensemble_ep_var = np.var(ensemble_dyn_means, axis=0)
         
-
-        # if self.dyn_loss=='NLL':
-        #     ensemble_dyn_means += np.random.normal(size=ensemble_dyn_means.shape) * ensemble_model_stds
 
         #### choose one model from ensemble randomly
         if obs_depth==3:
@@ -228,7 +221,7 @@ class FakeEnv:
                 'ensemble_dkl_mean' : ensemble_dkl_mean,
                 'ensemble_dkl_path' : ensemble_dkl_path,
                 'ensemble_mean_var' : ensemble_dyn_vars.mean(),
-                'ensemble_ep_var' : ep_dyn_var,
+                'ensemble_ep_var' : ensemble_ep_var,
                 'rew':rewards,
                 'rew_mean': rewards.mean(),
                 'cost':costs,

@@ -523,9 +523,12 @@ class BNN:
         if self.use_scaler_in:
             with self.sess.as_default():
                 self.scaler_in.fit(inputs)
+                self.scaler_in.decay_count(decay_rate=0.99)
         if self.use_scaler_out:
             with self.sess.as_default():
                 self.scaler_out.fit(targets)
+                self.scaler_out.decay_count(decay_rate=0.99)
+
 
 
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
@@ -873,7 +876,7 @@ class BNN:
             if debug:
                 self.layers_deb.append(cur_out)
 
-        mean = cur_out[:, :, :dim_output//2] if self.is_probabilistic else cur_out
+        mean = cur_out[...,:dim_output//2] if self.is_probabilistic else cur_out
 
         if self.end_act is not None and not raw_output:
             mean = self.end_act(mean)
@@ -886,7 +889,7 @@ class BNN:
             # logvar = self.max_logvar - tf.nn.softplus(self.max_logvar - cur_out[:, :, dim_output//2:])      ### healthier gradients than clip
             # logvar = self.min_logvar + tf.nn.softplus(logvar - self.min_logvar)
             
-            logvar = cur_out[:, :, dim_output//2:]
+            logvar = cur_out[..., dim_output//2:]
             if self.use_scaler_out and scale_output:
                 logvar = self.scaler_out.inverse_transform_logvar(logvar)
 
@@ -1012,16 +1015,23 @@ class BNN:
         if self.use_scaler_out:
             targets = self.scaler_out.transform(targets)
 
+        # ensemble_mean, _ = self._compile_outputs(inputs, ret_log_var=True, factor4d=True)
+        # ensemble_mean = tf.stop_gradient(tf.reduce_mean(ensemble_mean, axis=0))
+
         var_pred = tf.exp(log_var)
         inv_var = tf.stop_gradient(var_pred)
 
         mse_losses_logit = tf.square(mean - targets)
+        # fc_mean, fc_var = tf.nn.moments(xs, axes = 2, keep_dims=True)
+
+        predictor_var_logit = tf.stop_gradient(tf.math.reduce_variance(mean, axis=0))[tf.newaxis]
         var_losses_logit = tf.square(var_pred - tf.stop_gradient(mse_losses_logit))
-        ratio = 0.01*tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
+        ratio = 0.05 * tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
 
         mse_losses = tf.reduce_mean(tf.reduce_mean(mse_losses_logit, axis=-1),axis=-1)
-        var_losses = tf.reduce_mean(tf.reduce_mean(var_losses_logit*ratio, axis=-1), axis=-1)
-        var_reg_loss = 0.1*tf.reduce_mean(tf.abs(log_var))
+        var_losses = tf.reduce_mean(tf.reduce_mean(var_losses_logit * ratio, axis=-1), axis=-1)
+        # mean_logit_logvar = tf.stop_gradient(tf.reduce_mean(tf.reduce_mean(log_var, axis=0), axis=0)[tf.newaxis, tf.newaxis])
+        var_reg_loss = 0.05 * tf.reduce_mean(tf.square(log_var))
         total_losses = mse_losses + var_losses + var_reg_loss
         return total_losses
 

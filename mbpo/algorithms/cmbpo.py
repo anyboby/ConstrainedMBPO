@@ -280,7 +280,7 @@ class CMBPO(RLAlgorithm):
         ######## note: sampler is set up with the pool that may be already filled from initial exploration hook
         self.sampler.initialize(training_environment, policy, pool)
         self.model_sampler.initialize(self.fake_env, policy, self.model_pool)
-        rollout_dkl_lim = self.model_sampler.compute_dynamics_dkl(obs_batch=self._pool.rand_batch_from_archive(20000, fields=['observations'])['observations'], depth=self._rollout_schedule[2])
+        rollout_dkl_lim = self.model_sampler.compute_dynamics_dkl(obs_batch=self._pool.rand_batch_from_archive(5000, fields=['observations'])['observations'], depth=self._rollout_schedule[2])
         self.model_sampler.set_rollout_dkl(rollout_dkl_lim)
         self.initial_model_dkl = self.model_sampler.dyn_dkl
         #### reset gtimer (for coverage of project development)
@@ -318,22 +318,13 @@ class CMBPO(RLAlgorithm):
             model_metrics = {}
             #### start model rollout
             if self._real_ratio<1.0: #if self._timestep % self._model_train_freq == 0 and self._real_ratio < 1.0:
+                #=====================================================================#
+                #                           Model Rollouts                            #
+                #=====================================================================#
                 if self.rollout_mode == 'schedule':
                     self._set_rollout_length()
 
                 while keep_rolling:
-                    #=====================================================================#
-                    #  Rollout Model                                                      #
-                    #=====================================================================#
-                    # print('[ Model Rollout ] Starting | Epoch: {} | Batch size: {}'.format(
-                    #     self._epoch, self._rollout_batch_size 
-                    # ))                
-
-                    #=====================================================================#
-                    #                           Model Rollouts                            #
-                    #=====================================================================#
-                    # batch = self._pool.disc_batch_from_archive(self._rollout_batch_size, fields=['observations','pi_infos'], disc=self._m_sampling_disc)
-                    # start_states, mus, logstds = batch['observations'], batch['mu'], batch['log_std']
                     ep_b = self._pool.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._pool.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
                     btz_dist = self._pool.boltz_dist(kls)
@@ -350,17 +341,9 @@ class CMBPO(RLAlgorithm):
 
                         _,_,_,info = self.model_sampler.sample(max_samples=int(self.approx_model_batch-samples_added))
 
-                        ### stop rollout depending on rollout_mode
-                        if self.rollout_mode=='schedule':
-                            if i+1>self._rollout_length or \
-                                    self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
-                                if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
-                                    keep_rolling=False
-                                break
-                        elif self.rollout_mode=='uncertainty':      ### rollout stop performed in sampler
-                            if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
-                                keep_rolling = False
-                                break
+                        if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
+                            keep_rolling = False
+                            break
                         
                         if info['alive_ratio']<= 0.1: break
 
@@ -390,21 +373,9 @@ class CMBPO(RLAlgorithm):
                     samples_added += new_n_samples
                     model_metrics.update({'samples_added':samples_added})
                     ######################################################################
-                    ### recalculate model batch sizes
-                    # td_dyn_err = model_metrics.get('poolm_td_dyn_n', 0) + EPS
-
-                    # #### little debugging, not sure when this happens:
-                    # if np.isnan(td_dyn_err):
-                    #     model_metrics['Error!'] = 'Error!'
-                    #     td_dyn_err = EPS
-                    #     keep_rolling = False
-                    # else:
-                    #     self.approx_model_batch = min(self.max_tddyn_err/td_dyn_err * (self.batch_size_policy-self.min_real_samples_per_epoch), self.batch_size_policy-self.min_real_samples_per_epoch)
                 
-                print(f'Stopping finished')
+                print(f'Rollouts finished')
                 gt.stamp('epoch_rollout_model')
-                model_metrics.update({'max_tddyn_err':self.max_tddyn_err})
-
 
             #=====================================================================#
             #  Sample                                                             #
@@ -466,15 +437,6 @@ class CMBPO(RLAlgorithm):
             self._policy.update_critic(train_samples, train_vc=(train_samples[-3]>0).any())    ### only train vc if there are any costs
             
             if self._real_ratio<1.0:
-                # ep_b = self._pool.epoch_batch(batch_size=2000, fields=['observations','pi_infos'], epochs=list(range(self._pool.min_ep, self._pool.max_ep+1)))
-                # os, ms, ls = ep_b['observations'], ep_b['mu'], ep_b['log_std']
-                # kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
-                # btz_dist = self._pool.boltz_dist(kls)
-                # btz_b = self._pool.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
-                # start_states, mus, logstds = btz_b['observations'], btz_b['mu'], btz_b['log_std']
-                # btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)
-                # penalty = btz_kl + 2*np.sqrt(btz_kl*self.model_sampler.dyn_dkl)
-                # penalty_ratio = min(self.max_tddyn_err/penalty,     1)
                 self.approx_model_batch = self.batch_size_policy-n_real_samples #self.model_sampler.dyn_dkl/self.initial_model_dkl * self.min_real_samples_per_epoch
 
             self.policy_epoch += 1
@@ -488,10 +450,8 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
 
             self.sampler.log()
-            # self.logger.log_tabular('Epoch', self._epoch)
             # write results to file, ray prints for us, so no need to print from logger
             logger_diagnostics = self.logger.dump_tabular(output_dir=self._log_dir, print_out=False)
-            # model_metrics.update({'penalty':self._compute_penalty(start_states, mus, logstds)})
             #=====================================================================#
 
             if self._total_timestep // self.eval_every_n_steps > self.last_eval_step:
@@ -513,8 +473,6 @@ class CMBPO(RLAlgorithm):
                 diag_obs_batch = []
 
             gt.stamp('epoch_after_hook')
-
-            # sampler_diagnostics = self.sampler.get_diagnostics()
 
             new_diagnostics = {}
 
@@ -657,6 +615,7 @@ class CMBPO(RLAlgorithm):
             y = dx * (max_length - min_length) + min_length
 
         self._rollout_length = int(y)
+        self.model_sampler.set_max_path_length(self._rollout_length)
         print('[ Model Length ] Epoch: {} (min: {}, max: {}) | Length: {} (min: {} , max: {})'.format(
             self._epoch, min_epoch, max_epoch, self._rollout_length, min_length, max_length
         ))
