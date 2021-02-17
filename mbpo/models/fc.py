@@ -80,7 +80,7 @@ class FC:
     # Basic Functionality #
     #######################
 
-    def compute_output_tensor(self, input_tensor):
+    def compute_output_tensor(self, input_tensor, factor4d=False):
         """Returns the resulting tensor when all operations of this layer are applied to input_tensor.
 
         If input_tensor is 2D, this method returns a 3D tensor representing the output of each
@@ -92,11 +92,21 @@ class FC:
 
         Returns: The output of the layer, as described above.
         """
-        # Get raw layer outputs
+
+        # if factor4d:
+        #     if len(input_tensor.shape) == 3:
+        #         raw_output = tf.einsum("ijk,lkn->lijn", input_tensor, self.weights) + self.biases
+        #     elif len(input_tensor.shape) == 4 and input_tensor.shape[0].value == self.ensemble_size:
+        #         raw_output = tf.einsum("lijn,lns->lijs", input_tensor, self.weights) + self.biases
+        #     else:
+        #         raise ValueError("Invalid input dimension.")
+        # # Get raw layer outputs
+        # else:
         if len(input_tensor.shape) == 2:
             raw_output = tf.einsum("ij,ajk->aik", input_tensor, self.weights) + self.biases
         elif len(input_tensor.shape) == 3 and input_tensor.shape[0].value == self.ensemble_size:
             raw_output = tf.matmul(input_tensor, self.weights) + self.biases
+        
         else:
             raise ValueError("Invalid input dimension.")
 

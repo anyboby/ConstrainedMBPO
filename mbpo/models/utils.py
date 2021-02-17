@@ -222,6 +222,9 @@ class TensorStandardScaler:
         self.var.load(self.cached_var)
         self.count.load(self.cached_count)
 
+    def decay_count(self, decay_rate=0.99):
+        self.count.load(self.cached_count*decay_rate)
+
     def running_mean_var_from_batch(self, batch_mean, batch_var, batch_count):
         delta = batch_mean - self.cached_mu
         tot_count = self.cached_count + batch_count

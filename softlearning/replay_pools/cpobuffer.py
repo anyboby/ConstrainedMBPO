@@ -424,40 +424,11 @@ class CPOBuffer:
         cret_mean = self.cret_buf[:self.ptr].mean()
         val_var_mean = self.val_var_buf[self.model_ind,:self.ptr].mean()
         cval_var_mean = self.cval_var_buf[self.model_ind,:self.ptr].mean()
-        ep_cval_std_mean = np.mean(np.std(self.cval_buf[:,:self.ptr], axis=0))
-        ep_val_std_mean = np.mean(np.std(self.val_buf[:,:self.ptr], axis=0))
-        ep_ret_var_mean = np.mean(self.ret_ep_var_buf[:self.ptr])
-        ep_cret_var_mean = np.mean(self.cret_ep_var_buf[:self.ptr])
-        norm_adv_var_mean = np.mean(self.ret_ep_var_buf[:self.ptr])/adv_var
-        norm_cadv_var_mean = np.mean(self.cret_ep_var_buf[:self.ptr])/cadv_var
-        avg_horizon_r = np.mean(self.roll_lengths_buf[:self.ptr])
-        avg_horizon_c = np.mean(self.croll_lengths_buf[:self.ptr])
-
-        ### td errors
-        deltas_r = self.rew_buf[...,:self.ptr][...,:-1] + self.gamma * self.val_buf[...,:self.ptr][...,1:] - self.val_buf[...,:self.ptr][...,:-1]
-        deltas_c = self.cost_buf[...,:self.ptr][...,:-1] + self.gamma * self.cval_buf[...,:self.ptr][...,1:] - self.cval_buf[...,:self.ptr][...,:-1]
-
-        tdr_m = np.mean(np.var(deltas_r, axis=0))
-        tdc_m = np.mean(np.var(deltas_c, axis=0))
-        tdr_n = np.mean(np.var(deltas_r, axis=0)/(np.mean(np.var(deltas_r, axis=1), axis=0) + EPS))
-        tdc_n = np.mean(np.var(deltas_c, axis=0)/(np.mean(np.var(deltas_c, axis=1), axis=0) + EPS))
 
         diagnostics = dict(poolr_ret_mean=ret_mean, \
                             poolr_cret_mean=cret_mean, 
                             poolr_val_var_mean = val_var_mean,
                             poolr_cval_var_mean = cval_var_mean,
-                            poolr_ep_val_std_mean = ep_val_std_mean,
-                            poolr_ep_cval_std_mean = ep_cval_std_mean,
-                            poolr_ret_ep_var_mean = ep_ret_var_mean,
-                            poolr_cret_ep_var_mean = ep_cret_var_mean,
-                            poolr_norm_adv_var = norm_adv_var_mean, 
-                            poolr_norm_cadv_var = norm_cadv_var_mean,
-                            poolr_avg_Horizon_rew = avg_horizon_r,
-                            poolr_avg_Horizon_c = avg_horizon_c,
-                            poolr_tdr_n = tdr_n,
-                            poolr_tdc_n = tdc_n,
-                            poolr_tdr_m = tdr_m,
-                            poolr_tdc_m = tdc_m,
                             )
 
         self.reset_buffers() ### reset
@@ -557,67 +528,6 @@ class CPOBuffer:
         
         return samples
 
-    def disc_batch_from_archive(self, batch_size, fields=None, disc=0.9):
-        """
-        returns random batch from the archive. if data_type is None a 
-        default dictionary containing:
-        obs, action, next_obs, r, term
-        is returned. 
-        Remember, that old values / advantages etc. might come from
-        old policies.
-        choose from these data types:
-            'observations'
-            'actions'
-            'next_observations'
-            'advantages'
-            'rewards'
-            'returns'
-            'values'
-            'cadvantages'
-            'costs'
-            'creturns'
-            'cvalues'
-            'log_policies'
-            'terminals'
-
-        Args:
-            fields: a list containing the key words for the desired 
-            data types. e.g.: ['observations', 'actions', 'values']
-        Returns:
-            samples: A dict containining random archive values for default / specified fields 
-            as np arrays of batch_size
-        """
-
-        max_ep = self.max_ep
-
-        disc_dist = self.epoch_archive.copy().astype(np.float32)
-        disc_dist[self.epoch_archive>=0]+=1
-        disc_dist[:] = disc**(max_ep-disc_dist[:])
-        disc_dist[self.epoch_archive<0]=0
-        disc_dist/=np.sum(disc_dist)
-
-        if fields is None:
-            archives = ['observations', 'actions', 'next_observations', 'rewards', 'terminals']
-        else:
-            archives = fields
-
-        if 'pi_infos' in fields:
-            pi_info_requested = True
-            fields.remove('pi_infos')
-        else:
-            pi_info_requested = False
-
-        rand_indc = np.random.choice(np.arange(self.archive_size), size=batch_size, p=disc_dist)
-        samples = {archive: self.arch_dict[archive][rand_indc] for archive in archives}
-        
-        if pi_info_requested:
-            pi_infos = {
-                k:self.pi_info_archive[k][rand_indc] for k in keys_as_sorted_list(self.pi_info_archive)
-                }
-            samples.update(pi_infos)
-
-        return samples
-
     def boltz_dist(self, kls):
         '''
         args: kls should be a list of KL divergence means over the epochs contained in the archive. 
@@ -638,11 +548,6 @@ class CPOBuffer:
         sample_n = np.bincount(self.epoch_archive[self.epoch_archive>=0])
         sample_prob = ep_probs/sample_n[sample_n>0]
         disc_dist = np.where(self.epoch_archive>=0, sample_prob[self.epoch_archive-self.min_ep], 0)
-        # disc_dist = self.epoch_archive.copy().astype(np.float32)
-        # disc_dist[self.epoch_archive>=0]+=1
-        # disc_dist[:] = disc**(max_ep-disc_dist[:])
-        # disc_dist[self.epoch_archive<0]=0
-        # disc_dist/=np.sum(disc_dist)
         return disc_dist
 
     def unif_dist(self):
