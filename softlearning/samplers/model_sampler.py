@@ -244,6 +244,9 @@ class ModelSampler(CpoSampler):
         self._dyn_dkl_path = np.zeros(self.batch_size)
 
         self.model_inds = np.random.randint(self.ensemble_size)
+        self.v_inds = self.policy.random_v_inds(self.batch_size)
+        self.vc_inds = self.policy.random_vc_inds(self.batch_size)
+        self.batch_inds = np.arange(0, self.batch_size)
 
         self._total_samples = 0
         self._n_episodes = 0
@@ -279,13 +282,13 @@ class ModelSampler(CpoSampler):
         ### unpack ensemble outputs, if gaussian
         if self.rollout_mode=='iv_gae':
             v_t = get_action_outs['v']
-            vc_t = get_action_outs.get('vc', 0)  # Agent may not use cost value func
+            vc_t = get_action_outs.get('vc', 0)
 
             v_var = get_action_outs.get('v_var', 0)
             vc_var = get_action_outs.get('vc_var', 0) 
         else:
-            v_t = np.mean(get_action_outs['v'], axis=0)
-            vc_t = np.mean(get_action_outs.get('vc', 0), axis=0)  # Agent may not use cost value func
+            v_t = get_action_outs['v'][self.v_inds,self.batch_inds]
+            vc_t = get_action_outs['vc'][self.vc_inds,self.batch_inds]
 
             v_var = np.mean(get_action_outs.get('v_var', 0), axis=0)
             vc_var = np.mean(get_action_outs.get('vc_var', 0), axis=0)
@@ -365,10 +368,13 @@ class ModelSampler(CpoSampler):
             
             v_t             = v_t[remaining_paths]
             v_var           = v_var[remaining_paths]
+            self.v_inds     = self.v_inds[remaining_paths]
 
             c               = c[remaining_paths]
             vc_t            = vc_t[remaining_paths]
             vc_var          = vc_var[remaining_paths]
+            self.vc_inds    = self.vc_inds[remaining_paths]
+            self.batch_inds = np.arange(0,np.sum(remaining_paths))
             terminal        = terminal[remaining_paths]
             dyn_dkl_path    = dyn_dkl_path[remaining_paths]
             logp_t          = logp_t[remaining_paths]
@@ -440,6 +446,10 @@ class ModelSampler(CpoSampler):
             prem_term_mask = np.any(terminal[:,remaining_paths], axis=0)            ##@anyboby maybe check later, if terminal per model should be possible
         else:
             self._current_observation = self._current_observation[remaining_paths]
+            self.v_inds    = self.v_inds[remaining_paths]
+            self.vc_inds    = self.vc_inds[remaining_paths]
+            self.batch_inds = np.arange(0,np.sum(remaining_paths))
+
             prem_term_mask = terminal
         
         #### terminate real termination due to env end
@@ -454,6 +464,9 @@ class ModelSampler(CpoSampler):
             self._current_observation = self._current_observation[:,remaining_paths]
         else:
             self._current_observation = self._current_observation[remaining_paths]
+            self.v_inds    = self.v_inds[remaining_paths]
+            self.vc_inds    = self.vc_inds[remaining_paths]
+            self.batch_inds = np.arange(0,np.sum(remaining_paths))
 
         alive_ratio = sum(alive_paths)/self.batch_size
         info['alive_ratio'] = alive_ratio
@@ -503,14 +516,12 @@ class ModelSampler(CpoSampler):
         if not term_mask.any():
             return np.logical_not(term_mask)
 
-        # cur_obs = self._current_observation[self.model_inds]
-
         # We do not count env time out (mature termination) as true terminal state, append values
         if append_vals:
             if self.rollout_mode=='iv_gae':
                 last_val = self.policy.get_v(self._current_observation[:,term_mask], factored=False)
             else:
-                last_val = self.policy.get_v(self._current_observation[term_mask], factored=False)
+                last_val = self.policy.get_v(self._current_observation[term_mask], factored=True)[self.v_inds[term_mask],np.arange(term_mask.sum())]
         else:
             # init final values
             if self.rollout_mode=='iv_gae':
@@ -522,7 +533,7 @@ class ModelSampler(CpoSampler):
             if self.rollout_mode=='iv_gae':
                 last_cval = self.policy.get_vc(self._current_observation[:,term_mask], factored=False)
             else:
-                last_cval = self.policy.get_vc(self._current_observation[term_mask], factored=False)
+                last_cval = self.policy.get_vc(self._current_observation[term_mask], factored=True)[self.vc_inds[term_mask],np.arange(term_mask.sum())]
         else:
             # init final values
             if self.rollout_mode=='iv_gae':
@@ -545,13 +556,11 @@ class ModelSampler(CpoSampler):
 
         if alive_paths.any():
             term_mask = np.ones(shape=alive_paths.sum(), dtype=np.bool)
-            # cur_obs = self._current_observation[self.model_inds]
-
             if self.policy.agent.reward_penalized:
-                last_val = self.policy.get_v(self._current_observation, factored=False)
+                last_val = self.policy.get_v(self._current_observation, factored=True)[self.v_inds[term_mask],np.arange(term_mask.sum())]
             else:
-                last_val = self.policy.get_v(self._current_observation, factored=False)
-                last_cval = self.policy.get_vc(self._current_observation, factored=False)
+                last_val = self.policy.get_v(self._current_observation, factored=True)[self.v_inds[term_mask],np.arange(term_mask.sum())]
+                last_cval = self.policy.get_vc(self._current_observation, factored=True)[self.vc_inds[term_mask],np.arange(term_mask.sum())]
 
             self.pool.finish_path_multiple(term_mask, last_val, last_cval)
             

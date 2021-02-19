@@ -95,9 +95,11 @@ class BNN:
             self.num_nets, self.model_loaded = self.layers[0].get_ensemble_size(), True
             print("Model loaded from %s." % self.model_dir)
             self.num_elites = params['num_elites']
+            self._model_inds = np.random.randint(self.num_nets, size=self.num_elites)
         else:
             self.num_nets = params.get('num_networks', 1)
             self.num_elites = params['num_elites'] #params.get('num_elites', 1)
+            self._model_inds = np.random.randint(self.num_nets, size=self.num_elites)
             self.model_loaded = False
 
         if self.num_nets == 1:
