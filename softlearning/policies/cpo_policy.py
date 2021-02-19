@@ -167,18 +167,17 @@ class CPOAgent(TrustRegionAgent):
             save_penalty=True
             ))
         self.margin = 0
-        self.margin_lr = 0.05
-        self.margin_discount = 0.9
+        self.margin_lr = 0.1
+        self.diff_lr = 0 #15
+        self.margin_discount = 0.98
         self.c_gamma = kwargs['c_gamma']
         self.d_control = False
         self.delta = 0.6
-        self.decayed_surr_cost = 0
         self.surr_cost_decay = 0.6
         self.max_path_length = kwargs['max_path_length']
-
+        self.delta_surr_cs = [0]*5
 
     def update_pi(self, inputs):
-
         flat_g = self.training_package['flat_g']
         flat_b = self.training_package['flat_b']
         v_ph = self.training_package['v_ph']
@@ -212,14 +211,18 @@ class CPOAgent(TrustRegionAgent):
         #c = rescale*(c_ret_old - cost_lim_disc)*(1-self.c_gamma)
         c = (cur_cret_avg-cost_lim)*rescale
 
-        if self.d_control:
-            c += self.delta * self.decayed_surr_cost
-
         # Consider the right margin
         if self.learn_margin:
-            self.margin += self.margin_lr * c
+            self.margin *= self.margin_discount
+            
+            d = np.polyfit(np.arange(len(self.delta_surr_cs)), self.delta_surr_cs, deg=1)[0]
+            # d = np.clip(d, min=0)
+            d *= self.diff_lr
+            p = self.margin_lr * c
+            self.margin += p + d
             self.margin = max(0, self.margin)
-            self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
+            
+            # self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
 
         # The margin should be the same across processes anyhow, but let's
         # mpi_avg it just to be 100% sure there's no drift. :)
@@ -297,6 +300,7 @@ class CPOAgent(TrustRegionAgent):
                           Optim_Lam=lam, Optim_Nu=nu, 
                           Penalty=nu, PenaltyDelta=0,
                           Margin=self.margin,
+                          Margin_d = d,
                           OptimCase=optim_case,
                           )
 
@@ -315,7 +319,8 @@ class CPOAgent(TrustRegionAgent):
             if (kl <= target_kl and
                 (pi_l_new <= pi_l_old if optim_case > 1 else True) and
                 surr_cost_new - surr_cost_old <= max(-c,0)):
-                self.decayed_surr_cost = (surr_cost_new-surr_cost_old)+self.surr_cost_decay*self.decayed_surr_cost
+                self.delta_surr_cs.append(surr_cost_new - surr_cost_old)
+                self.delta_surr_cs.pop(0)
                 self.logger.log('Accepting new params at step %d of line search.'%j)
                 self.logger.store(BacktrackIters=j)
                 break
@@ -338,6 +343,7 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('Optim_Nu', average_only=True)
         self.logger.log_tabular('OptimCase', average_only=True)
         self.logger.log_tabular('Margin', average_only=True)
+        self.logger.log_tabular('Margin_d', average_only=True)
         self.logger.log_tabular('BacktrackIters', average_only=True)
 
 class CPOPolicy(BasePolicy):
@@ -394,12 +400,11 @@ class CPOPolicy(BasePolicy):
         #usually not deterministic, but give the option for eval runs
         self._deterministic = False
         
-        
         cpo_kwargs = dict(  reward_penalized=False,  # Irrelevant in CPO
                     objective_penalized=False,  # Irrelevant in CPO
                     learn_penalty=False,  # Irrelevant in CPO
                     penalty_param_loss=False,  # Irrelevant in CPO
-                    learn_margin=False, #learn_margin=True,
+                    learn_margin=True, #learn_margin=True,
                     c_gamma = self.cost_gamma,
                     max_path_length=self.max_path_length
                     )
@@ -808,6 +813,16 @@ class CPOPolicy(BasePolicy):
             )                        
 
         return vc_metrics
+
+    def random_v_inds(self, batch_size):
+        elites = self.v.elite_inds
+        inds = np.random.choice(elites, size=batch_size)
+        return inds
+
+    def random_vc_inds(self, batch_size):
+        elites = self.vc.elite_inds
+        inds = np.random.choice(elites, size=batch_size)
+        return inds
 
     def run_diagnostics(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}

@@ -172,7 +172,7 @@ class FakeEnv:
         if obs_depth==3:
             samples = ensemble_dyn_means
         else:
-            num_models, batch_size, _ = ensemble_dyn_means.shape
+            _, batch_size, _ = ensemble_dyn_means.shape
             model_inds = self._model.random_inds(batch_size)        ## only returns elite indices
             batch_inds = np.arange(0, batch_size)
             samples = ensemble_dyn_means[model_inds, batch_inds]
