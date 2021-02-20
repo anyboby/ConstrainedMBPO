@@ -37,8 +37,8 @@ CPO_POLICY_PARAMS_BASE = {
         'vf_hidden_layer_sizes':(128,128), #(128, 128, 128, 128),
         'vf_epochs':            8,                 
         'vf_batch_size':        2048,
-        'vf_ensemble_size':     7,
-        'vf_elites':            5,
+        'vf_ensemble_size':     3,
+        'vf_elites':            2,
         'vf_activation':        'swish',
         'vf_loss':              'MSE',          # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
         'vf_decay':             1e-6,
@@ -51,9 +51,9 @@ CPO_POLICY_PARAMS_BASE = {
         'target_kl':            0.01,
         'cost_lim_end':         10,
         'cost_lim':             10,
-        'cost_lam':             .95,
+        'cost_lam':             .5,
         'cost_gamma':           0.97,
-        'lam':                  .5,
+        'lam':                  .95,
         'gamma':                0.99,
         'epoch_length': tune.sample_from(lambda spec: (
                spec.get('config', spec)
@@ -112,7 +112,7 @@ ALGORITHM_PARAMS_ADDITIONAL = {
             'tau': 5e-3,
             'store_extra_policy_info': False,
             'action_prior': 'uniform',
-            'n_initial_exploration_steps': int(25000), #5000
+            'n_initial_exploration_steps': int(20000), #5000
         }
     },
     'SQL': {
