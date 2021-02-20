@@ -167,15 +167,11 @@ class CPOAgent(TrustRegionAgent):
             save_penalty=True
             ))
         self.margin = 0
-        self.margin_lr = 0.1
-        self.diff_lr = 0 #15
-        self.margin_discount = 0.98
+        self.margin_lr = 0.01
+        self.margin_discount = .995
         self.c_gamma = kwargs['c_gamma']
-        self.d_control = False
-        self.delta = 0.6
         self.surr_cost_decay = 0.6
         self.max_path_length = kwargs['max_path_length']
-        self.delta_surr_cs = [0]*5
 
     def update_pi(self, inputs):
         flat_g = self.training_package['flat_g']
@@ -190,6 +186,7 @@ class CPOAgent(TrustRegionAgent):
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
         cur_cret_avg_op = self.training_package['cur_cret_avg']
+        real_cost_buf = self.training_package['real_cost_buf']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
         outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cret_avg_op], feed_dict=inputs)
@@ -213,13 +210,11 @@ class CPOAgent(TrustRegionAgent):
 
         # Consider the right margin
         if self.learn_margin:
+            ## use long term real cost to get rid of bias
+            real_c = np.mean(real_cost_buf)
             self.margin *= self.margin_discount
-            
-            d = np.polyfit(np.arange(len(self.delta_surr_cs)), self.delta_surr_cs, deg=1)[0]
-            # d = np.clip(d, min=0)
-            d *= self.diff_lr
-            p = self.margin_lr * c
-            self.margin += p + d
+            p = self.margin_lr * (real_c-cost_lim) * rescale
+            self.margin += p
             self.margin = max(0, self.margin)
             
             # self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
@@ -300,7 +295,6 @@ class CPOAgent(TrustRegionAgent):
                           Optim_Lam=lam, Optim_Nu=nu, 
                           Penalty=nu, PenaltyDelta=0,
                           Margin=self.margin,
-                          Margin_d = d,
                           OptimCase=optim_case,
                           )
 
@@ -319,8 +313,6 @@ class CPOAgent(TrustRegionAgent):
             if (kl <= target_kl and
                 (pi_l_new <= pi_l_old if optim_case > 1 else True) and
                 surr_cost_new - surr_cost_old <= max(-c,0)):
-                self.delta_surr_cs.append(surr_cost_new - surr_cost_old)
-                self.delta_surr_cs.pop(0)
                 self.logger.log('Accepting new params at step %d of line search.'%j)
                 self.logger.store(BacktrackIters=j)
                 break
@@ -343,7 +335,6 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('Optim_Nu', average_only=True)
         self.logger.log_tabular('OptimCase', average_only=True)
         self.logger.log_tabular('Margin', average_only=True)
-        self.logger.log_tabular('Margin_d', average_only=True)
         self.logger.log_tabular('BacktrackIters', average_only=True)
 
 class CPOPolicy(BasePolicy):
@@ -387,8 +378,8 @@ class CPOPolicy(BasePolicy):
         self.vf_var_corr = kwargs.get('vf_var_corr', False)
 
         self.ent_reg = kwargs.get('ent_reg', 0.0)
-        self.cost_lim_end = kwargs.get('cost_lim_end', 25)
         self.cost_lim = kwargs.get('cost_lim', 25)
+        self.real_c_buffer = [self.cost_lim]*300
 
         self.target_kl = kwargs.get('target_kl', 0.01) 
         self.cost_lam = kwargs.get('cost_lam', 0.97)
@@ -448,10 +439,6 @@ class CPOPolicy(BasePolicy):
                 self.adv_ph = placeholder(None)
             with tf.variable_scope('cadv_ph'):
                 self.cadv_ph = placeholder(None)
-            # with tf.variable_scope('adv_var_ph'):
-            #     self.adv_var_ph = placeholder(None)
-            # with tf.variable_scope('cadv_var_ph'):
-            #     self.cadv_var_ph = placeholder(None)
 
             with tf.variable_scope('logp_old_ph'):
                 self.logp_old_ph = placeholder(None)
@@ -637,7 +624,8 @@ class CPOPolicy(BasePolicy):
                                         cur_cret_avg = self.cur_cret_avg,
                                         d_kl=self.d_kl, 
                                         target_kl=self.target_kl,
-                                        cost_lim=self.cost_lim))
+                                        cost_lim=self.cost_lim,
+                                        real_cost_buf = self.real_c_buffer))
             self.agent.prepare_update(self.training_package)
 
         ##### set up saver after all graph building is done
@@ -823,6 +811,12 @@ class CPOPolicy(BasePolicy):
         elites = self.vc.elite_inds
         inds = np.random.choice(elites, size=batch_size)
         return inds
+    
+    def update_real_c(self, buf_inputs):
+        inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
+        cur_r_cost = np.mean(inputs[self.cur_cost_ph])*self.max_path_length
+        self.real_c_buffer.append(cur_r_cost)
+        self.real_c_buffer.pop(0)
 
     def run_diagnostics(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}

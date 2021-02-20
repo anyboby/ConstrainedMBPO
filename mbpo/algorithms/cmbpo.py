@@ -432,7 +432,7 @@ class CMBPO(RLAlgorithm):
             #  Update Policy                                                      #
             #=====================================================================#
             train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-
+            self._policy.update_real_c(real_samples)
             self._policy.update_policy(train_samples)
             self._policy.update_critic(train_samples, train_vc=(train_samples[-3]>0).any())    ### only train vc if there are any costs
             
