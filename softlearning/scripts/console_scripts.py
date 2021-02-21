@@ -199,7 +199,7 @@ cli.add_command(launch_example_ec2_cmd)
 
 
 def main():
-    return cli()
+    return cli()    
 
 
 if __name__ == "__main__":
