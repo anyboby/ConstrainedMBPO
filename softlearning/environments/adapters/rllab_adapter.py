@@ -48,6 +48,14 @@ RLLAB_ENVIRONMENTS = {
     'SimpleHumanoidCircle':['v0'],
 }
 
+OVERWRITE = {
+    'SimpleHumanoidCircle-v0':{
+        'observation_space': lambda x: Box(low=np.ones(shape=36)*x.low[0], high=np.ones(shape=36)*x.high[0]),
+        'action_space': lambda x: Box(low=np.ones(shape=10)*x.low[0], high=np.ones(shape=10)*x.high[0]),
+        'next_observation': lambda x: np.delete(x, np.s_[-69:-3]),
+    }
+}
+
 RLLAB_ENTRIES = {
     'PointGather-v0':PointGatherEnv,
     'AntGather-v0':AntGatherEnv,
@@ -77,7 +85,12 @@ RLLAB_KWARGS = {
         },
     'PointCircle-v0':{},
     'HalfCheetahCircle-v0':{},
-    'SimpleHumanoidCircle-v0':{},
+    'SimpleHumanoidCircle-v0':{
+        'xlim':2.5,
+        'circle_mode':True,
+        'target_dist':10,
+        'abs_lim':True,
+    },
 }
 
 #### Cost params according to cpo paper
@@ -86,7 +99,11 @@ RLLAB_COST_PARAMS = {
         'cidx':-3,
         'xlim': 3,
         'target_dist': 10 },
-}
+    'SimpleHumanoidCircle-v0':{
+        'cidx':-3,
+        'xlim': 2.5,
+        'target_dist': 10 },
+    }
 
 def eval_cost_gather(obs, info, env_id):
     return info['bombs']
@@ -155,6 +172,8 @@ class RllabAdapter(SoftlearningEnv):
     def observation_space(self):
         observation_space = self._env.observation_space
         obs_space_gym = self.convert_to_gym_space(observation_space)
+        if self.env_id in OVERWRITE:
+            obs_space_gym = OVERWRITE[self.env_id]['observation_space'](obs_space_gym)        
         return obs_space_gym
 
     @property
@@ -209,6 +228,8 @@ class RllabAdapter(SoftlearningEnv):
             raise NotImplementedError(
                 "Action space ({}) is not flat, make sure to check the"
                 " implemenation.".format(action_space))
+        if self.env_id in OVERWRITE:
+            action_space_gym = OVERWRITE[self.env_id]['action_space'](action_space_gym)
         return action_space_gym
 
     def step(self, action, *args, **kwargs):
@@ -216,11 +237,17 @@ class RllabAdapter(SoftlearningEnv):
             action=np.array([action])
         o, r, done, info = self._env.step(action, *args, **kwargs)
         info['cost'] = RLLAB_COSTF[self.env_id](o, info, self.env_id)
+        
+        if self.env_id in OVERWRITE:
+            o = OVERWRITE[self.env_id]['next_observation'](o)
 
         return o, r, done, info
 
     def reset(self, *args, **kwargs):
-        return self._env.reset(*args, **kwargs)
+        o = self._env.reset(*args, **kwargs)
+        if self.env_id in OVERWRITE:
+            o = OVERWRITE[self.env_id]['next_observation'](o)
+        return o
 
     def render(self, *args, **kwargs):
         return self._env.render(*args, **kwargs)
