@@ -528,12 +528,12 @@ class CPOBuffer:
         
         return samples
 
-    def boltz_dist(self, kls):
+    def boltz_dist(self, kls, alpha=1):
         '''
         args: kls should be a list of KL divergence means over the epochs contained in the archive. 
         call epochs_list for such a list. 
         '''
-        ep_probs = np.exp(np.negative(kls))
+        ep_probs = np.exp(alpha * np.negative(kls))
         ep_probs /= np.sum(ep_probs)
         sample_p = np.bincount(self.epoch_archive[self.epoch_archive>=0]).astype(np.float32)
         sample_p[sample_p>0] = ep_probs/sample_p[sample_p>0]
