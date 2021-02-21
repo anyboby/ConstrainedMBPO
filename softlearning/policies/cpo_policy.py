@@ -187,7 +187,6 @@ class CPOAgent(TrustRegionAgent):
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
         cur_cret_avg_op = self.training_package['cur_cret_avg']
-        real_cost_buf = self.training_package['real_cost_buf']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
         outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cret_avg_op], feed_dict=inputs)
