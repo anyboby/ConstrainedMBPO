@@ -61,7 +61,7 @@ class CMBPO(RLAlgorithm):
             static_fns,
             plotter=None,
             tf_summaries=False,
-
+            n_env_interacts = 1e7,
             lr=3e-4,
             reward_scale=1.0,
             target_entropy='auto',
@@ -83,7 +83,7 @@ class CMBPO(RLAlgorithm):
             dyn_model_train_schedule=[20, 100, 1, 5],
             cost_model_train_schedule=[20, 100, 1, 30],
             cares_about_cost = False,
-            m_sampling_discount = 1,
+            policy_alpha = 1,
             max_uncertainty_rew = None,
             max_uncertainty_c = None,
             rollout_mode = 'schedule',
@@ -129,13 +129,13 @@ class CMBPO(RLAlgorithm):
         self.obs_dim = np.prod(training_environment.observation_space.shape)
         
         self.act_dim = np.prod(training_environment.action_space.shape)
-
+        self.n_env_interacts = n_env_interacts
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
         self.active_obs_dim = int(self.obs_dim/self.num_stacks)
 
-        self._m_sampling_disc = m_sampling_discount
+        self.policy_alpha = policy_alpha
         self.cares_about_cost = cares_about_cost
 
         ## create fake environment for model
@@ -327,7 +327,7 @@ class CMBPO(RLAlgorithm):
                 while keep_rolling:
                     ep_b = self._pool.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._pool.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
-                    btz_dist = self._pool.boltz_dist(kls)
+                    btz_dist = self._pool.boltz_dist(kls, alpha=self.policy_alpha)
                     btz_b = self._pool.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
                     start_states, mus, logstds = btz_b['observations'], btz_b['mu'], btz_b['log_std']
                     btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)
@@ -411,7 +411,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>1024 and self._real_ratio<1.0:
+            if self.new_real_samples>2048 and self._real_ratio<1.0:
                 model_diag = self.train_model(min_epochs=3, max_epochs=150)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)
@@ -519,6 +519,15 @@ class CMBPO(RLAlgorithm):
                 diag = running_diag.copy() 
                 running_diag = {}
                 yield diag
+
+            if self._total_timestep >= self.n_env_interacts:
+                self.sampler.terminate()
+
+                self._training_after_hook()
+
+                self._training_progress.close()
+                print("###### DONE ######")
+                yield {'done': True, **self.running_diag}
 
         self.sampler.terminate()
 

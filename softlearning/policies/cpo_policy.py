@@ -168,9 +168,8 @@ class CPOAgent(TrustRegionAgent):
             ))
         self.margin = 0
         self.margin_lr = 0.01
-        self.margin_discount = .995
+        self.margin_discount = .99
         self.c_gamma = kwargs['c_gamma']
-        self.surr_cost_decay = 0.6
         self.max_path_length = kwargs['max_path_length']
 
     def update_pi(self, inputs):
