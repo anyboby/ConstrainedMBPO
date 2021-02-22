@@ -166,11 +166,11 @@ class CPOAgent(TrustRegionAgent):
             constrained=True,
             save_penalty=True
             ))
+        self.updates = 0
         self.margin = 0
-        self.margin_update_freq = 200000
-        self.margin_lr = 0.1
-        self.margin_decay = 0.97
+        self.margin_update_freq = 500
         self.real_cost_buf = np.zeros(0)
+        self.margin_lr = 0.1
         self.c_gamma = kwargs['c_gamma']
         self.max_path_length = kwargs['max_path_length']
 
@@ -209,11 +209,10 @@ class CPOAgent(TrustRegionAgent):
         c = (cur_cret_avg-cost_lim)*rescale
 
         # Consider the right margin
-        if self.learn_margin and len(self.real_cost_buf) >= self.margin_update_freq == 0:
+        if self.learn_margin and self.updates % self.margin_update_freq == 0:
             ## use long term real cost to get rid of bias
             real_c = np.mean(self.real_cost_buf)
             p = self.margin_lr * (real_c - cost_lim * rescale)
-            self.margin *= self.margin_decay
             self.margin += p
             self.margin = max(0, self.margin)
             self.real_cost_buf = np.zeros(0)
@@ -314,6 +313,7 @@ class CPOAgent(TrustRegionAgent):
             if (kl <= target_kl and
                 (pi_l_new <= pi_l_old if optim_case > 1 else True) and
                 surr_cost_new - surr_cost_old <= max(-c,0)):
+                self.updates += 1
                 self.logger.log('Accepting new params at step %d of line search.'%j)
                 self.logger.store(BacktrackIters=j)
                 break
