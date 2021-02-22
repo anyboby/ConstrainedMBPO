@@ -169,7 +169,7 @@ class CPOAgent(TrustRegionAgent):
         self.updates = 0
         self.margin = 0
         self.margin_update_freq = 500
-        self.real_cost_buf = np.zeros(0)
+        self.real_cost_buf = [0] * self.margin_update_freq
         self.margin_lr = 0.1
         self.c_gamma = kwargs['c_gamma']
         self.max_path_length = kwargs['max_path_length']
@@ -212,10 +212,9 @@ class CPOAgent(TrustRegionAgent):
         if self.learn_margin and self.updates % self.margin_update_freq == 0:
             ## use long term real cost to get rid of bias
             real_c = np.mean(self.real_cost_buf)
-            p = self.margin_lr * (real_c - cost_lim * rescale)
+            p = self.margin_lr * (real_c-cost_lim) * rescale
             self.margin += p
             self.margin = max(0, self.margin)
-            self.real_cost_buf = np.zeros(0)
             
             # self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
 
@@ -339,7 +338,8 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('BacktrackIters', average_only=True)
 
     def store_real_c(self, real_c):
-        self.real_cost_buf = np.concatenate((self.real_cost_buf, real_c))
+        self.real_cost_buf.append(real_c)
+        self.real_cost_buf.pop(0)
 
 class CPOPolicy(BasePolicy):
     def __init__(self, 
@@ -817,7 +817,8 @@ class CPOPolicy(BasePolicy):
     
     def store_real_c(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
-        self.agent.store_real_c(inputs[self.cur_cost_ph])
+        cur_r_cost = np.mean(inputs[self.cur_cost_ph])*self.max_path_length
+        self.agent.store_real_c(cur_r_cost)
 
     def run_diagnostics(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
