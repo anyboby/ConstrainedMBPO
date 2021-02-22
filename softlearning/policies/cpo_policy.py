@@ -167,10 +167,8 @@ class CPOAgent(TrustRegionAgent):
             save_penalty=True
             ))
         self.margin = 0
-        self.margin_update_freq = 200000
-        self.margin_lr = 0.1
-        self.margin_decay = 0.97
-        self.real_cost_buf = np.zeros(0)
+        self.margin_lr = 0.01
+        self.margin_discount = .99
         self.c_gamma = kwargs['c_gamma']
         self.max_path_length = kwargs['max_path_length']
 
@@ -187,6 +185,7 @@ class CPOAgent(TrustRegionAgent):
         target_kl = self.training_package['target_kl']
         cost_lim = self.training_package['cost_lim']
         cur_cret_avg_op = self.training_package['cur_cret_avg']
+        real_cost_buf = self.training_package['real_cost_buf']
 
         Hx = lambda x : mpi_avg(self.sess.run(hvp, feed_dict={**inputs, v_ph: x}))
         outs = self.sess.run([flat_g, flat_b, pi_loss, surr_cost, cur_cret_avg_op], feed_dict=inputs)
@@ -209,14 +208,13 @@ class CPOAgent(TrustRegionAgent):
         c = (cur_cret_avg-cost_lim)*rescale
 
         # Consider the right margin
-        if self.learn_margin and len(self.real_cost_buf) >= self.margin_update_freq:
+        if self.learn_margin:
             ## use long term real cost to get rid of bias
-            real_c = np.mean(self.real_cost_buf)
-            p = self.margin_lr * (real_c - cost_lim * rescale)
-            self.margin *= self.margin_decay
+            real_c = np.mean(real_cost_buf)
+            self.margin *= self.margin_discount
+            p = self.margin_lr * (real_c-cost_lim) * rescale
             self.margin += p
             self.margin = max(0, self.margin)
-            self.real_cost_buf = np.zeros(0)
             
             # self.margin_lr *= self.margin_discount  # dampen margin lr to get asymptotic behavior
 
@@ -337,9 +335,6 @@ class CPOAgent(TrustRegionAgent):
         self.logger.log_tabular('OptimCase', average_only=True)
         self.logger.log_tabular('Margin', average_only=True)
         self.logger.log_tabular('BacktrackIters', average_only=True)
-
-    def store_real_c(self, real_c):
-        self.real_cost_buf = np.concatenate((self.real_cost_buf, real_c))
 
 class CPOPolicy(BasePolicy):
     def __init__(self, 
@@ -628,7 +623,8 @@ class CPOPolicy(BasePolicy):
                                         cur_cret_avg = self.cur_cret_avg,
                                         d_kl=self.d_kl, 
                                         target_kl=self.target_kl,
-                                        cost_lim=self.cost_lim,))
+                                        cost_lim=self.cost_lim,
+                                        real_cost_buf = self.real_c_buffer))
             self.agent.prepare_update(self.training_package)
 
         ##### set up saver after all graph building is done
@@ -815,9 +811,11 @@ class CPOPolicy(BasePolicy):
         inds = np.random.choice(elites, size=batch_size)
         return inds
     
-    def store_real_c(self, buf_inputs):
+    def update_real_c(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}
-        self.agent.store_real_c(inputs[self.cur_cost_ph])
+        cur_r_cost = np.mean(inputs[self.cur_cost_ph])*self.max_path_length
+        self.real_c_buffer.append(cur_r_cost)
+        self.real_c_buffer.pop(0)
 
     def run_diagnostics(self, buf_inputs):
         inputs = {k:v for k,v in zip(self.buf_fields, buf_inputs)}

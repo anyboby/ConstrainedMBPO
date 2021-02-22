@@ -62,7 +62,6 @@ class CMBPO(RLAlgorithm):
             plotter=None,
             tf_summaries=False,
             n_env_interacts = 1e7,
-
             lr=3e-4,
             reward_scale=1.0,
             target_entropy='auto',
@@ -130,9 +129,7 @@ class CMBPO(RLAlgorithm):
         self.obs_dim = np.prod(training_environment.observation_space.shape)
         
         self.act_dim = np.prod(training_environment.action_space.shape)
-
         self.n_env_interacts = n_env_interacts
-
         #### determine unstacked obs dim
         self.num_stacks = training_environment.stacks
         self.stacking_axis = training_environment.stacking_axis
@@ -330,7 +327,7 @@ class CMBPO(RLAlgorithm):
                 while keep_rolling:
                     ep_b = self._pool.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._pool.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
-                    btz_dist = self._pool.boltz_dist(kls , alpha=self.policy_alpha)
+                    btz_dist = self._pool.boltz_dist(kls, alpha=self.policy_alpha)
                     btz_b = self._pool.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
                     start_states, mus, logstds = btz_b['observations'], btz_b['mu'], btz_b['log_std']
                     btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)
@@ -435,7 +432,7 @@ class CMBPO(RLAlgorithm):
             #  Update Policy                                                      #
             #=====================================================================#
             train_samples = [np.concatenate((r,m), axis=0) for r,m in zip(real_samples, model_samples)] if model_samples else real_samples
-            self._policy.store_real_c(real_samples)
+            self._policy.update_real_c(real_samples)
             self._policy.update_policy(train_samples)
             self._policy.update_critic(train_samples, train_vc=(train_samples[-3]>0).any())    ### only train vc if there are any costs
             
@@ -522,18 +519,15 @@ class CMBPO(RLAlgorithm):
                 diag = running_diag.copy() 
                 running_diag = {}
                 yield diag
-            
+
             if self._total_timestep >= self.n_env_interacts:
                 self.sampler.terminate()
 
                 self._training_after_hook()
 
                 self._training_progress.close()
-
-                print('######## DONE #######')
-                ### this is where we yield the episode diagnostics to tune trial runner ###
+                print("###### DONE ######")
                 yield {'done': True, **self.running_diag}
-
 
         self.sampler.terminate()
 
