@@ -209,7 +209,7 @@ class CPOAgent(TrustRegionAgent):
         c = (cur_cret_avg-cost_lim)*rescale
 
         # Consider the right margin
-        if self.learn_margin and len(self.real_cost_buf) >= self.margin_update_freq == 0:
+        if self.learn_margin and len(self.real_cost_buf) >= self.margin_update_freq:
             ## use long term real cost to get rid of bias
             real_c = np.mean(self.real_cost_buf)
             p = self.margin_lr * (real_c - cost_lim * rescale)
