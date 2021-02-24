@@ -244,7 +244,6 @@ class FakeEnv:
         
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
-                                                                    noise=1e-4
                                                                     )
         
         model_metrics = self._model.train(train_inputs_dyn, 
@@ -266,7 +265,6 @@ class FakeEnv:
             inputs, targets = format_samples_for_cost(samples, 
                                                         one_hot=self.cost_m_loss=='CE',
                                                         priors=priors,
-                                                        noise=1e-4
                                                         )
             #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
