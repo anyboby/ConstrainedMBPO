@@ -45,13 +45,12 @@ RLLAB_ENVIRONMENTS = {
     'AntCircle':['v0'],
     'PointCircle':['v0'],
     'HalfCheetahCircle':['v0'],
-    'SimpleHumanoidCircle':['v0'],
+    'SimplehumanoidCircle':['v0'],
 }
 
 OVERWRITE = {
-    'SimpleHumanoidCircle-v0':{
+    'SimplehumanoidCircle-v0':{
         'observation_space': lambda x: Box(low=np.ones(shape=36)*x.low[0], high=np.ones(shape=36)*x.high[0]),
-        'action_space': lambda x: Box(low=np.ones(shape=10)*x.low[0], high=np.ones(shape=10)*x.high[0]),
         'next_observation': lambda x: np.delete(x, np.s_[-69:-3]),
     }
 }
@@ -62,7 +61,7 @@ RLLAB_ENTRIES = {
     'AntCircle-v0':SafeAntEnv,
     'PointCircle-v0':SafePointEnv,
     'HalfCheetahCircle-v0':SafeHalfCheetahEnv,
-    'SimpleHumanoidCircle-v0':SafeSimpleHumanoidEnv,
+    'SimplehumanoidCircle-v0':SafeSimpleHumanoidEnv,
 }
 RLLAB_KWARGS = {
     'PointGather-v0':{
@@ -85,7 +84,7 @@ RLLAB_KWARGS = {
         },
     'PointCircle-v0':{},
     'HalfCheetahCircle-v0':{},
-    'SimpleHumanoidCircle-v0':{
+    'SimplehumanoidCircle-v0':{
         'xlim':2.5,
         'circle_mode':True,
         'target_dist':10,
@@ -99,7 +98,7 @@ RLLAB_COST_PARAMS = {
         'cidx':-3,
         'xlim': 3,
         'target_dist': 10 },
-    'SimpleHumanoidCircle-v0':{
+    'SimplehumanoidCircle-v0':{
         'cidx':-3,
         'xlim': 2.5,
         'target_dist': 10 },
@@ -117,7 +116,7 @@ RLLAB_COSTF = {
     'AntCircle-v0':eval_cost_mjc,
     'PointCircle-v0':eval_cost_mjc,
     'HalfCheetahCircle-v0':eval_cost_mjc,
-    'SimpleHumanoidCircle-v0':eval_cost_mjc,
+    'SimplehumanoidCircle-v0':eval_cost_mjc,
 }
 
 class RllabAdapter(SoftlearningEnv):
@@ -229,7 +228,7 @@ class RllabAdapter(SoftlearningEnv):
                 "Action space ({}) is not flat, make sure to check the"
                 " implemenation.".format(action_space))
         if self.env_id in OVERWRITE:
-            action_space_gym = OVERWRITE[self.env_id]['action_space'](action_space_gym)
+            action_space_gym = OVERWRITE[self.env_id].get('action_space', action_space_gym)
         return action_space_gym
 
     def step(self, action, *args, **kwargs):

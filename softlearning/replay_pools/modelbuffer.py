@@ -373,6 +373,11 @@ class ModelBuffer(CPOBuffer):
 
             val_var_mean = self.val_var_buf[..., self.populated_mask].mean()
             cval_var_mean = self.cval_var_buf[..., self.populated_mask].mean()
+        else:
+            ret_mean = 0
+            cret_mean = 0
+            val_var_mean = 0 
+            cval_var_mean = 0
 
         if self.rollout_mode=='iv_gae':
             res = [self.obs_buf[self.model_ind], self.act_buf[self.model_ind], self.adv_buf, self.ret_var_buf,

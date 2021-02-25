@@ -167,8 +167,8 @@ class CPOAgent(TrustRegionAgent):
             save_penalty=True
             ))
         self.margin = 0
-        self.margin_lr = 0.01
-        self.margin_discount = .99
+        self.margin_lr = 0.0001     # a well working rule is: 1000 / expected_total_ env_ interacts
+        self.margin_discount = .9999 # a well working rule is 1-margin_lr
         self.c_gamma = kwargs['c_gamma']
         self.max_path_length = kwargs['max_path_length']
 
