@@ -1028,12 +1028,12 @@ class BNN:
 
         predictor_var_logit = tf.stop_gradient(tf.math.reduce_variance(mean, axis=0))[tf.newaxis]
         var_losses_logit = tf.square(var_pred - tf.stop_gradient(mse_losses_logit))
-        ratio = 0.05 * tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
+        ratio = 0.01 * tf.reduce_mean(tf.stop_gradient(mse_losses_logit))/tf.reduce_mean(tf.stop_gradient(var_losses_logit))
 
         mse_losses = tf.reduce_mean(tf.reduce_mean(mse_losses_logit, axis=-1),axis=-1)
         var_losses = tf.reduce_mean(tf.reduce_mean(var_losses_logit * ratio, axis=-1), axis=-1)
         # mean_logit_logvar = tf.stop_gradient(tf.reduce_mean(tf.reduce_mean(log_var, axis=0), axis=0)[tf.newaxis, tf.newaxis])
-        var_reg_loss = 0.05 * tf.reduce_mean(tf.square(log_var))
+        var_reg_loss = 0.01 * tf.reduce_mean(tf.square(log_var))
         total_losses = mse_losses + var_losses + var_reg_loss
         return total_losses
 
