@@ -411,8 +411,8 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>2048 and self._real_ratio<1.0:
-                model_diag = self.train_model(min_epochs=3, max_epochs=150)
+            if self.new_real_samples>4092 and self._real_ratio<1.0:
+                model_diag = self.train_model(min_epochs=1, max_epochs=10)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)
 
@@ -561,7 +561,7 @@ class CMBPO(RLAlgorithm):
         if self._real_ratio<1.0:
             self.train_model(min_epochs=150, max_epochs=500)
 
-    def train_model(self, min_epochs=50, max_epochs=500, batch_size=2048):
+    def train_model(self, min_epochs=5, max_epochs=100, batch_size=2048):
         self._dyn_model_train_freq = self._set_model_train_freq(
             self._dyn_model_train_freq, 
             self._dyn_model_train_schedule

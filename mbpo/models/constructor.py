@@ -64,7 +64,7 @@ def construct_model(in_dim,
 	opt_params = {"learning_rate":lr} if lr_decay is None else {"learning_rate":lr, 
 																"learning_rate_decay":lr_decay,
 																"decay_steps":decay_steps}
-	model.finalize(tf.train.AdamOptimizer, opt_params, weighted=weighted, lr_decay=lr_decay)
+	model.finalize(tf.train.AdamOptimizer, opt_params, weighted=weighted)
 
 	total_parameters = 0
 	for variable in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name):

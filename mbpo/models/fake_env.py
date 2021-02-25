@@ -63,16 +63,13 @@ class FakeEnv:
                                         name='BNN',
                                         loss=self.dyn_loss,
                                         hidden_dims=hidden_dims,
-                                        lr=3e-4, 
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000,  
+                                        lr=1e-4, 
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
                                         use_scaler_in = True,
                                         use_scaler_out = True,
-                                        decay=1e-5,
-                                        #sc_factor=1-1e-5,
+                                        decay=1e-6,
                                         max_logvar=.5,
                                         min_logvar=-10,
                                         session=self._session)
@@ -88,17 +85,12 @@ class FakeEnv:
                                         hidden_dims=(64,64),
                                         lr=8e-5,
                                         output_activation = output_activation,
-                                        # lr_decay=0.96,
-                                        # decay_steps=10000, 
                                         num_networks=num_networks,
                                         num_elites=num_elites,
                                         weighted=cost_m_discount<1,                                            
                                         use_scaler_in = False,
                                         use_scaler_out = False,
-                                        # sc_factor=1-1e-5,
-                                        # max_logvar=.5,
-                                        # min_logvar=-8,
-                                        decay=1e-4,
+                                        decay=1e-6,
                                         session=self._session)
             
         else:
@@ -244,7 +236,6 @@ class FakeEnv:
         
         train_inputs_dyn, train_outputs_dyn = format_samples_for_dyn(samples, 
                                                                     priors=priors,
-                                                                    noise=1e-4
                                                                     )
         
         model_metrics = self._model.train(train_inputs_dyn, 
@@ -266,7 +257,6 @@ class FakeEnv:
             inputs, targets = format_samples_for_cost(samples, 
                                                         one_hot=self.cost_m_loss=='CE',
                                                         priors=priors,
-                                                        noise=1e-4
                                                         )
             #### Useful Debugger line: np.where(np.max(train_inputs_cost[np.where(train_outputs_cost[:,1]>0.8)][:,3:54], axis=1)<0.95)
 
