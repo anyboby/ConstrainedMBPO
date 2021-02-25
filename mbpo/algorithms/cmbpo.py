@@ -374,6 +374,10 @@ class CMBPO(RLAlgorithm):
                     model_metrics.update({'samples_added':samples_added})
                     ######################################################################
                 
+                ## for debugging
+                model_metrics.update({'cached_var':np.mean(self.fake_env._model.scaler_out.cached_var)})
+                model_metrics.update({'cached_mu':np.mean(self.fake_env._model.scaler_out.cached_mu)})
+
                 print(f'Rollouts finished')
                 gt.stamp('epoch_rollout_model')
 
@@ -381,7 +385,6 @@ class CMBPO(RLAlgorithm):
             #  Sample                                                             #
             #=====================================================================#
 
-            # n_real_samples = max(self.batch_size_policy-samples_added, self.min_real_samples_per_epoch)
             n_real_samples = self.model_sampler.dyn_dkl/self.initial_model_dkl * self.min_real_samples_per_epoch
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
@@ -527,16 +530,10 @@ class CMBPO(RLAlgorithm):
 
                 self._training_progress.close()
                 print("###### DONE ######")
-                yield {'done': True, **self.running_diag}
+                yield {'done': True, **running_diag}
 
-        self.sampler.terminate()
+                break
 
-        self._training_after_hook()
-
-        self._training_progress.close()
-
-        ### this is where we yield the episode diagnostics to tune trial runner ###
-        yield {'done': True, **self.running_diag}
 
     def train(self, *args, **kwargs):
         return self._train(*args, **kwargs)
