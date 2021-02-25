@@ -63,7 +63,7 @@ class FakeEnv:
                                         name='BNN',
                                         loss=self.dyn_loss,
                                         hidden_dims=hidden_dims,
-                                        lr=1e-4, 
+                                        lr=1e-4,
                                         num_networks=num_networks, 
                                         num_elites=num_elites,
                                         weighted=dyn_discount<1,    
