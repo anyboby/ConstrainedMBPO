@@ -414,7 +414,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Train model                                                        #
             #=====================================================================#
-            if self.new_real_samples>4092 and self._real_ratio<1.0:
+            if self.new_real_samples>2048 and self._real_ratio<1.0:
                 model_diag = self.train_model(min_epochs=1, max_epochs=10)
                 self.new_real_samples = 0
                 model_metrics.update(model_diag)
