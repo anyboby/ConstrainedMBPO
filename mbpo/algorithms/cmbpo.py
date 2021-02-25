@@ -375,8 +375,8 @@ class CMBPO(RLAlgorithm):
                     ######################################################################
                 
                 ## for debugging
-                model_metrics.update({'cached_var':self.fake_env._model.scaler_out.cached_var})
-                model_metrics.update({'cached_mu':self.fake_env._model.scaler_out.cached_mu})
+                model_metrics.update({'cached_var':np.mean(self.fake_env._model.scaler_out.cached_var)})
+                model_metrics.update({'cached_mu':np.mean(self.fake_env._model.scaler_out.cached_mu)})
 
                 print(f'Rollouts finished')
                 gt.stamp('epoch_rollout_model')
