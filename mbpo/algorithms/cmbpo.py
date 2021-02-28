@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
-                                    num_elites=5, 
+                                    num_elites=3, 
                                     hidden_dims=hidden_dims, 
                                     cares_about_cost=cares_about_cost,
                                     session = self._session)
@@ -384,8 +384,10 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             #  Sample                                                             #
             #=====================================================================#
-
             n_real_samples = self.model_sampler.dyn_dkl/self.initial_model_dkl * self.min_real_samples_per_epoch
+            n_real_samples = max(n_real_samples, 1000)
+            # n_real_samples = self.min_real_samples_per_epoch ### for ablation
+
             model_metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
             ### train for epoch_length ###
