@@ -57,6 +57,6 @@ params = {
         'max_tddyn_err' : 0.6,
         'max_tddyn_err_decay' : 1,
         'batch_size_policy': 50000,              ### how many samples 
-        'min_real_samples_per_epoch': 15000,
+        'min_real_samples_per_epoch': 10000,
     }
 }

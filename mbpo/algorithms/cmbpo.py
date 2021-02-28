@@ -141,7 +141,7 @@ class CMBPO(RLAlgorithm):
         ## create fake environment for model
         self.fake_env = FakeEnv(training_environment,
                                     static_fns, num_networks=7, 
-                                    num_elites=5, 
+                                    num_elites=3, 
                                     hidden_dims=hidden_dims, 
                                     cares_about_cost=cares_about_cost,
                                     session = self._session)
