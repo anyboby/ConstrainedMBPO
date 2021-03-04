@@ -49,7 +49,7 @@ params = {
         'max_uncertainty_c' :4.0,              ### only applies if rollout_mode=='iv_gae' or rollout_mode=='uncertainty'
         'max_uncertainty_rew' : 3.5,
         'rollout_mode' : 'uncertainty',           #### choose from 'iv_gae', 'schedule', or 'uncertainty'
-        'rollout_schedule': [100, 2500, 4, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
+        'rollout_schedule': [100, 2500, 3, 5], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                     # increases rollout length from min_length to max_length over 
                                                     # range of (min_epoch, max_epoch)
                                                     ### Only applies if rollout_mode=='schedule'
@@ -57,6 +57,6 @@ params = {
         'max_tddyn_err' : 0.6,
         'max_tddyn_err_decay' : 1,
         'batch_size_policy': 50000,              ### how many samples 
-        'min_real_samples_per_epoch': 10000,
+        'min_real_samples_per_epoch': 5000,
     }
 }
