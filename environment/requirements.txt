@@ -130,7 +130,7 @@ redis==3.0.1
 requests==2.20.1
 requests-oauthlib==1.3.0
 retrying==1.3.3
-rsa==3.4.2
+rsa==4.1
 ruamel-yaml==0.15.87
 s3transfer==0.1.13
 -e git+https://github.com/openai/safety-gym.git@f31042f2f9ee61b9034dd6a416955972911544f5#egg=safety_gym
