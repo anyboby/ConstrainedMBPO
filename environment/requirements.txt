@@ -91,7 +91,7 @@ nbformat==4.4.0
 networkx==2.2
 numpy==1.17.5
 oauthlib==3.1.0
-opencv-python==4.1.2.30
+opencv-python==4.2.0.32
 opencv-python-headless==4.1.2.30
 opt-einsum==3.3.0
 pandas==0.23.4
